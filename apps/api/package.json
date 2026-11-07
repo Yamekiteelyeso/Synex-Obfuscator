@@ -1,0 +1,3 @@
+{ "name": "@synex/api", "version": "0.1.0", "type": "module", "main": "dist/server.js",
+  "files": ["dist"], "dependencies": { "@synex/engine": "0.1.0", "@synex/shared": "0.1.0" },
+  "scripts": { "start": "node dist/server.js" } }

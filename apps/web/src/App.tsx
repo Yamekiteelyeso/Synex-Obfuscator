@@ -1,0 +1,123 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { api, ApiError, TOKEN_KEY } from './api';
+import { AuthView, SessionUser } from './views/Auth';
+import { Dashboard, Stats } from './views/Dashboard';
+import { Editor, ProfileInfo, TechniqueInfo } from './views/Editor';
+import { History, HistoryEntry } from './views/History';
+import { Admin, AdminData } from './views/Admin';
+
+type View = 'dashboard' | 'editor' | 'history' | 'admin';
+const NAV: { id: View; label: string; adminOnly?: boolean }[] = [
+  { id: 'dashboard', label: 'Panel' },
+  { id: 'editor', label: 'Editor' },
+  { id: 'history', label: 'Historial' },
+  { id: 'admin', label: 'Administración', adminOnly: true },
+];
+
+function readToken(): string | null {
+  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+}
+
+export function App() {
+  const [token, setToken] = useState<string | null>(readToken);
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [view, setView] = useState<View>('dashboard');
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [health, setHealth] = useState<any>(null);
+  const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
+  const [techniques, setTechniques] = useState<TechniqueInfo[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[] | null>(null);
+  const [admin, setAdmin] = useState<AdminData | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const logout = useCallback(() => {
+    if (token) api('POST', '/api/auth/logout', undefined, token).catch(() => undefined);
+    try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignorar */ }
+    setToken(null);
+    setUser(null);
+  }, [token]);
+
+  const refresh = useCallback(async () => {
+    if (!token) return;
+    try {
+      const [me, st, hist] = await Promise.all([
+        api<{ user: SessionUser }>('GET', '/api/me', undefined, token),
+        api<Stats>('GET', '/api/stats', undefined, token),
+        api<{ jobs: HistoryEntry[] }>('GET', '/api/jobs', undefined, token),
+      ]);
+      setUser(me.user);
+      setStats(st);
+      setHistory(hist.jobs.slice().sort((a, b) => b.createdAt - a.createdAt));
+      if (me.user.role === 'admin') {
+        const [u, j, e, s] = await Promise.all([
+          api<any>('GET', '/api/admin/users', undefined, token),
+          api<any>('GET', '/api/admin/jobs', undefined, token),
+          api<any>('GET', '/api/admin/errors', undefined, token),
+          api<any>('GET', '/api/admin/settings', undefined, token),
+        ]);
+        setAdmin({ users: u.users, jobs: j.jobs, errors: e.errors, settings: s.settings });
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) logout();
+    }
+  }, [token, logout]);
+
+  useEffect(() => {
+    api('GET', '/api/profiles').then((r: any) => {
+      setProfiles(r.profiles);
+      setTechniques(r.techniques);
+    }).catch(() => undefined);
+    const poll = () => api('GET', '/api/health').then(setHealth).catch(() => setHealth(null));
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  if (!token) {
+    return <AuthView onAuth={(t, u) => { setToken(t); setUser(u); }} />;
+  }
+
+  const visible = NAV.filter((n) => !n.adminOnly || user?.role === 'admin');
+
+  async function toggleProfile(p: string, on: boolean) {
+    if (!token || !admin) return;
+    const enabled = on
+      ? [...admin.settings.enabledProfiles, p]
+      : admin.settings.enabledProfiles.filter((x) => x !== p);
+    const r = await api<any>('PUT', '/api/admin/settings', { enabledProfiles: enabled }, token);
+    setAdmin({ ...admin, settings: r.settings });
+  }
+
+  return (
+    <div className="app">
+      <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
+        <div className="brand">SYNEX<span>Obfuscator</span></div>
+        <nav>
+          {visible.map((n) => (
+            <button key={n.id} className={view === n.id ? 'active' : ''} onClick={() => { setView(n.id); setMenuOpen(false); }}>
+              {n.label}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-foot">
+          <small>{user?.email}</small>
+          <button className="btn ghost" onClick={logout}>Cerrar sesión</button>
+        </div>
+      </aside>
+      <main className="main">
+        <header className="topbar">
+          <button className="btn ghost menu-btn" aria-label="Menú" onClick={() => setMenuOpen(!menuOpen)}>☰</button>
+          <span className="muted">{health ? 'Motor en línea' : 'Motor sin conexión'}</span>
+        </header>
+        {view === 'dashboard' && <Dashboard stats={stats} health={health} email={user?.email ?? ''} />}
+        {view === 'editor' && (
+          <Editor token={token} profiles={profiles} techniques={techniques} maxBytes={health?.maxInputBytes} onDone={refresh} />
+        )}
+        {view === 'history' && <History jobs={history} />}
+        {view === 'admin' && user?.role === 'admin' && <Admin data={admin} onToggleProfile={toggleProfile} />}
+      </main>
+    </div>
+  );
+}
