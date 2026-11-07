@@ -12,7 +12,7 @@ const TECHNIQUE_TABLE = {
   deadcode: { status: 'implemented', label: 'Código muerto' },
   integrity: { status: 'implemented', label: 'Comprobación de integridad (en tiempo de ejecución)' },
   controlflow: { status: 'implemented', label: 'Aplanado del flujo de control' },
-  vm: { status: 'implemented', label: 'Transformación mediante VM (solo perfil personalizado)' },
+  vm: { status: 'implemented', label: 'Virtualización del código (VM Luau)' },
 } as const;
 
 export const TECHNIQUES: Record<keyof typeof TECHNIQUE_TABLE, { status: TechStatus; label: string }> = TECHNIQUE_TABLE;
@@ -65,10 +65,10 @@ const MEDIUM: TechniqueSettings = {
 };
 
 const ROBLOX: TechniqueSettings = {
-  // Perfil conservador para Roblox Studio y entornos Luau: no emite una VM
-  // propia ni depende de globals de ejecutores; conserva las APIs Roblox.
-  techniques: ['identifiers', 'strings', 'numbers', 'expressions'],
-  expressionProbability: 0.25,
+  // VM habilitada por defecto: resuelve globals del entorno Luau y soporta
+  // indexación/callables nativos (Instances, userdata y __call).
+  techniques: ['identifiers', 'strings', 'numbers', 'expressions', 'vm'],
+  expressionProbability: 0.35,
   deadCodeDensity: 0,
   controlFlowProbability: 0,
 };
