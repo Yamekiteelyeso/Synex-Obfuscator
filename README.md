@@ -82,7 +82,7 @@ La VM se activa en MAX y ROBLOX, y puede seleccionarse en Custom. El perfil ROBL
 - El aplanado del flujo de control no se aplica a bloques con `type` ni a bloques que leen una variable antes de declararla (una función que la usa también cuenta). Las funciones locales se hoistean con su nombre, así que la recursión se conserva. Los `break`/`continue` del bucle exterior se reescriben con estados reservados.
 - La VM generada tiene límite de pasos (5 000 000 por defecto) y conserva la línea fuente en mensajes de error.
 - Los códigos de operación y las claves de cadenas varían por build; las constantes de texto se codifican en el pool. Es ofuscación, no cifrado.
-- La VM generada usa `getfenv(0)` cuando está disponible, indexación nativa para Instances/userdata y llamadas `__call`; aun así, debe validarse en Roblox Luau y cada executor objetivo.
+- La VM generada prefiere `getgenv()` en executors y usa `getfenv(0)`/`_G` como fallback, indexación nativa para Instances/userdata y llamadas `__call`; aun así, debe validarse en Roblox Luau y cada executor objetivo.
 
 ## Limitaciones de la ofuscación actual
 
@@ -125,4 +125,4 @@ Configura `SYNEX_ADMIN_EMAIL` y `SYNEX_ADMIN_PASSWORD` como variables de entorno
 
 El perfil `roblox` está pensado para scripts Luau de Roblox Studio y entornos Luau compatibles. Activa la VM, renombrado de locales, protección de cadenas, constantes y expresiones. Mantiene desactivados el aplanado de control y el código muerto para reducir incompatibilidades con APIs dinámicas. No inyecta funciones de executor ni añade `getgenv`, `getrawmetatable`, `hookfunction`, `firetouchinterest` u otras APIs específicas/no estándar. Las APIs estándar del juego (`game`, `workspace`, `script`, `task`, `Instance`, `Enum`, `Vector3`, `CFrame`, servicios Roblox) se dejan como globals del código fuente.
 
-El perfil no promete compatibilidad con todas las extensiones de sintaxis/tipado Luau ni con todos los executors. Prueba cada salida en un entorno de prueba de Roblox. La VM resuelve globals mediante `getfenv(0)` cuando está disponible y conserva indexación de Instances/userdata y llamadas `__call`, pero no garantiza compatibilidad universal con todos los executors.
+El perfil no promete compatibilidad con todas las extensiones de sintaxis/tipado Luau ni con todos los executors. Prueba cada salida en un entorno de prueba de Roblox. La VM resuelve globals mediante `getgenv()` en executors y `getfenv(0)`/`_G` como fallback y conserva indexación de Instances/userdata y llamadas `__call`, pero no garantiza compatibilidad universal con todos los executors.
