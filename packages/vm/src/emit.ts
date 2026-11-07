@@ -11,8 +11,8 @@ import { validateProto } from './validate.js';
  * códigos de operación aleatorios, así que el bytecode de una salida no sirve
  * para otra.
  *
- * Limitaciones: sin límite de pasos en la VM generada, y los mensajes de error
- * en tiempo de ejecución no reproducen la posición de línea del original.
+ * La VM usa un límite global de instrucciones y resuelve los globals desde el
+ * entorno de ejecución Luau (getfenv), además de permitir indexar userdata/Instances.
  */
 
 /** Todas las operaciones del IR. El tipo obliga a listarlas todas. */
@@ -102,6 +102,8 @@ function serializeProto(p: Proto, ops: Record<Op, number>): string {
 const TEMPLATE = String.raw`
 local strlib, tbl, floor = string, table, math.floor
 local typefn, select, setmt, getmt, errorfn = type, select, setmetatable, getmetatable, error
+local getenv = getfenv
+local ENV = (getenv and getenv(0)) or _G
 local STEP_LIMIT = __LIMIT__
 local steps, curLine = 0, 0
 local function fail(msg) errorfn("línea " .. curLine .. ": " .. msg, 0) end
@@ -113,11 +115,12 @@ local function index(o, k)
   local t = typefn(o)
   if t == "table" then return o[k] end
   if t == "string" then return strlib[k] end
-  fail("attempt to index " .. t .. " value")
+  -- Roblox Instances, userdata y objetos con __index deben usar el acceso nativo.
+  return o[k]
 end
 local run
 local function callv(f, args)
-  if typefn(f) ~= "function" then fail("attempt to call " .. typefn(f) .. " value") end
+  -- La llamada directa conserva __call para tablas/objetos invocables de Luau.
   return pack(f(tbl.unpack(args, 1, args.n)))
 end
 local function makeClosure(child, cells)
@@ -181,8 +184,8 @@ run = function(P, U, args)
     elseif op == OP_SETBOX then slots[a + 1].v = pop()
     elseif op == OP_GETUP then push(U[a + 1].v)
     elseif op == OP_SETUP then U[a + 1].v = pop()
-    elseif op == OP_GETG then push(_G[P.k[a + 1]])
-    elseif op == OP_SETG then _G[P.k[a + 1]] = pop()
+    elseif op == OP_GETG then push(ENV[P.k[a + 1]])
+    elseif op == OP_SETG then ENV[P.k[a + 1]] = pop()
     elseif op == OP_GETI then
       local k = pop()
       local o = pop()
@@ -191,7 +194,7 @@ run = function(P, U, args)
       local v = pop()
       local k = pop()
       local o = pop()
-      if typefn(o) ~= "table" then fail("attempt to index " .. typefn(o) .. " value") end
+      -- Permite propiedades de Instance y asignaciones vía __newindex.
       o[k] = v
     elseif op == OP_SELF then
       local o = pop()
