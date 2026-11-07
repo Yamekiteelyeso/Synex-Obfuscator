@@ -59,16 +59,6 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
-function luaString(s: string): string {
-  const bytes = /^[\x00-\xff]*$/.test(s) ? Buffer.from(s, 'latin1') : Buffer.from(s, 'utf8');
-  let out = '"';
-  for (const b of bytes) {
-    const plain = b >= 32 && b < 127 && b !== 34 && b !== 92;
-    out += plain ? String.fromCharCode(b) : '\\' + String(b).padStart(3, '0');
-  }
-  return out + '"';
-}
-
 function luaNumber(n: number): string {
   if (Number.isNaN(n)) return '(0/0)';
   if (n === Infinity) return '(1/0)';
