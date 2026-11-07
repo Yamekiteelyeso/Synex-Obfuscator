@@ -81,7 +81,7 @@ interface Ctx {
 type Handler = (ctx: Ctx) => Promise<void> | void;
 interface Route { method: string; pattern: RegExp; keys: string[]; auth: 'none' | 'user' | 'admin'; handler: Handler }
 
-const VALID_PROFILES = ['normal', 'medium', 'max', 'basic', 'advanced', 'professional', 'custom'] as const;
+const VALID_PROFILES = ['normal', 'medium', 'max', 'basic', 'advanced', 'professional', 'roblox', 'custom'] as const;
 
 export function createApp(opts: AppOptions): App {
   const store = new Store(opts.dataFile ?? null);
