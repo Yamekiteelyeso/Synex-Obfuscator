@@ -294,7 +294,7 @@ export function createApp(opts: AppOptions): App {
     const h = ownedJob(params.id, user!);
     const code = codes.get(h.id);
     if (code === undefined) throw new HttpError(409, 'el trabajo no tiene resultado disponible', 'E_NO_RESULT');
-    const name = h.fileName.replace(/\.lua$/i, '') + '.obf.lua';
+    const name = h.fileName.replace(/\.luau?$/i, '') + '.obf.luau';
     res.writeHead(200, {
       'Content-Type': 'text/plain; charset=utf-8',
       'Content-Disposition': `attachment; filename="${name.replace(/[^\w.-]/g, '_')}"`,
