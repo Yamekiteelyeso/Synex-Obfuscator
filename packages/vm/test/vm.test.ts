@@ -167,10 +167,12 @@ for (const [name, src] of Object.entries(PROGRAMS)) {
 
 
 test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
-  const code = compileToLuauVm('local x = game:GetService("Workspace")\\nreturn x');
+  const code = compileToLuauVm('local x = game:GetService("Workspace")\nreturn x');
   assert.match(code, /getfenv/);
+  assert.match(code, /unstr\(/);
+  assert.doesNotMatch(code, /Workspace/);
   assert.match(code, /local ENV/);
-  assert.match(code, /return o\\[k\\]/);
-  assert.match(code, /f\\(tbl\\.unpack/);
-  assert.doesNotMatch(code, /typefn\\(o\\) ~= "table"/);
+  assert.match(code, /return o\[k\]/);
+  assert.match(code, /f\(tbl\.unpack/);
+  assert.doesNotMatch(code, /typefn\(o\) ~= "table"/);
 });
