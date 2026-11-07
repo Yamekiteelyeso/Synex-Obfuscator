@@ -18,7 +18,7 @@ const TECHNIQUE_TABLE = {
 export const TECHNIQUES: Record<keyof typeof TECHNIQUE_TABLE, { status: TechStatus; label: string }> = TECHNIQUE_TABLE;
 
 export type Technique = keyof typeof TECHNIQUES;
-export type ProfileName = 'normal' | 'medium' | 'max' | 'basic' | 'advanced' | 'professional' | 'custom';
+export type ProfileName = 'normal' | 'medium' | 'max' | 'basic' | 'advanced' | 'professional' | 'roblox' | 'custom';
 
 export interface TechniqueSettings {
   techniques: Technique[];
@@ -64,6 +64,15 @@ const MEDIUM: TechniqueSettings = {
   techniques: [...ADVANCED.techniques, 'controlflow'],
 };
 
+const ROBLOX: TechniqueSettings = {
+  // Perfil conservador para Roblox Studio y entornos Luau: no emite una VM
+  // propia ni depende de globals de ejecutores; conserva las APIs Roblox.
+  techniques: ['identifiers', 'strings', 'numbers', 'expressions'],
+  expressionProbability: 0.25,
+  deadCodeDensity: 0,
+  controlFlowProbability: 0,
+};
+
 const MAX: TechniqueSettings = {
   ...PROFESSIONAL,
   techniques: [...PROFESSIONAL.techniques, 'vm'],
@@ -76,6 +85,7 @@ export const PROFILES: Record<Exclude<ProfileName, 'custom'>, TechniqueSettings>
   basic: BASIC,
   advanced: ADVANCED,
   professional: PROFESSIONAL,
+  roblox: ROBLOX,
 };
 
 /** Resuelve la configuración de un perfil; "custom" usa la selección del usuario. */
