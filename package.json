@@ -1,0 +1,24 @@
+{
+  "name": "synex-obfuscator",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Synex Obfuscator: obfuscador profesional de scripts Luau",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "tsc -b packages/shared packages/parser",
+    "test": "vitest run",
+    "typecheck": "tsc -b packages/shared packages/parser"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "tsx": "^4.19.0"
+  }
+}

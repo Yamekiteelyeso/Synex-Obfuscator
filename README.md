@@ -1,0 +1,114 @@
+# Synex Obfuscator
+
+Ofuscador profesional de scripts Luau. Monorepo TypeScript.
+
+## Estructura
+
+| Paquete | Estado |
+|---|---|
+| `packages/shared` | Implementado: errores con posición (`SynexError`) |
+| `packages/parser` | Lexer y parser de Luau con AST implementados (incluye tipos, `continue`, compuestos, `if`-expr, `::`). 49 pruebas |
+| `packages/semantic` | Análisis de ámbitos, referencias, globales y validación de break/continue/... (17 pruebas). Limitación: la posición de los parámetros es la del primer statement del cuerpo |
+| `packages/ir` | Bytecode de pila por función y compilador AST→IR: slots, celdas para locales capturados, upvalues, bucles, llamadas múltiples, tablas |
+| `packages/transformations` | Pipeline: renombrado de locales (determinista por semilla), protección de cadenas con cabecera de descifrado, aplanado del flujo de control (incluye funciones locales y break/continue), comprobación de integridad en tiempo de ejecución y verificación de salida (25 pruebas de aplanado e integridad, con ejecución real en Lua 5.4) |
+| `packages/vm` | VM de pila que ejecuta el IR (referencia en TypeScript) y emisor de la transformación mediante VM: compila el programa al IR y lo sustituye por un intérprete en Luau con códigos de operación aleatorios por build. Pruebas: 18 programas ejecutados en Lua 5.4 original y emitido, con salida idéntica (19 pruebas) |
+| `packages/runtime` | Intérprete de referencia de Luau sobre el AST, con biblioteca mínima (print, pairs, ipairs, table.concat/insert, string.char, bit32). Oráculo para pruebas de equivalencia (18 pruebas) |
+| `packages/engine` | Motor de orquestación: perfiles reales (Basic, Advanced, Professional, Custom), etapas con tiempos, digest SHA-256, comprobación de equivalencia, VM opcional y sistema de trabajos en worker_threads con límites de cola, tamaño y tiempo. Incluye pruebas del perfil completo en Lua 5.4 real (13 pruebas) |
+| `apps/api` | API HTTP sin dependencias: registro y login con scrypt y sesiones con caducidad, bloqueo tras 5 fallos, límite de peticiones por IP, endpoints de trabajos (enviar, consultar, descargar, historial), estadísticas de usuario y panel de administración (usuarios, trabajos, errores y configuración). Persistencia en JSON (11 pruebas de integración) |
+| `apps/web` | Implementado: acceso, panel, editor (resaltado, números de línea, importar/exportar, validación tamaño, técnicas personalizadas), progreso por etapa, historial, administración. 9 pruebas de lógica y render. Pendiente: pruebas end-to-end en navegador y verificación de tipos JSX con `@types/react` (ahora con declaraciones mínimas en `src/types/shims.d.ts`; no se pudo instalar sin acceso al registro npm). |
+
+## Estado del lexer
+
+Soportado: identificadores, palabras clave de Luau (`continue`, `type`, `export`, `typeof`),
+operadores compuestos (`+=`, `-=`, `*=`, `/=`, `//=`, `%=`, `^=`, `..=`), números
+(decimal, exponente, hex, binario, separador `_`), cadenas con escapes (`\n`, `\x`, `\u{}`,
+`\ddd`, `\z`), corchetes largos con nivel, comentarios de línea y de bloque.
+
+Limitaciones actuales: sin tokens de tipos de Luau completos (los tokens se reconocen,
+pero aún no hay parser de tipos); sin soporte de cadenas con `\` seguido de bytes
+UTF-8 fuera del rango ASCII tratados de forma especial.
+
+## API
+
+```
+SYNEX_ADMIN_EMAIL=admin@ejemplo.com SYNEX_ADMIN_PASSWORD=... PORT=8080 node apps/api/dist/server.js
+```
+
+| Método | Ruta | Acceso |
+|---|---|---|
+| POST | /api/auth/register | público |
+| POST | /api/auth/login | público (bloqueo tras 5 fallos) |
+| POST | /api/auth/logout | usuario |
+| GET | /api/me | usuario |
+| POST | /api/jobs | usuario (`source`, `profile`, `seed`, `custom`, `checkEquivalence`, `name`) |
+| GET | /api/jobs | usuario (historial propio) |
+| GET | /api/jobs/:id | dueño |
+| GET | /api/jobs/:id/code | dueño (descarga `.obf.lua`) |
+| GET | /api/stats | usuario |
+| GET | /api/profiles, /api/health | público |
+| GET | /api/admin/users, /jobs, /errors, /settings | admin |
+| PUT | /api/admin/settings | admin (tamaño máximo, perfiles habilitados) |
+
+Limitaciones: el código generado vive en memoria del proceso (se pierde al reiniciar); el historial sí persiste. Sin HTTPS, sin recuperación de contraseña y sin verificación de correo.
+
+## Perfiles
+
+Niveles de protección para código propio: **NORMAL** (renombrado, cadenas, constantes y expresiones), **MEDIUM** (añade aplanado del flujo de control y código muerto) y **MAX** (todo lo anterior más la transformación mediante VM). Los perfiles Basic, Advanced y Professional se conservan. Custom permite elegir técnicas.
+
+| Técnica | Basic | Advanced | Professional | Custom |
+|---|---|---|---|---|
+| Renombrado de identificadores | ✓ | ✓ | ✓ | opcional |
+| Protección de cadenas | ✓ | ✓ | ✓ | opcional |
+| Transformación de constantes | | ✓ | ✓ | opcional |
+| Transformación de expresiones (`==`) | | 50 % | 100 % | opcional |
+| Código muerto | | 15 % | 35 % | opcional |
+| Comprobación de integridad en tiempo de ejecución | | | ✓ | opcional |
+| Aplanado del flujo de control | no | no | sí (probabilidad 0.5) | sí (configurable) |
+| Transformación mediante VM | no | no | no | opcional |
+
+La comprobación de integridad verifica al cargar el script las tablas de datos incrustadas (bytes cifrados y claves) con una suma calculada al ofuscar; si se alteran, el script lanza el error `integridad comprometida`. Requiere la protección de cadenas, que el perfil Custom activa automáticamente. El digest SHA-256 del resultado sigue calculándose fuera del script.
+
+La VM sólo está disponible en el perfil Custom: el código resultante es considerablemente más lento que el original.
+
+## Limitaciones de la VM
+
+- El bytecode se valida antes de emitirse: operaciones conocidas, saltos, ranuras, constantes y upvalues dentro de rango (`validateProto`, error `E_BYTECODE`).
+- La VM generada aborta tras un número configurable de instrucciones (por defecto 5 000 000) y los errores de ejecución indican la línea del original.
+
+- La VM es de pila y no tiene optimizaciones; ejecuta cada instrucción con un contador de pasos.
+- Recursión limitada a 200 niveles de llamadas JS.
+- Sin metatablas, `goto` ni corrutinas.
+- El aplanado del flujo de control no se aplica a bloques con `type` ni a bloques que leen una variable antes de declararla (una función que la usa también cuenta). Las funciones locales se hoistean con su nombre, así que la recursión se conserva. Los `break`/`continue` del bucle exterior se reescriben con estados reservados.
+- En la VM generada no hay límite de pasos ni números de línea en los errores.
+- El bytecode de la VM no está cifrado: los códigos de operación son aleatorios por build, pero el prototipo se puede leer en el script. Es ofuscación, no cifrado.
+- La VM genera Luau que sólo usa construcciones comunes con Lua 5.4; no está probada con metatablas ni corrutinas.
+
+## Limitaciones de la ofuscación actual
+
+- La equivalencia se verifica con Lua 5.4 real, no con Luau: este entorno no tiene `luau`. Se compila el ejecutor con `tools/lua54/build.sh` (requiere `liblua5.4-0` y `gcc`). Las pruebas que dependen de él se omiten si falta. Luau y Lua 5.4 difieren en sintaxis (`continue`, `+=`) y en biblioteca, así que el aplanado con `continue` se verifica sólo con el intérprete de referencia.
+- Pendiente: ejecutar las pruebas en Luau real.
+- El cifrado de cadenas usa XOR de un byte: es ofuscación ligera, no seguridad.
+- Las posiciones de los parámetros en el análisis semántico son aproximadas.
+
+## Pruebas
+
+```
+npx tsc -b packages/shared packages/parser packages/semantic packages/runtime packages/transformations packages/ir packages/vm packages/engine
+tsx --test packages/parser/test/*.test.ts packages/semantic/test/*.test.ts packages/runtime/test/*.test.ts packages/transformations/test/*.test.ts packages/vm/test/*.test.ts packages/engine/test/*.test.ts
+```
+
+Ejecución en Lua 5.4 real (opcional, las pruebas se omiten si falta):
+
+```
+tools/lua54/build.sh
+```
+
+Requiere `tsx` (ejecutor TypeScript). `npm install` no se ha podido completar en este entorno
+(sin acceso al registro npm), por lo que los paquetes se enlazan manualmente en `node_modules/@synex`.
+
+## Aplicación web
+
+- Compilar: `node apps/web/scripts/build.mjs` (genera `apps/web/dist`, con esbuild).
+- La API sirve `apps/web/dist` en `/` si existe; las rutas `/api/*` no se ven afectadas.
+- Pruebas: `cd apps/web && tsx --test test/web.test.tsx`.
+- Dependencias: React 19 y esbuild se toman de `/opt/npm-tools` mediante enlaces en `node_modules` en este entorno sin acceso al registro.
