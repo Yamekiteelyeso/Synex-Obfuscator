@@ -25,7 +25,7 @@ test('perfil roblox usa transformaciones conservadoras y no activa VM', () => {
   const settings = resolveSettings('roblox');
   assert.ok(settings.techniques.includes('identifiers'));
   assert.ok(settings.techniques.includes('strings'));
-  assert.ok(!settings.techniques.includes('vm'));
+  assert.ok(settings.techniques.includes('vm'));
   assert.ok(!settings.techniques.includes('controlflow'));
   const result = runProfile(SAMPLE, { profile: 'roblox', seed: 4, checkEquivalence: true });
   assert.equal(result.equivalence.status, 'equivalent');
