@@ -1,0 +1,2 @@
+{ "extends": "../../tsconfig.base.json", "compilerOptions": { "rootDir": "src", "outDir": "dist" }, "include": ["src"],
+  "references": [{ "path": "../shared" }, { "path": "../parser" }, { "path": "../semantic" }, { "path": "../runtime" }, { "path": "../transformations" }, { "path": "../vm" }] }

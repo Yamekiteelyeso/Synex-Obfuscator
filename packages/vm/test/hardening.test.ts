@@ -1,0 +1,70 @@
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { parse } from '@synex/parser';
+import { analyze } from '@synex/semantic';
+import { compile, type Proto } from '@synex/ir';
+import { compileToLuauVm, validateProto } from '../src/index.js';
+import { lua54Available, runLua54 } from '../../../tools/lua54/lua54.js';
+
+function protoOf(src: string): Proto {
+  const chunk = parse(src);
+  return compile(chunk, analyze(chunk));
+}
+
+describe('validación del bytecode', () => {
+  test('un programa compilado es válido', () => {
+    assert.doesNotThrow(() => validateProto(protoOf('local a = 1 print(a + 2)')));
+  });
+
+  test('rechaza un salto fuera del código', () => {
+    const p = protoOf('local a = 1 if a then print(a) end');
+    const jump = p.code.find((i) => i.op === 'JF' || i.op === 'JMP');
+    assert.ok(jump, 'hay un salto');
+    jump!.t = p.code.length + 5;
+    assert.throws(() => validateProto(p), /salto fuera del código/);
+  });
+
+  test('rechaza una constante fuera de rango', () => {
+    const p = protoOf('print("hola")');
+    const c = p.code.find((i) => i.op === 'CONST')!;
+    c.a = 999;
+    assert.throws(() => validateProto(p), /constante fuera de rango/);
+  });
+
+  test('rechaza una operación desconocida', () => {
+    const p = protoOf('print(1)');
+    p.code[0].op = 'NOPE' as any;
+    assert.throws(() => validateProto(p), /operación desconocida/);
+  });
+
+});
+
+describe('VM emitida: límites y diagnóstico', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+  test('el límite de pasos aborta un bucle infinito con número de línea', () => {
+    const src = 'local x = 0\nwhile true do\n  x = x + 1\nend';
+    const out = compileToLuauVm(src, 3, { stepLimit: 5000 });
+    const r = runLua54(out);
+    assert.equal(r.ok, false);
+    assert.match(r.error, /límite de ejecución superado/);
+    assert.match(r.error, /línea \d+/);
+  });
+
+  test('un error de ejecución lleva la línea donde ocurre', () => {
+    const src = 'local a = 1\nlocal b = nil\nprint(b())';
+    const r = runLua54(compileToLuauVm(src, 3));
+    assert.equal(r.ok, false);
+    assert.match(r.error, /línea 3/);
+  });
+
+  test('un programa dentro del límite se ejecuta igual que el original', () => {
+    const src = 'local s = 0\nfor i = 1, 100 do s = s + i end\nprint(s)';
+    const orig = runLua54(src);
+    const got = runLua54(compileToLuauVm(src, 3, { stepLimit: 100_000 }));
+    assert.ok(got.ok, got.error);
+    assert.equal(got.stdout, orig.stdout);
+  });
+
+  test('un límite de pasos no válido se rechaza', () => {
+    assert.throws(() => compileToLuauVm('print(1)', 1, { stepLimit: 0 }), /límite de pasos inválido/);
+  });
+});

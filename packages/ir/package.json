@@ -1,0 +1,2 @@
+{ "name": "@synex/ir", "version": "0.1.0", "type": "module", "main": "dist/index.js", "types": "dist/index.d.ts",
+  "files": ["dist"], "dependencies": { "@synex/shared": "0.1.0", "@synex/parser": "0.1.0", "@synex/semantic": "0.1.0", "@synex/runtime": "0.1.0" } }
