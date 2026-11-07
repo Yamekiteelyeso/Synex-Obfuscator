@@ -43,7 +43,7 @@ SYNEX_ADMIN_EMAIL=admin@ejemplo.com SYNEX_ADMIN_PASSWORD=... PORT=8080 node apps
 | POST | /api/jobs | usuario (`source`, `profile`, `seed`, `custom`, `checkEquivalence`, `name`) |
 | GET | /api/jobs | usuario (historial propio) |
 | GET | /api/jobs/:id | dueño |
-| GET | /api/jobs/:id/code | dueño (descarga `.obf.lua`) |
+| GET | /api/jobs/:id/code | dueño (descarga `.obf.luau`) |
 | GET | /api/stats | usuario |
 | GET | /api/profiles, /api/health | público |
 | GET | /api/admin/users, /jobs, /errors, /settings | admin |
