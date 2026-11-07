@@ -99,6 +99,13 @@ function serializeProto(p: Proto, ops: Record<Op, number>, seed: number, stringI
  */
 const TEMPLATE = String.raw`
 local strlib, tbl, floor = string, table, math.floor
+local function unstr(bytes, key)
+  local out = {}
+  for i = 1, #bytes do
+    out[i] = strlib.char((bytes[i] - key - i * 17) % 256)
+  end
+  return tbl.concat(out)
+end
 local typefn, select, setmt, getmt, errorfn = type, select, setmetatable, getmetatable, error
 local getenv = getfenv
 local ENV = (getenv and getenv(0)) or _G
