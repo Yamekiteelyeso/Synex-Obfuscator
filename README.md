@@ -13,7 +13,7 @@ Ofuscador profesional de scripts Luau. Monorepo TypeScript.
 | `packages/transformations` | Pipeline: renombrado de locales (determinista por semilla), protección de cadenas con cabecera de descifrado, aplanado del flujo de control (incluye funciones locales y break/continue), comprobación de integridad en tiempo de ejecución y verificación de salida (25 pruebas de aplanado e integridad, con ejecución real en Lua 5.4) |
 | `packages/vm` | VM de pila que ejecuta el IR (referencia en TypeScript) y emisor de la transformación mediante VM: compila el programa al IR y lo sustituye por un intérprete en Luau con códigos de operación aleatorios por build. Pruebas: 18 programas ejecutados en Lua 5.4 original y emitido, con salida idéntica (19 pruebas) |
 | `packages/runtime` | Intérprete de referencia de Luau sobre el AST, con biblioteca mínima (print, pairs, ipairs, table.concat/insert, string.char, bit32). Oráculo para pruebas de equivalencia (18 pruebas) |
-| `packages/engine` | Motor de orquestación: perfiles reales (Basic, Advanced, Professional, Custom), etapas con tiempos, digest SHA-256, comprobación de equivalencia, VM opcional y sistema de trabajos en worker_threads con límites de cola, tamaño y tiempo. Incluye pruebas del perfil completo en Lua 5.4 real (13 pruebas) |
+| `packages/engine` | Motor de orquestación: perfiles reales (Basic, Advanced, Professional, Custom), etapas con tiempos, digest SHA-256, comprobación de equivalencia, VM configurable y sistema de trabajos en worker_threads con límites de cola, tamaño y tiempo. Incluye pruebas del perfil completo en Lua 5.4 real (13 pruebas) |
 | `apps/api` | API HTTP sin dependencias: registro y login con scrypt y sesiones con caducidad, bloqueo tras 5 fallos, límite de peticiones por IP, endpoints de trabajos (enviar, consultar, descargar, historial), estadísticas de usuario y panel de administración (usuarios, trabajos, errores y configuración). Persistencia en JSON (11 pruebas de integración) |
 | `apps/web` | Implementado: acceso, panel, editor (resaltado, números de línea, importar/exportar, validación tamaño, técnicas personalizadas), progreso por etapa, historial, administración. 9 pruebas de lógica y render. Pendiente: pruebas end-to-end en navegador y verificación de tipos JSX con `@types/react` (ahora con declaraciones mínimas en `src/types/shims.d.ts`; no se pudo instalar sin acceso al registro npm). |
 
@@ -65,10 +65,11 @@ Niveles de protección para código propio: **NORMAL** (renombrado, cadenas, con
 | Comprobación de integridad en tiempo de ejecución | | | ✓ | opcional |
 | Aplanado del flujo de control | no | no | sí (probabilidad 0.5) | sí (configurable) |
 | Transformación mediante VM | no | no | no | opcional |
+| Perfil Roblox (VM + transformaciones conservadoras) | — | — | — | perfil dedicado |
 
 La comprobación de integridad verifica al cargar el script las tablas de datos incrustadas (bytes cifrados y claves) con una suma calculada al ofuscar; si se alteran, el script lanza el error `integridad comprometida`. Requiere la protección de cadenas, que el perfil Custom activa automáticamente. El digest SHA-256 del resultado sigue calculándose fuera del script.
 
-La VM sólo está disponible en el perfil Custom: el código resultante es considerablemente más lento que el original.
+La VM se activa en MAX y ROBLOX, y puede seleccionarse en Custom. El perfil ROBLOX mantiene desactivado el aplanado de control y el código muerto por compatibilidad con APIs dinámicas; la VM resuelve globals desde el entorno Luau.
 
 ## Limitaciones de la VM
 
@@ -79,9 +80,9 @@ La VM sólo está disponible en el perfil Custom: el código resultante es consi
 - Recursión limitada a 200 niveles de llamadas JS.
 - Sin metatablas, `goto` ni corrutinas.
 - El aplanado del flujo de control no se aplica a bloques con `type` ni a bloques que leen una variable antes de declararla (una función que la usa también cuenta). Las funciones locales se hoistean con su nombre, así que la recursión se conserva. Los `break`/`continue` del bucle exterior se reescriben con estados reservados.
-- En la VM generada no hay límite de pasos ni números de línea en los errores.
-- El bytecode de la VM no está cifrado: los códigos de operación son aleatorios por build, pero el prototipo se puede leer en el script. Es ofuscación, no cifrado.
-- La VM genera Luau que sólo usa construcciones comunes con Lua 5.4; no está probada con metatablas ni corrutinas.
+- La VM generada tiene límite de pasos (5 000 000 por defecto) y conserva la línea fuente en mensajes de error.
+- Los códigos de operación y las claves de cadenas varían por build; las constantes de texto se codifican en el pool. Es ofuscación, no cifrado.
+- La VM generada usa `getfenv(0)` cuando está disponible, indexación nativa para Instances/userdata y llamadas `__call`; aun así, debe validarse en Roblox Luau y cada executor objetivo.
 
 ## Limitaciones de la ofuscación actual
 
