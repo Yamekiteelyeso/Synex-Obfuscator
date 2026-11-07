@@ -21,6 +21,16 @@ test('los perfiles tienen configuraciones distintas y reales', () => {
   assert.ok(PROFILES.professional.deadCodeDensity > PROFILES.advanced.deadCodeDensity);
 });
 
+test('perfil roblox usa transformaciones conservadoras y no activa VM', () => {
+  const settings = resolveSettings('roblox');
+  assert.ok(settings.techniques.includes('identifiers'));
+  assert.ok(settings.techniques.includes('strings'));
+  assert.ok(!settings.techniques.includes('vm'));
+  assert.ok(!settings.techniques.includes('controlflow'));
+  const result = runProfile(SAMPLE, { profile: 'roblox', seed: 4, checkEquivalence: true });
+  assert.equal(result.equivalence.status, 'equivalent');
+});
+
 test('basic, advanced y professional producen salidas distintas y todas equivalentes', () => {
   const outs = (['basic', 'advanced', 'professional'] as const).map((profile) =>
     runProfile(SAMPLE, { profile, seed: 4, checkEquivalence: true }));
