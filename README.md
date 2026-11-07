@@ -112,3 +112,16 @@ Requiere `tsx` (ejecutor TypeScript). `npm install` no se ha podido completar en
 - La API sirve `apps/web/dist` en `/` si existe; las rutas `/api/*` no se ven afectadas.
 - Pruebas: `cd apps/web && tsx --test test/web.test.tsx`.
 - Dependencias: React 19 y esbuild se toman de `/opt/npm-tools` mediante enlaces en `node_modules` en este entorno sin acceso al registro.
+
+
+## Despliegue en Railway
+
+El repositorio incluye `railway.json`. Railway debe usar Node.js 22 o superior, ejecutar `npm run build` como comando de compilación y `npm start` para iniciar la API. El build compila primero todos los paquetes transitivos del motor y la API, y después genera `apps/web/dist`; la API sirve la web y expone `GET /api/health` como healthcheck.
+
+Configura `SYNEX_ADMIN_EMAIL` y `SYNEX_ADMIN_PASSWORD` como variables de entorno. Para conservar usuarios e historial entre despliegues, monta un Volume en `/data` y define `SYNEX_DATA_FILE=/data/synex-data.json`. Sin un Volume, el almacenamiento JSON local puede perderse al reemplazar el contenedor.
+
+## Perfil Roblox / Luau
+
+El perfil `roblox` está pensado para scripts Luau de Roblox Studio y entornos Luau compatibles. Aplica renombrado de locales, protección de cadenas y transformaciones conservadoras; evita la VM propia y el aplanado de control que pueden interferir con APIs dinámicas del entorno Roblox. No inyecta funciones de executor ni añade `getgenv`, `getrawmetatable`, `hookfunction`, `firetouchinterest` u otras APIs específicas/no estándar. Las APIs estándar del juego (`game`, `workspace`, `script`, `task`, `Instance`, `Enum`, `Vector3`, `CFrame`, servicios Roblox) se dejan como globals del código fuente.
+
+El perfil no promete compatibilidad con todas las extensiones de sintaxis/tipado Luau ni con todos los executors. Prueba cada salida en un entorno de prueba de Roblox; evita el perfil `max`/VM para scripts que dependan de globals Roblox o metatables.
