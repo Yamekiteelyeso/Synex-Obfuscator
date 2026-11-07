@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { JobManager, PROFILES, TECHNIQUES, type JobRecord, type ProfileName, type TechniqueSettings } from '@synex/engine';
 import { hashPassword, LoginLimiter, Sessions, validateCredentials, verifyPassword, type User } from './auth.js';
 import { Store, type HistoryEntry } from './store.js';
@@ -235,7 +235,9 @@ export function createApp(opts: AppOptions): App {
     const profile = String(body.profile ?? 'basic') as ProfileName;
     if (!VALID_PROFILES.includes(profile)) throw new HttpError(400, 'perfil no válido', 'E_VALIDATION');
     if (!settings.enabledProfiles.includes(profile)) throw new HttpError(403, 'perfil deshabilitado por el administrador', 'E_DISABLED');
-    const seed = Number.isInteger(body.seed) ? (body.seed as number) : 1;
+    // Semilla criptográficamente aleatoria si el cliente no fija una: cada build
+    // produce una permutación distinta de opcodes sin romper reproducibilidad opt-in.
+    const seed = Number.isInteger(body.seed) ? (body.seed as number) : randomInt(1, 0x7fffffff);
     const custom = body.custom && typeof body.custom === 'object' ? (body.custom as Partial<TechniqueSettings>) : undefined;
     const fileName = typeof body.name === 'string' && body.name.length <= 120 ? body.name : 'script.lua';
 
