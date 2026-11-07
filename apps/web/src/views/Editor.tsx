@@ -80,7 +80,7 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
     const url = URL.createObjectURL(new Blob([result], { type: 'text/plain' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = fileName.replace(/\.lua$/i, '') + '.obf.lua';
+    a.download = fileName.replace(/\.luau?$/i, '') + '.obf.luau';
     a.click();
     URL.revokeObjectURL(url);
   }
