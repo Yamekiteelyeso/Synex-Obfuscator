@@ -76,21 +76,29 @@ function luaNumber(n: number): string {
   return String(n);
 }
 
-function luaConst(v: unknown): string {
+function luaConst(v: unknown, seed: number, stringIndex: { value: number }): string {
   if (v === undefined || v === null) return 'nil';
-  if (typeof v === 'string') return luaString(v);
+  if (typeof v === 'string') {
+    // Cifrado polimórfico del pool de constantes: cada literal usa una clave
+    // distinta derivada de la semilla del build y se reconstruye en runtime.
+    const bytes = Buffer.from(v, 'utf8');
+    const index = ++stringIndex.value;
+    const key = ((seed >>> 0) + index * 73) % 251 + 1;
+    const encoded = Array.from(bytes, (b, i) => (b + key + (i + 1) * 17) % 256).join(',');
+    return `unstr({${encoded}},${key})`;
+  }
   if (typeof v === 'number') return luaNumber(v);
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   throw new SynexError('constante no serializable en la VM', 1, 1, 'E_INTERNAL');
 }
 
-function serializeProto(p: Proto, ops: Record<Op, number>): string {
+function serializeProto(p: Proto, ops: Record<Op, number>, seed: number, stringIndex: { value: number }): string {
   // Instrucciones: {op, a, b, t, c}. Los saltos usan índices 1-based en la VM.
   const code = p.code.map((ins: Instr) =>
     `{${ops[ins.op]},${ins.a ?? 0},${ins.b ?? 0},${ins.t !== undefined ? ins.t + 1 : 0},${ins.c ? 1 : 0},${ins.line ?? 0}}`).join(',');
-  const consts = p.consts.map(luaConst).join(',');
+  const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
-  const children = p.protos.map((c) => serializeProto(c, ops)).join(',');
+  const children = p.protos.map((c) => serializeProto(c, ops, seed, stringIndex)).join(',');
   return `{np=${p.nparams},va=${p.isVararg ? 'true' : 'false'},c={${code}},k={${consts}},q={${children}},u={${upvals}}}`;
 }
 
@@ -327,7 +335,7 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     return String(code);
   });
   body = body.replace('__LIMIT__', String(limit));
-  body = body.replace('__MAIN__', serializeProto(main, ops));
+  body = body.replace('__MAIN__', serializeProto(main, ops, seed, { value: 0 }));
   return body.trimStart();
 }
 
