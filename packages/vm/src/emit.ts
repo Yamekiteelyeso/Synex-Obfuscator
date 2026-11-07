@@ -107,8 +107,8 @@ local function unstr(bytes, key)
   return tbl.concat(out)
 end
 local typefn, select, setmt, getmt, errorfn = type, select, setmetatable, getmetatable, error
-local getenv = getfenv
-local ENV = (getenv and getenv(0)) or _G
+local getenv, getgenvfn = getfenv, getgenv
+local ENV = (getgenvfn and getgenvfn()) or (getenv and getenv(0)) or _G
 local STEP_LIMIT = __LIMIT__
 local steps, curLine = 0, 0
 local function fail(msg) errorfn("línea " .. curLine .. ": " .. msg, 0) end
