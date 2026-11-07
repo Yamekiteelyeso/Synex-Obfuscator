@@ -160,7 +160,7 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
         <div className="card">
           <div className="progress-head">
             <h3>Resultado</h3>
-            <button className="btn primary" onClick={exportResult}>Descargar .obf.lua</button>
+            <button className="btn primary" onClick={exportResult}>Descargar .obf.luau</button>
           </div>
           <p className="muted">{formatBytes(new TextEncoder().encode(result).length)} generados</p>
           <pre className="result">{result}</pre>
