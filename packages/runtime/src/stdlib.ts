@@ -665,7 +665,26 @@ export function installStdlib(interp: LuaEnvironment): void {
     if (minimum > maximum) throw new LuaError('bad argument to math.clamp (min must be <= max)');
     return [Math.min(Math.max(value, minimum), maximum)];
   }));
-  mathLib.set('sign', fn('sign', (args) => [Math.sign(toNumber(args[0], at))]));
+  mathLib.set('sign', fn('sign', (args) => {
+    const value = toNumber(args[0], at);
+    return [Number.isNaN(value) || value === 0 ? 0 : value > 0 ? 1 : -1];
+  }));
+  mathLib.set('pow', fn('pow', (args) => [Math.pow(toNumber(args[0], at), toNumber(args[1], at))]));
+  mathLib.set('isnan', fn('isnan', (args) => [Number.isNaN(toNumber(args[0], at))]));
+  mathLib.set('lerp', fn('lerp', (args) => {
+    const start = toNumber(args[0], at);
+    const finish = toNumber(args[1], at);
+    const alpha = toNumber(args[2], at);
+    return [alpha === 1 ? finish : start + (finish - start) * alpha];
+  }));
+  mathLib.set('map', fn('map', (args) => {
+    const value = toNumber(args[0], at);
+    const inputMin = toNumber(args[1], at);
+    const inputMax = toNumber(args[2], at);
+    const outputMin = toNumber(args[3], at);
+    const outputMax = toNumber(args[4], at);
+    return [outputMin + (value - inputMin) / (inputMax - inputMin) * (outputMax - outputMin)];
+  }));
   mathLib.set('round', fn('round', (args) => {
     const value = toNumber(args[0], at);
     return [value >= 0 ? Math.floor(value + 0.5) : Math.ceil(value - 0.5)];
@@ -674,6 +693,37 @@ export function installStdlib(interp: LuaEnvironment): void {
     const value = toNumber(args[0], at);
     const integer = value < 0 ? Math.ceil(value) : Math.floor(value);
     return [integer, value - integer];
+  }));
+  const frexp = (value: number): [number, number] => {
+    if (value === 0 || !Number.isFinite(value)) return [value, 0];
+    const view = new DataView(new ArrayBuffer(8));
+    view.setFloat64(0, value, false);
+    const high = view.getUint32(0, false);
+    const exponentBits = (high >>> 20) & 0x7ff;
+    if (exponentBits === 0) {
+      const [fraction, exponent] = frexp(value * 0x1p54);
+      return [fraction, exponent - 54];
+    }
+    view.setUint32(0, (high & 0x800fffff) | (1022 << 20), false);
+    return [view.getFloat64(0, false), exponentBits - 1022];
+  };
+  mathLib.set('frexp', fn('frexp', (args) => frexp(toNumber(args[0], at))));
+  mathLib.set('ldexp', fn('ldexp', (args) => {
+    let value = toNumber(args[0], at);
+    let exponent = toNumber(args[1], at);
+    if (!Number.isSafeInteger(exponent)) throw new LuaError('bad argument to math.ldexp (integer exponent expected)');
+    if (value === 0 || !Number.isFinite(value) || exponent === 0) return [value];
+    while (exponent > 1023) {
+      value *= 2 ** 1023;
+      exponent -= 1023;
+      if (!Number.isFinite(value)) return [value];
+    }
+    while (exponent < -1022) {
+      value *= 2 ** -1022;
+      exponent += 1022;
+      if (value === 0) return [value];
+    }
+    return [value * (2 ** exponent)];
   }));
   mathLib.set('tointeger', fn('tointeger', (args) => {
     const value = args[0];
@@ -693,9 +743,13 @@ export function installStdlib(interp: LuaEnvironment): void {
   }));
   mathLib.set('random', fn('random', (args) => {
     if (args.length === 0) return [randomUnit()];
-    const minimum = args.length > 1 ? toNumber(args[0], at) : 1;
-    const maximum = args.length > 1 ? toNumber(args[1], at) : toNumber(args[0], at);
-    if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum > maximum) {
+    if (args.length > 2) throw new LuaError('bad argument to math.random (too many arguments)');
+    const minimumRaw = args.length > 1 ? toNumber(args[0], at) : 1;
+    const maximumRaw = args.length > 1 ? toNumber(args[1], at) : toNumber(args[0], at);
+    const minimum = Math.trunc(minimumRaw);
+    const maximum = Math.trunc(maximumRaw);
+    if (!Number.isFinite(minimum) || !Number.isFinite(maximum)
+      || !Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum > maximum) {
       throw new LuaError('bad argument to math.random (interval is empty)');
     }
     const range = maximum - minimum + 1;
