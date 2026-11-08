@@ -88,7 +88,7 @@ La VM se activa en MAX y ROBLOX, y puede seleccionarse en Custom. El perfil ROBL
 
 - La equivalencia se verifica con Lua 5.4 real, no con Luau: este entorno no tiene `luau`. Se compila el ejecutor con `tools/lua54/build.sh` (requiere `liblua5.4-0` y `gcc`). Las pruebas que dependen de él se omiten si falta. Luau y Lua 5.4 difieren en sintaxis (`continue`, `+=`) y en biblioteca, así que el aplanado con `continue` se verifica sólo con el intérprete de referencia.
 - Pendiente: ejecutar las pruebas en Luau real.
-- El cifrado de cadenas usa XOR de un byte: es ofuscación ligera, no seguridad.
+- La protección de cadenas codifica bytes UTF-8 con una clave por literal y una máscara dependiente de posición; se descifra de forma perezosa y se cachea. Sigue siendo ofuscación reversible, no cifrado ni almacenamiento seguro de secretos.
 - Las posiciones de los parámetros en el análisis semántico son aproximadas.
 
 ## Pruebas
@@ -126,3 +126,8 @@ Configura `SYNEX_ADMIN_EMAIL` y `SYNEX_ADMIN_PASSWORD` como variables de entorno
 El perfil `roblox` está pensado para scripts Luau de Roblox Studio y entornos Luau compatibles. Activa la VM, renombrado de locales, protección de cadenas, constantes y expresiones. Mantiene desactivados el aplanado de control y el código muerto para reducir incompatibilidades con APIs dinámicas. No inyecta funciones de executor ni añade `getgenv`, `getrawmetatable`, `hookfunction`, `firetouchinterest` u otras APIs específicas/no estándar. Las APIs estándar del juego (`game`, `workspace`, `script`, `task`, `Instance`, `Enum`, `Vector3`, `CFrame`, servicios Roblox) se dejan como globals del código fuente.
 
 El perfil no promete compatibilidad con todas las extensiones de sintaxis/tipado Luau ni con todos los executors. Prueba cada salida en un entorno de prueba de Roblox. La VM resuelve globals mediante `getgenv()` en executors y `getfenv(0)`/`_G` como fallback y conserva indexación de Instances/userdata y llamadas `__call`, pero no garantiza compatibilidad universal con todos los executors.
+
+
+## Marca de salida
+
+Todas las salidas comienzan con un comentario Luau de identificación, por ejemplo `-- [Synex Obf] | profile: roblox | vm: on`. Se añade después de transformar el código para que permanezca como primera línea tanto en los perfiles normales como en las salidas virtualizadas.
