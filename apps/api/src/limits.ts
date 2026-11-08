@@ -20,8 +20,8 @@ export function pruneBoundedMap<K, V>(
 
   const targetSize = maxEntries - reserveSlots;
   while (map.size > targetSize) {
-    const oldest = map.keys().next().value;
-    if (oldest === undefined) break;
-    map.delete(oldest);
+    const oldest = map.keys().next();
+    if (oldest.done) break;
+    map.delete(oldest.value);
   }
 }
