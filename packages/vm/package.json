@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "luau"
   ],
   "dependencies": {
     "@synex/shared": "0.1.0",
