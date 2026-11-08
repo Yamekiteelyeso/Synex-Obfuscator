@@ -159,7 +159,7 @@ export class VM implements LuaEnvironment {
         case 'NOT': stack.push(!truthy(popValue())); break;
         case 'LEN': {
           const v = popValue();
-          if (typeof v === 'string') stack.push(v.length);
+          if (typeof v === 'string') stack.push(new TextEncoder().encode(v).length);
           else if (v instanceof LuaTable) stack.push(v.length());
           else throw new LuaError(`attempt to get length of ${typeName(v)} value`, line, 0);
           break;
