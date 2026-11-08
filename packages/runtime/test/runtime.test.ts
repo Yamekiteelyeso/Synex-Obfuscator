@@ -116,9 +116,20 @@ test('string.sub y string.byte soportan índices negativos y rangos', () => {
   assert.deepEqual(out('print(string.byte("abcd", 2, 3)); print(string.byte("abcd", -1)); print(string.byte("abcd", 2, 99)); print(string.byte("abcd", -99, 1))'), ['98\t99', '100', '98\t99\t100', '97']);
 });
 
+test('table.move maneja solapamiento y destino distinto', () => {
+  assert.deepEqual(out('local t = {1, 2, 3, 4}; table.move(t, 1, 3, 2); print(table.concat(t, ","))'), ['1,1,2,3']);
+  assert.deepEqual(out('local src = {"a", "b", "c"}; local dst = {}; local result = table.move(src, 1, 3, 2, dst); print(result == dst, table.concat(dst, ",", 2, 4))'), ['true\ta,b,c']);
+  assert.throws(() => out('table.move({}, 1.5, 2, 1)'), /integer index/);
+});
+
+test('table.clone copia superficialmente y table.clear vacía', () => {
+  assert.deepEqual(out('local t = {1, 2, x = 3}; local c = table.clone(t); c[1] = 9; print(t[1], c[1], c.x); table.clear(c); print(#c, c.x)'), ['1\t9\t3', '0\tnil']);
+});
+
 test('table.sort ordena números y acepta comparador Lua', () => {
   assert.deepEqual(out('local t = {4, 1, 3, 2}; table.sort(t); print(table.concat(t, ","))'), ['1,2,3,4']);
   assert.deepEqual(out('local t = {"a", "ccc", "bb"}; table.sort(t, function(a, b) return #a < #b end); print(table.concat(t, ","))'), ['a,bb,ccc']);
+  assert.deepEqual(out('local t = {3, 1, 2}; table.sort(t, function(a, b) return a > b end); print(table.concat(t, ","))'), ['3,2,1']);
   assert.throws(() => out('local t = {1, "a"}; table.sort(t)'), /attempt to compare/);
 });
 
