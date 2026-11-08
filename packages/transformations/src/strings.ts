@@ -57,8 +57,13 @@ export function createStringEncoder(
   const entries: Entry[] = [];
   const indexOf = new Map<string, number>();
 
-  const encodeBytes = (value: string, key: number): number[] =>
-    Array.from(textEncoder.encode(value), (byte, i) => (byte + key + (i + 1) * 31) % 256);
+  const encodeBytes = (value: string, key: number): number[] => {
+    let state = key;
+    return Array.from(textEncoder.encode(value), (byte, i) => {
+      state = (state * 73 + 41) % 256;
+      return (byte + state + (i + 1) * 31) % 256;
+    });
+  };
 
   return {
     get count() {
@@ -77,7 +82,11 @@ export function createStringEncoder(
     decodeReference(index: number): string {
       const e = entries[index - 1];
       if (!e) throw new RangeError('índice de cadena fuera de rango');
-      const decoded = e.bytes.map((byte, i) => ((byte - e.key - (i + 1) * 31) % 256 + 256) % 256);
+      let state = e.key;
+      const decoded = e.bytes.map((byte, i) => {
+        state = (state * 73 + 41) % 256;
+        return ((byte - state - (i + 1) * 31) % 256 + 256) % 256;
+      });
       return textDecoder.decode(Uint8Array.from(decoded));
     },
     checksum(): number {
@@ -106,7 +115,8 @@ export function createStringEncoder(
         `local e=${table}[i]`,
         `local k=${keys}[i]`,
         'local t={}',
-        'for j=1,#e do t[j]=string.char((e[j]-k-j*31)%256) end',
+        'local s=k',
+        'for j=1,#e do s=(s*73+41)%256; t[j]=string.char((e[j]-s-j*31)%256) end',
         'v=table.concat(t)',
         `${cache}[i]=v`,
         'end',
