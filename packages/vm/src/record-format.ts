@@ -2,8 +2,6 @@ import { createHmac } from 'node:crypto';
 import { sealXChaCha20Poly1305 } from './xchacha.js';
 
 const U32_MAX = 0xffff_ffff;
-const EMPTY = Buffer.alloc(0);
-
 export interface LuauInstructionV2 {
   opcode: number;
   a?: number;
@@ -60,7 +58,7 @@ function deriveKeys(
 ): { encryptionKey: Buffer; integrityKey: Buffer } {
   if (masterEncryptionKey.byteLength !== 32) throw new RangeError('master encryption key must be 32 bytes');
   if (masterIntegrityKey.byteLength < 16) throw new RangeError('master integrity key must be at least 16 bytes');
-  if (!Number.isSafeInteger(prototypeSalt) || prototypeSalt < 0) throw new RangeError('prototype salt must be a non-negative integer');
+  if (!Number.isSafeInteger(prototypeSalt) || prototypeSalt < 0 || prototypeSalt > U32_MAX) throw new RangeError('prototype salt must be an unsigned 32-bit integer');
   const context = Buffer.from(String(Math.floor(prototypeSalt)));
   return {
     encryptionKey: hmac(masterEncryptionKey, Buffer.concat([Buffer.from('Synex/prototype-encryption/v1:'), context])),
@@ -178,4 +176,3 @@ export function verifyLuauRecordsV2(artifact: ArtifactV2, options: Pick<
   return chain.equals(artifact.finalChain);
 }
 
-void EMPTY;
