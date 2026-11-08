@@ -163,6 +163,20 @@ test('string.char valida bytes y string.split conserva campos vacíos', () => {
   assert.throws(() => out('string.char(1.5)'), /out of range/);
 });
 
+test('string.find soporta búsqueda literal, índices negativos y modo plain explícito', () => {
+  assert.deepEqual(out('print(string.find("hello hello", "hello"), string.find("hello hello", "hello", 2, true), string.find("hello", "z"))'), ['1\t5\t7\t11\tnil']);
+  assert.deepEqual(out('print(string.find("abcdef", "cd", -4, true))'), ['3\t4']);
+  assert.throws(() => out('string.find("abc", "a.c")'), /pattern matching is not implemented/);
+});
+
+test('string.format admite conversiones comunes, ancho y precisión', () => {
+  assert.deepEqual(out('print(string.format("%04d %.2f %s %%", 7, 2.5, "ok"))'), ['0007 2.50 ok %']);
+  assert.deepEqual(out('print(string.format("%#x %+d %.3g", 255, 8, 12.345))'), ['0xff +8 12.3']);
+  assert.deepEqual(out('print(string.format("%q", "a\\nb"))'), ['"a\\\\nb"']);
+  assert.throws(() => out('string.format("%d", 1.5)'), /integer expected/);
+  assert.throws(() => out('string.format("%s", 1)'), /string expected/);
+});
+
 test('string.lower y upper conservan bytes no ASCII', () => {
   assert.deepEqual(out('print(string.lower("ABC-á"), string.upper("abc-á"))'), ['abc-Ã¡\tABC-Ã¡']);
 });
