@@ -15,6 +15,10 @@ expect(hex(Crypto.sha256("abc")),
 expect(hex(Crypto.hmacSha256("key", "The quick brown fox jumps over the lazy dog")),
 	"f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", "HMAC-SHA-256")
 
+local polyKey = unhex("85d6be7857556d337f4452fe42d506a80103808afb0db2fd4abff6af4149f51b")
+expect(hex(Crypto.poly1305("Cryptographic Forum Research Group", polyKey)),
+	"a8061dc1305136c6c22b8baf0c0127a9", "Poly1305 RFC vector")
+
 local key = unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
 local nonce16 = unhex("000000090000004a0000000031415927")
 expect(hex(Crypto.hchacha20(key, nonce16)),
@@ -37,6 +41,16 @@ local badCipher = string.sub(ciphertext, 1, #ciphertext - 1) ..
 assert(Crypto.open(key, nonce24, badCipher, tag, aad) == nil, "tampered ciphertext accepted")
 assert(Crypto.open(key, nonce24, ciphertext, tag, aad .. "!") == nil, "tampered AAD accepted")
 assert(Crypto.open(key, nonce24, ciphertext, string.rep("\0", 32), aad) == nil, "tampered tag accepted")
+
+local aeadCipher, aeadTag = Crypto.sealPoly1305(key, nonce24, message, aad)
+assert(#aeadTag == 16, "XChaCha20-Poly1305 tag must be 16 bytes")
+local aeadPlain, aeadErr = Crypto.openPoly1305(key, nonce24, aeadCipher, aeadTag, aad)
+assert(aeadPlain == message, "XChaCha20-Poly1305 round-trip failed: " .. tostring(aeadErr))
+assert(Crypto.openPoly1305(key, nonce24, aeadCipher, aeadTag, aad .. "!") == nil,
+	"XChaCha20-Poly1305 accepted modified AAD")
+local badAeadTag = string.sub(aeadTag, 1, 15) .. string.char((string.byte(aeadTag, 16) + 1) % 256)
+assert(Crypto.openPoly1305(key, nonce24, aeadCipher, badAeadTag, aad) == nil,
+	"XChaCha20-Poly1305 accepted modified tag")
 
 local chainKey = "0123456789abcdef0123456789abcdef"
 local previous = Integrity.start(chainKey, 5)
