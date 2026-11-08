@@ -977,7 +977,14 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
         if (source[i] === quote) { i++; break; }
         i++;
       }
-      output += source.slice(start, i);
+      const literal = source.slice(start, i);
+      const plain = literal.slice(1, -1);
+      if (!plain.includes('\\\\') && /integridad|compromet|corrupt|autentic|cifrad|prototipo|operación desconocida|salto fuera|índice de constante|bytecode/i.test(plain)) {
+        const encoded = Array.from(Buffer.from(plain, 'utf8'), (byte) => '\\\\' + String(byte).padStart(3, '0')).join('');
+        output += '"' + encoded + '"';
+      } else {
+        output += literal;
+      }
       previous = 'string';
       continue;
     }
