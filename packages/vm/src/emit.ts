@@ -114,8 +114,9 @@ function protoSeal(
   code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean,
   blockMap: number[], blockDescriptors: number[][], constantCount: number, childCount: number, upvalues: number[][],
 ): [number, number] {
-  let hashA = ((seed >>> 0) + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
-  let hashB = ((seed >>> 0) * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg ? 17 : 0)) % OPERAND_MODULUS;
+  const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
+  let hashA = (normalizedSeed + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
+  let hashB = (normalizedSeed * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg ? 17 : 0)) % OPERAND_MODULUS;
   const mix = (value: number) => {
     hashA = (hashA * 33 + value) % OPERAND_MODULUS;
     hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS;
@@ -189,7 +190,16 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
     const next = nextLogical ? physicalOf[nextLogical] : 0;
     const hiddenLine = encodeLineNumber(ins.line ?? 0, seed, protoSalt);
     const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, hiddenLine, next];
-    return fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
+    const encoded = fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
+    const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
+    let checkA = (normalizedSeed + protoSalt * 97 + pc * 31) % OPERAND_MODULUS;
+    let checkB = (normalizedSeed * 65599 + protoSalt * 131 + pc * 257) % OPERAND_MODULUS;
+    for (const value of encoded) {
+      checkA = (checkA * 33 + value) % OPERAND_MODULUS;
+      checkB = (checkB * 65599 + value * 17 + (checkA % 65521)) % OPERAND_MODULUS;
+    }
+    // Dos sellos por instrucción permiten comprobar cada despacho, no sólo al entrar al bloque.
+    return [...encoded, checkA, checkB];
   });
   // Bloques básicos: entrada, destinos de salto y sucesores de bifurcaciones.
   const leaders = new Set<number>([0]);
@@ -212,8 +222,9 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   });
   const blockMap = order.map((originalPc) => logicalBlock[originalPc - 1]);
   const blockDescriptorValues = [...blockMembers.entries()].sort((a, b) => a[0] - b[0]).map(([id, pcs]) => {
-    let hashA = ((seed >>> 0) + protoSalt * 97 + id * 31) % OPERAND_MODULUS;
-    let hashB = ((seed >>> 0) * 65599 + protoSalt * 131 + id * 257) % OPERAND_MODULUS;
+    const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
+    let hashA = (normalizedSeed + protoSalt * 97 + id * 31) % OPERAND_MODULUS;
+    let hashB = (normalizedSeed * 65599 + protoSalt * 131 + id * 257) % OPERAND_MODULUS;
     const mixBlock = (value: number) => {
       hashA = (hashA * 33 + value) % OPERAND_MODULUS;
       hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS;
@@ -302,8 +313,8 @@ local function protoIntact(P)
   if typefn(code) ~= "table" then return false end
   for i = 1, #code do
     local ins = code[i]
-    if typefn(ins) ~= "table" or #ins ~= 7 then return false end
-    for j = 1, 7 do
+    if typefn(ins) ~= "table" or #ins ~= 9 then return false end
+    for j = 1, 9 do
       local value = ins[j]
       if typefn(value) ~= "number" or value ~= floor(value) then return false end
       mix(value)
@@ -342,6 +353,20 @@ local function protoIntact(P)
   local seal = P.__KEY_SEAL__
   return typefn(seal) == "table" and #seal == 2 and hashA == seal[1] and hashB == seal[2]
 end
+local function instructionIntact(ins, pc, protoSalt)
+  if typefn(ins) ~= "table" or #ins ~= 9 then return false end
+  local hashA = (OPERAND_SEED + protoSalt * 97 + pc * 31) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + protoSalt * 131 + pc * 257) % OPERAND_MODULUS
+  for i = 1, 7 do
+    local value = ins[i]
+    if typefn(value) ~= "number" or value ~= floor(value) then return false end
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
+  end
+  return typefn(ins[8]) == "number" and typefn(ins[9]) == "number"
+    and ins[8] == floor(ins[8]) and ins[9] == floor(ins[9])
+    and hashA == ins[8] and hashB == ins[9]
+end
 local function blockIntact(P, blockId)
   local descriptor = P.__KEY_BLOCKS__[blockId]
   if typefn(descriptor) ~= "table" or #descriptor < 3 then return false end
@@ -355,9 +380,9 @@ local function blockIntact(P, blockId)
     local pc = descriptor[j]
     if typefn(pc) ~= "number" or pc < 1 or pc > #P.__KEY_CODE__ or P.__KEY_BLOCKMAP__[pc] ~= blockId then return false end
     local ins = P.__KEY_CODE__[pc]
-    if typefn(ins) ~= "table" or #ins ~= 7 then return false end
+    if typefn(ins) ~= "table" or #ins ~= 9 then return false end
     mixBlock(pc)
-    for k = 1, 7 do
+    for k = 1, 9 do
       local value = ins[k]
       if typefn(value) ~= "number" or value ~= floor(value) then return false end
       mixBlock(value)
@@ -463,8 +488,9 @@ run = function(P, U, args)
     if not ins then fail("bytecode truncado o alterado") end
     -- Comprueba la forma del registro antes de decodificarlo; evita que una
     -- salida truncada o manipulada termine en errores opacos de indexación.
-    if typefn(ins) ~= "table" or #ins ~= 7 then fail("instrucción corrupta") end
-    for field = 1, 7 do
+    if typefn(ins) ~= "table" or #ins ~= 9 then fail("instrucción corrupta") end
+    if not instructionIntact(ins, ip, protoSalt) then fail("integridad comprometida: instrucción alterada") end
+    for field = 1, 9 do
       local value = ins[field]
       if typefn(value) ~= "number" or value ~= floor(value) then fail("operando corrupto") end
     end
