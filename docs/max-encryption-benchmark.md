@@ -1,6 +1,6 @@
 # Max encrypted-record benchmark
 
-Run from the repository root after installing dependencies:
+Run from the repository root after installing dependencies and building the workspaces:
 
 ```sh
 npm run bench:max
