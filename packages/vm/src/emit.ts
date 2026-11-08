@@ -336,6 +336,7 @@ run = function(P, U, args)
     if pc < 0 or pc > #code then fail('sucesora fuera del prototipo') end
     if not VALID_OP[op] then fail("opcode inválido") end
     if (op == OP_GETL or op == OP_SETL or op == OP_NEWBOX or op == OP_GETBOX or op == OP_SETBOX or op == OP_BOXSLOT) and (a < 0 or a >= ns) then fail("slot fuera de rango") end
+    if op == OP_MOVE and (a < 0 or a >= ns or b < 0 or b >= ns) then fail("slot MOVE fuera de rango") end
     if (op == OP_FORTEST or op == OP_FORSTEP or op == OP_GENCALL) and (a < 0 or a + 2 >= ns) then fail("slot de iterador fuera de rango") end
     if (op == OP_CONST or op == OP_GETG or op == OP_SETG or op == OP_SELF) and (a < 0 or a >= #P.__KEY_CONST__) then fail("constante fuera de rango") end
     if (op == OP_GETUP or op == OP_SETUP) and (a < 0 or a >= #U) then fail("upvalue fuera de rango") end
