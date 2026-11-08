@@ -171,7 +171,7 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
   assert.match(code, /getfenv/);
   assert.match(code, /getgenv/);
   assert.match(code, /local function unstr/);
-  assert.match(code, /unstr\(/);
+  assert.ok(code.includes('unstr('));
   assert.equal(compileToLuauVm('local x = game:GetService("Workspace")\nreturn x'), code);
   assert.notEqual(compileToLuauVm('local x = game:GetService("Workspace")\nreturn x', 99), code);
   assert.doesNotMatch(code, /Workspace/);
@@ -195,5 +195,5 @@ test('emisor Luau: aleatoriza los nombres de campos del prototipo por semilla', 
 test('emisor Luau: las cadenas Unicode no aparecen en texto plano dentro de la VM', () => {
   const code = compileToLuauVm('print("こんにちは 🌎")', 321);
   assert.doesNotMatch(code, /こんにちは|🌎/);
-  assert.match(code, /unstr\\(/);
+  assert.ok(code.includes('unstr('));
 });
