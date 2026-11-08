@@ -124,6 +124,27 @@ Configura `SYNEX_ADMIN_DISCORD_IDS` con los IDs de Discord autorizados para admi
 
 El motor acepta scripts Luau y mantiene los globals y llamadas del entorno huésped. Los usuarios eligen Basic, Medium o Max; Max incorpora la VM. La compatibilidad concreta depende de las APIs dinámicas usadas por cada script y debe comprobarse en Roblox Studio y en cada executor objetivo. No se garantiza compatibilidad universal.
 
+## Uso de la VM desde TypeScript
+
+El paquete `@synex/vm` exporta `compileToLuauVm`, `emitLuauVm`, `runInVm` y `VM`.
+La emisión acepta una semilla uint32 para hacer reproducible un build y opciones opcionales:
+
+```ts
+import { compileToLuauVm } from '@synex/vm';
+
+const output = compileToLuauVm(source, 123456, {
+  stepLimit: 5_000_000,
+  watermark: 'synex.release:2026-11',
+});
+```
+
+- `seed`: entero entre `0` y `4294967295`; la misma fuente, semilla y opciones generan la misma salida.
+- `stepLimit`: entero seguro positivo; limita las instrucciones ejecutadas por la VM emitida.
+- `watermark`: identificador opcional de 1 a 64 caracteres ASCII (`A-Z a-z 0-9 . _ : -`). Se añade como comentario visible al principio de la salida y sirve como marca de procedencia, no como marca resistente a eliminación.
+- La instancia TypeScript `VM` reinicia el contador de pasos en cada llamada de nivel superior a `execute`; las llamadas anidadas comparten el presupuesto de esa ejecución.
+
+Los límites son defensas de robustez y consumo de recursos, no sustituyen límites externos de CPU/memoria ni hacen seguro ejecutar código no confiable dentro del proceso del servidor.
+
 ## Marca de salida
 
 Todas las salidas comienzan con un comentario Luau de identificación, por ejemplo `-- [Synex Obf] | profile: roblox | vm: on`. Se añade después de transformar el código para que permanezca como primera línea tanto en los perfiles normales como en las salidas virtualizadas.
