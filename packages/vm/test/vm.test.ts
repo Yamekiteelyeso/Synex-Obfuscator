@@ -424,3 +424,9 @@ test('VM e intérprete coinciden en string.find, match y gsub con patrones Lua',
   same(source);
   assert.deepEqual(runInVm(source).output, ['1\t6\tuser\tuser\t42\ta=1 b=2 c=3\t3']);
 });
+
+test('VM e intérprete coinciden en el iterador string.gmatch', () => {
+  const source = 'local words = {}; for word in string.gmatch("one two three", "%a+") do table.insert(words, word) end; print(table.concat(words, ","))';
+  same(source);
+  assert.deepEqual(runInVm(source).output, ['one,two,three']);
+});
