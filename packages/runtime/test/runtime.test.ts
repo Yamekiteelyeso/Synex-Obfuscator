@@ -107,6 +107,7 @@ test('table.concat respeta separador e índices de inicio y fin', () => {
 });
 
 test('table.insert valida posiciones y conserva el orden', () => {
+  assert.throws(() => out('local t = {}; table.insert(t, nil)'), /value expected/);
   assert.deepEqual(out('local t = {"a", "c"}; table.insert(t, 2, "b"); print(table.concat(t, ""))'), ['abc']);
   assert.throws(() => out('local t = {}; table.insert(t, 3, "x")'), /position out of bounds/);
 });
