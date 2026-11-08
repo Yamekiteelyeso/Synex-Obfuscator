@@ -68,6 +68,15 @@ test('corchete largo sin cerrar produce error', () => {
   assert.throws(() => tokenize('[[ abc'), (e: any) => e.code === 'E_UNFINISHED_LONG');
 });
 
+test('escapes Unicode fuera del rango escalar producen error léxico', () => {
+  for (const source of ['"\\u{110000}"', '"\\u{D800}"', '"\\u{FFFFFFFF}"']) {
+    assert.throws(
+      () => tokenize(source),
+      (error: any) => error.code === 'E_BAD_ESCAPE',
+    );
+  }
+});
+
 test('escape inválido produce error', () => {
   assert.throws(() => tokenize('"\\q"'), (e: any) => e.code === 'E_BAD_ESCAPE');
 });
