@@ -68,6 +68,7 @@ export function validateProto(root: Proto): void {
         if (value !== undefined && !integer(value)) fail(`operando ${field} no es un entero seguro`, proto, pc);
       }
       if (ins.c !== undefined && typeof ins.c !== 'boolean') fail('bandera c inválida', proto, pc);
+      if (JUMPS.has(ins.op) && ins.t === undefined) fail('destino de salto ausente', proto, pc);
       if (ins.t !== undefined && !JUMPS.has(ins.op)) fail('destino de salto inesperado', proto, pc);
       if (ins.t !== undefined && !index(ins.t, proto.code.length)) fail('salto fuera del código', proto, pc);
 
@@ -97,9 +98,10 @@ export function validateProto(root: Proto): void {
       if (!d || typeof d !== 'object' || typeof d.fromLocal !== 'boolean' || !integer(d.index) || d.index < 0) {
         fail(`descriptor de upvalue inválido en índice ${i}`, proto);
       }
-      if (parent === null) fail('el prototipo raíz no puede tener upvalues capturados', proto);
-      if (d.fromLocal && d.index >= parent!.nslots) fail('captura de ranura inválida', proto);
-      if (!d.fromLocal && d.index >= parent!.upvals.length) fail('captura de upvalue inválida', proto);
+      // Al validar un closure de forma aislada no se dispone del padre; su descriptor
+      // se vuelve a comprobar contra el padre al validar el árbol completo.
+      if (parent && d.fromLocal && d.index >= parent.nslots) fail('captura de ranura inválida', proto);
+      if (parent && !d.fromLocal && d.index >= parent.upvals.length) fail('captura de upvalue inválida', proto);
     });
 
     proto.protos.forEach((child) => visit(child, proto, depth + 1));
