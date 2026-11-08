@@ -46,6 +46,7 @@ export class VM implements LuaEnvironment {
 
   /** Ejecuta el prototipo principal y devuelve sus resultados. */
   execute(main: Proto): Value[] {
+    validateProto(main);
     return this.run(main, [], []);
   }
 
@@ -59,6 +60,7 @@ export class VM implements LuaEnvironment {
   }
 
   run(proto: Proto, upvals: Cell[], args: Value[]): Value[] {
+    validateProto(proto);
     if (++this.depth > 200) {
       this.depth--;
       throw new LuaError('stack overflow');
