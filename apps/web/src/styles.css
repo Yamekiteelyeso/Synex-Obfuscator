@@ -517,3 +517,17 @@ button, .btn, select { min-height: 42px; }
   }
   .topbar { z-index: 20; }
 }
+
+/* Editor: keep source text readable even when syntax-highlighting overlay is unavailable. */
+.code-layer { display: none !important; }
+.code-wrap textarea {
+  color: #f7faff !important;
+  -webkit-text-fill-color: #f7faff;
+  caret-color: #ffffff !important;
+  background: #0d1220 !important;
+  opacity: 1 !important;
+  z-index: 1;
+  text-shadow: none;
+  selection-background-color: rgba(109,140,255,.35);
+}
+.code-wrap textarea::selection { background: rgba(109,140,255,.42); color: #ffffff; }
