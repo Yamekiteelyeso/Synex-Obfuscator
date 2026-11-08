@@ -261,13 +261,13 @@ local function xchachaContext(key,nonce24)
 	assert(type(key)=="string" and #key==32 and type(nonce24)=="string" and #nonce24==24,
 		"XChaCha20-Poly1305 requires a 32-byte key and 24-byte nonce")
 	local subkey=hchacha20(key,string.sub(nonce24,1,16))
-	local nonce12="\\0\\0\\0\\0"..string.sub(nonce24,17,24)
+	local nonce12="\0\0\0\0"..string.sub(nonce24,17,24)
 	local firstBlock=chachaBlock(subkey,nonce12,0)
 	return subkey,nonce12,string.sub(firstBlock,1,32)
 end
 local function pad16(value)
 	local remainder=#value%16
-	return remainder==0 and "" or string.rep("\\0",16-remainder)
+	return remainder==0 and "" or string.rep("\0",16-remainder)
 end
 local function sealPoly1305(key,nonce24,plaintext,aad)
 	aad=aad or ""
