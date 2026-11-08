@@ -47,7 +47,8 @@ interface Entry {
 }
 
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
+// Mantiene U+FEFF como dato; no elimina un BOM inicial del contenido original.
+const textDecoder = new TextDecoder('utf-8', { ignoreBOM: true });
 
 export function createStringEncoder(
   names: StringEncoderNames,
