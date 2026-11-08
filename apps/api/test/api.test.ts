@@ -196,10 +196,10 @@ test('planes y solicitudes: el admin puede aprobar Premium y cambiar el entitlem
   const me = await call('GET', '/api/me', undefined, userToken);
   assert.equal(me.json.user.plan, 'premium');
   assert.equal(me.json.user.obfuscationLimit, null);
+  const unauthenticatedMedium = await call('POST', '/api/jobs', { source: SCRIPT, profile: 'medium' });
+  assert.equal(unauthenticatedMedium.status, 401);
   const medium = await call('POST', '/api/jobs', { source: SCRIPT, profile: 'medium' }, userToken);
-  assert.equal(medium.status, 401);
-  const authenticatedMedium = await call('POST', '/api/jobs', { source: SCRIPT, profile: 'medium' }, userToken);
-  assert.equal(authenticatedMedium.status, 202);
+  assert.equal(medium.status, 202);
 });
 
 test('admin: solo IDs de Discord autorizados administran', async () => {
