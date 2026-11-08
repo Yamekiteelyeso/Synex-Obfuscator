@@ -10,7 +10,7 @@ local artifact = Compiler.compile({
 	{opcode=op.PUSH, a=30, b=0, c=0, nextPC=3},
 	{opcode=op.ADD, a=0, b=0, c=0, nextPC=0},
 }, {
-	encryptionKey=key, integrityKey=mac, prototypeSalt=layout.salts[1],
+	encryptionKey=key, integrityKey=mac, prototypeSalt=layout.salts[1], version=2,
 	nonces={string.rep("\5",24),string.rep("\6",24),string.rep("\7",24)},
 })
 local handlers = {
@@ -23,5 +23,6 @@ local handlers = {
 local stack, sp, steps = Runtime.run(artifact, {
 	encryptionKey=key, integrityKey=mac, maxSteps=20, maxStack=8,
 }, handlers)
+assert(artifact.version == 2 and #artifact.records[1].tag == 16, "runtime wrapper did not preserve v2 Poly1305 format")
 assert(sp == 1 and stack[1] == 42 and steps == 3, "runtime wrapper output mismatch")
 print("Synex Luau runtime tests passed")

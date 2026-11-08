@@ -12,6 +12,8 @@ function M.compile(instructions, options)
 		"integrity key must be at least 16 bytes")
 	assert(type(options.nonces) == "table" and #options.nonces == #instructions,
 		"one unique nonce is required per instruction")
+	local version = options.version or 1
+	assert(version == 1 or version == 2, "unsupported bytecode version")
 	local prototypeSalt = math.floor(options.prototypeSalt or 0)
 	local _, prototypeIntegrityKey = VM.deriveKeys(
 		options.encryptionKey, options.integrityKey, prototypeSalt)
@@ -25,10 +27,10 @@ function M.compile(instructions, options)
 		nonceSet[nonce] = true
 		local aad = (options.aadPrefix or "synex:v1") .. ":" .. tostring(prototypeSalt) .. ":" .. tostring(index)
 		local record = VM.sealRecord(options.encryptionKey, options.integrityKey,
-			nonce, instruction, chain, index, prototypeSalt, aad)
+			nonce, instruction, chain, index, prototypeSalt, aad, version)
 		records[index] = record
 		chain = record.chainTag
 	end
-	return {version=1, prototypeSalt=prototypeSalt, records=records, finalChain=chain}
+	return {version=version, prototypeSalt=prototypeSalt, records=records, finalChain=chain}
 end
 return M
