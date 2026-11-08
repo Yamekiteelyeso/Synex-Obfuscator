@@ -238,7 +238,7 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
   assert.doesNotMatch(code, /local function instructionIntact/);
   assert.doesNotMatch(code, /integridad comprometida: instrucción alterada/);
   assert.doesNotMatch(code, /decodeOperand/);
-  assert.match(code, /sucesora fuera del prototipo/);
+  assert.doesNotMatch(code, /sucesora fuera del prototipo/);
   assert.match(code, /function\(\) return/);
   assert.doesNotMatch(code, /constIntact/);
   assert.ok(!code.includes('decodeOperand'));
@@ -372,9 +372,11 @@ test('VM emitida: segmenta cadenas largas con claves distintas y las reconstruye
 
 test('VM emitida: detecta alteración de bytes de constantes antes de reconstruirlas', { skip: !hasLua54 }, () => {
   const emitted = compileToLuauVm('print("Synex protected constant")', 556677);
-  const mainStart = emitted.indexOf('local MAIN = {');
-  const payload = /local b=\{(\d+)/.exec(emitted.slice(mainStart));
-  assert.ok(mainStart >= 0 && payload);
+  const mainDeclaration = [...emitted.matchAll(/local _[a-z0-9]+ = \\{/g)].at(-1);
+  assert.ok(mainDeclaration);
+  const mainStart = mainDeclaration.index!;
+  const payload = /local b=\\{(\\d+)/.exec(emitted.slice(mainStart));
+  assert.ok(payload);
   const numberStart = mainStart + payload.index + 'local b={'.length;
   const tampered = emitted.slice(0, numberStart)
     + String((Number(payload[1]) + 1) % 256)
@@ -398,11 +400,12 @@ test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => 
   const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
   assert.ok(emitted.includes('slots[b + 1] = slots[a + 1]'));
   assert.equal(output.trim(), ['Synex VM', '42', '42'].join(String.fromCharCode(9)));
-  const mainMarker = emitted.indexOf('local MAIN = {');
-  assert.ok(mainMarker >= 0);
-  const numeric = /\d+/.exec(emitted.slice(mainMarker + 'local MAIN = {'.length));
+  const mainDeclaration = [...emitted.matchAll(/local _[a-z0-9]+ = \\{/g)].at(-1);
+  assert.ok(mainDeclaration);
+  const mainMarker = mainDeclaration.index!;
+  const numeric = /\\d+/.exec(emitted.slice(mainMarker + mainDeclaration[0].length));
   assert.ok(numeric);
-  const tamperAt = mainMarker + 'local MAIN = {'.length + numeric.index;
+  const tamperAt = mainMarker + mainDeclaration[0].length + numeric.index;
   const tampered = emitted.slice(0, tamperAt) + String(Number(numeric[0]) + 1) + emitted.slice(tamperAt + numeric[0].length);
   assert.throws(() => execFileSync('lua5.4', ['-'], { input: tampered, encoding: 'utf8', timeout: 5000 }), /integridad comprometida/);
 });
