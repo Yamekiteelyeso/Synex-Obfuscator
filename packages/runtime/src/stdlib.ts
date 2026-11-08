@@ -338,13 +338,19 @@ export function installStdlib(interp: LuaEnvironment): void {
     }
     const regex = luaPatternToRegExp(pattern);
     let count = 0;
-    const output = source.replace(regex, (...values: unknown[]) => {
-      const match = String(values[0]);
-      const captures = values.slice(1, -2) as (string | undefined)[];
-      if (count >= limit) return match;
-      count++;
+    let output = '';
+    let outputCursor = 0;
+    let searchCursor = 0;
+    while (count < limit) {
+      regex.lastIndex = searchCursor;
+      const found = regex.exec(source);
+      if (!found) break;
+      const match = found[0];
+      const captures = found.slice(1);
+      output += source.slice(outputCursor, found.index);
+      let rendered: string;
       if (typeof replacement === 'string') {
-        let rendered = '';
+        rendered = '';
         for (let index = 0; index < replacement.length; index++) {
           if (replacement[index] !== '%') { rendered += replacement[index]; continue; }
           const token = replacement[++index];
@@ -356,18 +362,23 @@ export function installStdlib(interp: LuaEnvironment): void {
             else rendered += captures[captureIndex - 1] ?? '';
           } else throw new LuaError("invalid use of '%' in string.gsub replacement");
         }
-        return rendered;
-      }
-      if (replacement instanceof LuaTable) {
+      } else if (replacement instanceof LuaTable) {
         const key = captures.length ? captures[0] : match;
         const value = replacement.get(key);
-        return value === undefined || value === false ? match : tostring(value);
+        rendered = value === undefined || value === false ? match : tostring(value);
+      } else {
+        const callArgs: Value[] = captures.length ? captures : [match];
+        const result = call(replacement, callArgs)[0];
+        rendered = result === undefined || result === false ? match : tostring(result);
       }
-      const callArgs: Value[] = captures.length ? captures : [match];
-      const result = call(replacement, callArgs)[0];
-      return result === undefined || result === false ? match : tostring(result);
-    });
-    return [output, count];
+      output += rendered;
+      count++;
+      outputCursor = found.index + match.length;
+      searchCursor = outputCursor > found.index ? outputCursor : found.index + 1;
+      if (searchCursor > source.length) break;
+    }
+    output += source.slice(outputCursor);
+
   }));
   stringLib.set('find', fn('find', (args) => {
     const source = String(args[0]);
