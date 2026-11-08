@@ -309,6 +309,87 @@ export function installStdlib(interp: LuaEnvironment): void {
   }));
   g.set('string', stringLib);
 
+  const mathLib = new LuaTable();
+  let randomState = 0x6d2b79f5;
+  const randomUnit = () => {
+    // xorshift32: reproducible PRNG for Lua math.random, not cryptography.
+    randomState ^= randomState << 13;
+    randomState ^= randomState >>> 17;
+    randomState ^= randomState << 5;
+    return (randomState >>> 0) / 0x1_0000_0000;
+  };
+  const mathUnary: Record<string, (n: number) => number> = {
+    abs: Math.abs, acos: Math.acos, asin: Math.asin, atan: Math.atan,
+    ceil: Math.ceil, cos: Math.cos, cosh: Math.cosh, deg: (n) => n * 180 / Math.PI,
+    exp: Math.exp, floor: Math.floor, log: Math.log, log10: Math.log10,
+    rad: (n) => n * Math.PI / 180, sin: Math.sin, sinh: Math.sinh,
+    sqrt: Math.sqrt, tan: Math.tan, tanh: Math.tanh,
+  };
+  for (const [name, operation] of Object.entries(mathUnary)) {
+    mathLib.set(name, fn(name, (args) => [operation(toNumber(args[0], at))]));
+  }
+  mathLib.set('atan2', fn('atan2', (args) => [Math.atan2(toNumber(args[0], at), toNumber(args[1], at))]));
+  mathLib.set('fmod', fn('fmod', (args) => [toNumber(args[0], at) % toNumber(args[1], at)]));
+  mathLib.set('max', fn('max', (args) => {
+    if (args.length === 0) throw new LuaError('bad argument to math.max (value expected)');
+    return [Math.max(...args.map((value) => toNumber(value, at)))];
+  }));
+  mathLib.set('min', fn('min', (args) => {
+    if (args.length === 0) throw new LuaError('bad argument to math.min (value expected)');
+    return [Math.min(...args.map((value) => toNumber(value, at)))];
+  }));
+  mathLib.set('clamp', fn('clamp', (args) => {
+    const value = toNumber(args[0], at);
+    const minimum = toNumber(args[1], at);
+    const maximum = toNumber(args[2], at);
+    if (minimum > maximum) throw new LuaError('bad argument to math.clamp (min must be <= max)');
+    return [Math.min(Math.max(value, minimum), maximum)];
+  }));
+  mathLib.set('sign', fn('sign', (args) => [Math.sign(toNumber(args[0], at))]));
+  mathLib.set('round', fn('round', (args) => {
+    const value = toNumber(args[0], at);
+    return [value >= 0 ? Math.floor(value + 0.5) : Math.ceil(value - 0.5)];
+  }));
+  mathLib.set('modf', fn('modf', (args) => {
+    const value = toNumber(args[0], at);
+    const integer = value < 0 ? Math.ceil(value) : Math.floor(value);
+    return [integer, value - integer];
+  }));
+  mathLib.set('tointeger', fn('tointeger', (args) => {
+    const value = args[0];
+    if (typeof value !== 'number' || !Number.isSafeInteger(value)) return [undefined];
+    return [value];
+  }));
+  mathLib.set('type', fn('type', (args) => {
+    const value = args[0];
+    return [typeof value !== 'number' ? undefined : Number.isInteger(value) ? 'integer' : 'float'];
+  }));
+  mathLib.set('randomseed', fn('randomseed', (args) => {
+    const seed = toNumber(args[0], at);
+    if (!Number.isSafeInteger(seed)) throw new LuaError('bad argument to math.randomseed (integer expected)');
+    randomState = seed >>> 0;
+    if (randomState === 0) randomState = 0x6d2b79f5;
+    return [];
+  }));
+  mathLib.set('random', fn('random', (args) => {
+    if (args.length === 0) return [randomUnit()];
+    const minimum = args.length > 1 ? toNumber(args[0], at) : 1;
+    const maximum = args.length > 1 ? toNumber(args[1], at) : toNumber(args[0], at);
+    if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum > maximum) {
+      throw new LuaError('bad argument to math.random (interval is empty)');
+    }
+    const range = maximum - minimum + 1;
+    if (!Number.isSafeInteger(range) || range > 0x1_0000_0000) {
+      throw new LuaError('bad argument to math.random (interval is too large)');
+    }
+    return [minimum + Math.floor(randomUnit() * range)];
+  }));
+  mathLib.set('pi', Math.PI);
+  mathLib.set('huge', Infinity);
+  mathLib.set('maxinteger', Number.MAX_SAFE_INTEGER);
+  mathLib.set('mininteger', Number.MIN_SAFE_INTEGER);
+  g.set('math', mathLib);
+
   const bit = new LuaTable();
   const bitOp = (f: (a: number, b: number) => number) => fn('bit', (args) => {
     let acc = toNumber(args[0], at) >>> 0;
