@@ -430,3 +430,14 @@ test('VM e intérprete coinciden en el iterador string.gmatch', () => {
   same(source);
   assert.deepEqual(runInVm(source).output, ['one,two,three']);
 });
+
+
+test('VM e intérprete coinciden en math.noise y constantes numéricas Luau', () => {
+  const source = [
+    'local n = math.noise(1.158, 5.723)',
+    'print(math.abs(n - 0.48397532105446) < 0.00002, math.noise(1, 2, 3), math.noise(1.158) == math.noise(1.158, 0, 0))',
+    'print(math.isinf(math.huge), math.isfinite(math.nan), math.tau == 2 * math.pi)',
+  ].join(String.fromCharCode(10));
+  same(source);
+  assert.deepEqual(runInVm(source).output, ['true\t0\ttrue', 'true\tfalse\ttrue']);
+});
