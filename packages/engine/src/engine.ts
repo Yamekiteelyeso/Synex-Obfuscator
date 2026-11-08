@@ -61,7 +61,12 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
 
   // Semilla nueva por compilación: evita mapas de opcodes y máscaras repetibles.
   // 32 bits de entropía CSPRNG por build; la semilla fija sigue disponible para pruebas reproducibles.
-  const buildSeed = options.seed ?? randomBytes(4).readUInt32LE(0);
+  // Un build normal usa 128 bits de entropía CSPRNG. La semilla numérica
+  // derivada alimenta los pases AST deterministas; la VM recibe el material completo.
+  const buildSeed: number | string = options.seed ?? randomBytes(16).toString('hex');
+  const transformSeed = typeof buildSeed === 'number'
+    ? buildSeed
+    : createHash('sha256').update(`synex-transform-v2:${buildSeed}`, 'utf8').digest().readUInt32LE(0);
   const settings = resolveSettings(options.profile, options.custom);
   const has = (t: Technique) => settings.techniques.includes(t);
   const stages: StageRecord[] = [];
@@ -75,7 +80,7 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
   };
 
   const result = obfuscate(source, {
-    seed: buildSeed,
+    seed: transformSeed,
     renameIdentifiers: has('identifiers'),
     encodeStrings: has('strings'),
     transformNumbers: has('numbers'),
