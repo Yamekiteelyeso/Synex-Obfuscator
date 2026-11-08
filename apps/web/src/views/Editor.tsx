@@ -8,7 +8,6 @@ export interface ProfileInfo { name: string; techniques: string[] }
 export interface TechniqueInfo { id: string; label: string; status: 'implemented' | 'partial' | 'pending' }
 
 const MAX_BYTES = 1024 * 1024;
-const DEFAULT_CUSTOM = ['identifiers', 'strings'];
 
 interface JobView { id: string; status: string; error?: { code: string; message: string } }
 
@@ -18,7 +17,6 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
   const [source, setSource] = useState('');
   const [fileName, setFileName] = useState('script.lua');
   const [profile, setProfile] = useState(initialProfile);
-  const [custom, setCustom] = useState<string[]>(DEFAULT_CUSTOM);
   const [job, setJob] = useState<JobView | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -56,7 +54,6 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
     setResult(null);
     if (problem) return setMessage(problem);
     const body: any = { source, name: fileName, profile };
-    if (profile === 'custom') body.custom = { techniques: custom };
     try {
       const r = await api<{ id: string; status: string }>('POST', '/api/jobs', body, token);
       setJob({ id: r.id, status: r.status });
@@ -87,7 +84,6 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
 
   const busy = job !== null && !['done', 'failed', 'timeout'].includes(job.status);
   const step = job ? progressStep(job.status) : null;
-  const available = techniques.filter((t) => t.status !== 'pending');
 
   return (
     <section className="view">
@@ -103,23 +99,6 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
         <span className={`size ${problem && source ? 'over' : ''}`}>{formatBytes(bytes)} / {formatBytes(maxBytes)}</span>
       </div>
 
-      {false && profile === 'custom' && (
-        <fieldset className="card techniques">
-          <legend>Técnicas</legend>
-          {techniques.map((t) => (
-            <label key={t.id} className={t.status === 'pending' ? 'disabled' : ''}>
-              <input
-                type="checkbox"
-                disabled={t.status === 'pending' || busy}
-                checked={custom.includes(t.id)}
-                onChange={(e: any) => setCustom(e.target.checked ? [...custom, t.id] : custom.filter((x) => x !== t.id))}
-              />
-              {t.label}{t.status === 'pending' ? ' (pendiente)' : t.status === 'partial' ? ' (parcial)' : ''}
-            </label>
-          ))}
-          {available.length === 0 && <p className="error-text">No hay técnicas disponibles.</p>}
-        </fieldset>
-      )}
 
       <div className="editor">
         <div className="gutter" aria-hidden="true">{lines.map((n) => <div key={n}>{n}</div>)}</div>
