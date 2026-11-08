@@ -116,6 +116,16 @@ test('string.sub y string.byte soportan índices negativos y rangos', () => {
   assert.deepEqual(out('print(string.byte("abcd", 2, 3)); print(string.byte("abcd", -1)); print(string.byte("abcd", 2, 99)); print(string.byte("abcd", -99, 1))'), ['98\t99', '100', '98\t99\t100', '97']);
 });
 
+test('table.sort ordena números y acepta comparador Lua', () => {
+  assert.deepEqual(out('local t = {4, 1, 3, 2}; table.sort(t); print(table.concat(t, ","))'), ['1,2,3,4']);
+  assert.deepEqual(out('local t = {"a", "ccc", "bb"}; table.sort(t, function(a, b) return #a < #b end); print(table.concat(t, ","))'), ['a,bb,ccc']);
+  assert.throws(() => out('local t = {1, "a"}; table.sort(t)'), /attempt to compare/);
+});
+
+test('string.lower, upper y reverse', () => {
+  assert.deepEqual(out('print(string.lower("HeLLo"), string.upper("Synex"), string.reverse("abc"))'), ['hello\tSYNEX\tcba']);
+});
+
 test('string.rep repite con separador y valida límites', () => {
   assert.deepEqual(out('print(string.rep("ab", 3, "-"), string.rep("x", 0))'), ['ab-ab-ab	']);
   assert.throws(() => out('string.rep("x", -1)'), /invalid count/);
