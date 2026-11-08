@@ -128,6 +128,33 @@ test('table.find devuelve el primer índice desde el inicio indicado', () => {
   assert.throws(() => out('table.find({}, 1, 1.5)'), /integer index/);
 });
 
+test('table.freeze congela superficialmente, rechaza escrituras y table.clone descongela', () => {
+  const source = [
+    'local inner = {value = 1}',
+    'local t = {1, a = 2, nested = inner}',
+    'local frozen = table.freeze(t)',
+    'print(frozen == t, table.isfrozen(t), table.isfrozen(inner), t[1], t.a)',
+    'local write = pcall(function() t.a = 3 end)',
+    'local clear = pcall(function() table.clear(t) end)',
+    'local insert = pcall(function() table.insert(t, 2) end)',
+    'local remove = pcall(function() table.remove(t, 1) end)',
+    'print(write, clear, insert, remove)',
+    'inner.value = 7',
+    'local clone = table.clone(t)',
+    'print(table.isfrozen(clone), clone.a, clone.nested.value)',
+    'clone.a = 9',
+    'print(clone.a, t.a, inner.value)',
+  ].join(String.fromCharCode(10));
+  assert.deepEqual(out(source), [
+    'true\ttrue\tfalse\t1\t2',
+    'false\tfalse\tfalse\tfalse',
+    'false\t2\t7',
+    '9\t2\t7',
+  ]);
+  assert.throws(() => out('local t = {}; table.freeze(t); table.freeze(t)'), /already frozen/);
+  assert.throws(() => out('table.isfrozen(1)'), /table expected/);
+});
+
 test('table.clone copia superficialmente y table.clear vacía', () => {
   assert.deepEqual(out('local t = {1, 2, x = 3}; local c = table.clone(t); c[1] = 9; print(t[1], c[1], c.x); table.clear(c); print(#c, c.x)'), ['1\t9\t3', '0\tnil']);
 });
