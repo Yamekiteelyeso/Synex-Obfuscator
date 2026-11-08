@@ -109,3 +109,34 @@ describe('VM emitida: límites y diagnóstico', { skip: !lua54Available && 'falt
     assert.throws(() => compileToLuauVm('print(1)', 1, { stepLimit: 0 }), /límite de pasos inválido/);
   });
 });
+
+
+describe('polimorfismo del pool de constantes', () => {
+  test('la permutación es determinista para una semilla y varía entre builds', () => {
+    const source = [
+      'local alpha = "ALPHA_MARKER"',
+      'local beta = "BETA_MARKER"',
+      'local gamma = "GAMMA_MARKER"',
+      'print(alpha, beta, gamma)',
+    ].join('\\n');
+    const a = compileToLuauVm(source, 123456);
+    const same = compileToLuauVm(source, 123456);
+    const other = compileToLuauVm(source, 123457);
+    assert.equal(a, same);
+    assert.notEqual(a, other);
+  });
+
+  test('el pool permutado conserva referencias globales y constantes', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+    const source = [
+      'local alpha = "ALPHA_MARKER"',
+      'local beta = "BETA_MARKER"',
+      'local gamma = "GAMMA_MARKER"',
+      'local function join(a, b) return a .. b end',
+      'print(join(alpha, beta), gamma, math.floor(9.8))',
+    ].join('\\n');
+    const original = runLua54(source);
+    const emitted = runLua54(compileToLuauVm(source, 884422));
+    assert.ok(emitted.ok, emitted.error);
+    assert.equal(emitted.stdout, original.stdout);
+  });
+});
