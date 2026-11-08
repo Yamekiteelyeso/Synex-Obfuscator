@@ -62,6 +62,24 @@ describe('validación del bytecode', () => {
     assert.throws(() => validateProto(p), /descriptor CALL inválido/);
   });
 
+  test('rechaza arrays dispersos en bytecode y metadatos', () => {
+    const sparseCode = protoOf('return 1');
+    delete (sparseCode.code as unknown[])[0];
+    assert.throws(() => validateProto(sparseCode), /código disperso/);
+
+    const sparseConstants = protoOf('return 1');
+    sparseConstants.consts = new Array(sparseConstants.consts.length + 1);
+    assert.throws(() => validateProto(sparseConstants), /tablas del prototipo inválidas o dispersas/);
+
+    const sparseChildren = protoOf('return 1');
+    sparseChildren.protos = new Array(1);
+    assert.throws(() => validateProto(sparseChildren), /tablas del prototipo inválidas o dispersas/);
+
+    const sparseUpvalues = protoOf('return 1');
+    sparseUpvalues.upvals = new Array(1);
+    assert.throws(() => validateProto(sparseUpvalues), /tablas del prototipo inválidas o dispersas/);
+  });
+
   test('rechaza prototipos cíclicos', () => {
     const p = protoOf('local function f() return 1 end');
     p.protos.push(p);
