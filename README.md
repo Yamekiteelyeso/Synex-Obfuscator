@@ -30,12 +30,12 @@ UTF-8 fuera del rango ASCII tratados de forma especial.
 
 ## API
 
-La autenticación de usuarios es exclusivamente por Discord mediante el comando privado `/synex-login`. El backend valida la firma Ed25519, emite un ticket de un solo uso y vincula la cuenta al ID inmutable de Discord. Las rutas antiguas de correo y contraseña devuelven `410 E_DISCORD_ONLY`.
+La autenticación de usuarios es exclusivamente mediante Discord OAuth2. El backend valida el `state`, intercambia el código en el servidor y consulta el perfil con el scope mínimo `identify`. Después emite un ticket de un solo uso para establecer la sesión. No hay bot instalado, comandos slash ni permisos sobre servidores. Las rutas antiguas de correo y contraseña devuelven `410 E_DISCORD_ONLY`.
 
 | Método | Ruta | Acceso |
 |---|---|---|
-| GET | /api/auth/discord | público (instalación del bot) |
-| POST | /api/discord/interactions | público (firma Ed25519 de Discord) |
+| GET | /api/auth/discord | público (redirige a OAuth2) |
+| GET | /api/auth/discord/callback | público (callback OAuth2) |
 | POST | /api/auth/discord/exchange | público (ticket de un solo uso) |
 | POST | /api/auth/register, /api/auth/login | desactivado (410) |
 | POST | /api/auth/logout | usuario |
@@ -118,7 +118,7 @@ Requiere `tsx` (ejecutor TypeScript). `npm install` no se ha podido completar en
 
 El repositorio incluye `railway.json`. Railway debe usar Node.js 22 o superior, ejecutar `npm run build` como comando de compilación y `npm start` para iniciar la API. El build compila primero todos los paquetes transitivos del motor y la API, y después genera `apps/web/dist`; la API sirve la web y expone `GET /api/health` como healthcheck.
 
-Configura `SYNEX_ADMIN_DISCORD_IDS` con los IDs de Discord autorizados para administrar (separados por comas). Configura `DISCORD_CLIENT_ID`, `DISCORD_REDIRECT_URI` y `DISCORD_BOT_TOKEN`. Para conservar cuentas, planes, cuotas e historial entre despliegues, monta un Volume en `/data` y define `SYNEX_DATA_FILE=/data/synex-data.json`. Sin un Volume, el almacenamiento JSON local puede perderse al reemplazar el contenedor.
+Configura `SYNEX_ADMIN_DISCORD_IDS` con los IDs de Discord autorizados para administrar (separados por comas) y las tres variables OAuth2 de Discord descritas abajo. Para conservar cuentas, planes, cuotas e historial entre despliegues, monta un Volume en `/data` y define `SYNEX_DATA_FILE=/data/synex-data.json`. Sin un Volume, el almacenamiento JSON local puede perderse al reemplazar el contenedor.
 
 ## Compatibilidad Roblox / Luau
 
@@ -137,30 +137,24 @@ La aplicación ofrece únicamente tres niveles de ofuscación:
 - **Medium:** más transformación de constantes, expresiones, código muerto y aplanado de flujo de control.
 - **Max:** transformaciones intensivas, comprobación de integridad y virtualización mediante la VM Luau con bytecode protegido.
 
-El registro y el inicio de sesión son **exclusivamente mediante Discord**. El usuario instala el bot, ejecuta `/synex-login` y recibe una respuesta privada con un enlace de un solo uso y 90 segundos de vigencia. La cuenta se crea automáticamente una sola vez por ID de Discord y se reutiliza en próximos accesos.
+El registro y el inicio de sesión son **exclusivamente mediante Discord OAuth2**. La persona pulsa **Continuar con Discord**, acepta la autorización de Synex y regresa automáticamente a la web. Synex solicita únicamente el scope `identify` para verificar el ID y nombre de la cuenta. **No instala un bot, no solicita acceso a servidores, no requiere invitarlo a ningún servidor y no utiliza comandos slash.** Cada cuenta se crea una sola vez por ID de Discord y se reutiliza en accesos posteriores.
 
 ### Solo tres variables de Discord
 
-Configura exactamente estas variables en Railway:
+Configura estas tres variables en Railway:
 
-- `DISCORD_CLIENT_ID`: Application ID de Discord.
-- `DISCORD_REDIRECT_URI`: URL pública de la web, por ejemplo `https://TU-DOMINIO/` (no es un callback OAuth).
-- `DISCORD_BOT_TOKEN`: token secreto de la pestaña Bot.
-
-No hace falta guardar la Public Key ni un Application ID duplicado: la API obtiene la clave de verificación desde `/oauth2/applications/@me` usando el bot token y comprueba que el ID de la aplicación coincide con `DISCORD_CLIENT_ID`.
+- `DISCORD_CLIENT_ID`: Application ID de tu aplicación de Discord.
+- `DISCORD_CLIENT_SECRET`: Client Secret de la sección OAuth2. **No uses aquí el Bot Token.** Es un secreto de servidor y nunca se envía al navegador.
+- `DISCORD_REDIRECT_URI`: callback OAuth2 exacto, por ejemplo `https://TU-DOMINIO/api/auth/discord/callback`.
 
 ### Configuración en Discord
 
-1. Crea una aplicación en el [Discord Developer Portal](https://discord.com/developers/applications).
-2. Copia **Application ID** en `DISCORD_CLIENT_ID`.
-3. En la pestaña **Bot**, genera/copia el token y guárdalo en `DISCORD_BOT_TOKEN`. Nunca lo publiques ni lo subas a GitHub.
-4. Configura el Interactions Endpoint URL como `https://TU-DOMINIO/api/discord/interactions`.
-5. En Railway, configura `DISCORD_REDIRECT_URI` con la URL de tu web.
-6. Reinicia/despliega la API: sincroniza automáticamente el comando global `/synex-login` al arrancar. Si necesitas forzar una sincronización manual, puedes ejecutar `node apps/api/scripts/register-discord-command.mjs` con Node 22.
-7. Invita el bot al servidor desde el botón Discord de Synex o con un enlace de instalación que incluya los scopes `bot` y `applications.commands`.
+1. Abre el [Discord Developer Portal](https://discord.com/developers/applications) y crea o selecciona la aplicación.
+2. Copia **Application ID** y **Client Secret** desde la configuración OAuth2 de la aplicación.
+3. En OAuth2, agrega como Redirect URI exactamente `https://TU-DOMINIO/api/auth/discord/callback`. Debe coincidir con `DISCORD_REDIRECT_URI` en Railway, incluido el path.
+4. En Railway define `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` y `DISCORD_REDIRECT_URI`, y despliega la aplicación.
 
-El endpoint valida las firmas Ed25519 y la antigüedad de cada interacción. Los tickets de acceso son aleatorios, privados, de un solo uso y expiran en 90 segundos. El token del bot solo vive en el servidor; nunca se envía al navegador.
-
+No necesitas configurar la pestaña Bot, un Bot Token, un Interactions Endpoint ni un servidor de Discord. El backend valida el parámetro `state`, canjea el código OAuth2 en el servidor y consulta `/users/@me` con el permiso mínimo `identify`. La sesión se entrega mediante un ticket aleatorio de un solo uso y 90 segundos de vigencia; el token de sesión no aparece en la URL.
 
 ## Synex v6 — entorno y privacidad de cadenas
 

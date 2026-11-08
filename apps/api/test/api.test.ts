@@ -1,7 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,26 +11,38 @@ const WORKER = fileURLToPath(new URL('../../../packages/engine/dist/worker.js', 
 const SCRIPT = 'local total = 0\nfor i = 1, 4 do total = total + i end\nprint("total", total)';
 const CLIENT_ID = '123456789012345678';
 const ADMIN_DISCORD_ID = 'admin-discord-user';
-const keyPair = generateKeyPairSync('ed25519');
-const publicDer = keyPair.publicKey.export({ format: 'der', type: 'spki' }) as Buffer;
-const verifyKey = publicDer.subarray(publicDer.length - 32).toString('hex');
 const originalFetch = globalThis.fetch;
+const oauthUsers = new Map<string, { id: string; username: string; global_name: string }>();
+const oauthAccess = new Map<string, { id: string; username: string; global_name: string }>();
 
 let app: App;
 let base: string;
-let interactionNumber = 0;
+let oauthCodeNumber = 0;
 
 before(async () => {
   process.env.DISCORD_CLIENT_ID = CLIENT_ID;
-  process.env.DISCORD_BOT_TOKEN = 'test-bot-token';
-  process.env.DISCORD_REDIRECT_URI = 'https://synex.test/';
+  process.env.DISCORD_CLIENT_SECRET = 'test-client-secret';
+  process.env.DISCORD_REDIRECT_URI = 'https://synex.test/api/auth/discord/callback';
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    if (url === 'https://discord.com/api/v10/oauth2/applications/@me') {
-      return new Response(JSON.stringify({ id: CLIENT_ID, verify_key: verifyKey }), {
+    if (url === 'https://discord.com/api/v10/oauth2/token') {
+      const form = new URLSearchParams(String(init?.body ?? ''));
+      const code = form.get('code') ?? '';
+      const user = oauthUsers.get(code);
+      if (!user) return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 });
+      const accessToken = `test-access-${code}`;
+      oauthAccess.set(accessToken, user);
+      return new Response(JSON.stringify({ access_token: accessToken, token_type: 'Bearer', expires_in: 604800, scope: 'identify' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+    if (url === 'https://discord.com/api/v10/users/@me') {
+      const authorization = new Headers(init?.headers).get('authorization') ?? '';
+      const accessToken = authorization.replace(/^Bearer\\s+/i, '');
+      const user = oauthAccess.get(accessToken);
+      if (!user) return new Response(JSON.stringify({ message: 'unauthorized' }), { status: 401 });
+      return new Response(JSON.stringify(user), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     return originalFetch(input, init);
   }) as typeof fetch;
@@ -52,7 +63,7 @@ after(async () => {
   await app.close();
   globalThis.fetch = originalFetch;
   delete process.env.DISCORD_CLIENT_ID;
-  delete process.env.DISCORD_BOT_TOKEN;
+  delete process.env.DISCORD_CLIENT_SECRET;
   delete process.env.DISCORD_REDIRECT_URI;
 });
 
@@ -68,36 +79,34 @@ async function call(method: string, path: string, body?: unknown, token?: string
 }
 
 async function loginDiscord(discordId: string, username = discordId): Promise<string> {
-  interactionNumber += 1;
-  const timestamp = String(Math.floor(Date.now() / 1000));
-  const payload = JSON.stringify({
-    type: 2,
-    id: String(interactionNumber),
-    data: { name: 'synex-login' },
-    member: { user: { id: discordId, username, global_name: username } },
-  });
-  const signature = sign(null, Buffer.concat([Buffer.from(timestamp), Buffer.from(payload)]), keyPair.privateKey).toString('hex');
-  const interaction = await fetch(base + '/api/discord/interactions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-signature-ed25519': signature,
-      'x-signature-timestamp': timestamp,
-    },
-    body: payload,
-  });
-  const result = await interaction.json() as any;
-  assert.equal(interaction.status, 200);
-  assert.equal(result.type, 4);
-  const url = result.data.content.match(/https:\/\/\S+/)?.[0];
-  assert.ok(url, 'Discord devuelve un enlace de acceso privado');
-  const ticket = new URL(url).searchParams.get('discord_ticket');
-  assert.ok(ticket, 'el enlace contiene el ticket de un solo uso');
+  const code = `oauth-code-${++oauthCodeNumber}`;
+  oauthUsers.set(code, { id: discordId, username, global_name: username });
+
+  const start = await fetch(base + '/api/auth/discord', { redirect: 'manual' });
+  assert.equal(start.status, 302);
+  const authorizationUrl = new URL(start.headers.get('location') ?? '');
+  assert.equal(authorizationUrl.origin, 'https://discord.com');
+  assert.equal(authorizationUrl.pathname, '/oauth2/authorize');
+  assert.equal(authorizationUrl.searchParams.get('scope'), 'identify');
+  assert.equal(authorizationUrl.searchParams.get('response_type'), 'code');
+  assert.equal(authorizationUrl.searchParams.get('redirect_uri'), 'https://synex.test/api/auth/discord/callback');
+  assert.equal(authorizationUrl.searchParams.has('bot'), false);
+  const state = authorizationUrl.searchParams.get('state');
+  assert.ok(state, 'se genera state para proteger el callback OAuth2');
+
+  const callbackUrl = new URL('/api/auth/discord/callback', base);
+  callbackUrl.searchParams.set('code', code);
+  callbackUrl.searchParams.set('state', state!);
+  const callback = await fetch(callbackUrl, { redirect: 'manual' });
+  assert.equal(callback.status, 302);
+  const returnUrl = new URL(callback.headers.get('location') ?? '');
+  const ticket = returnUrl.searchParams.get('discord_ticket');
+  assert.ok(ticket, 'el callback devuelve un ticket opaco de un solo uso');
+
   const exchange = await call('POST', '/api/auth/discord/exchange', { ticket });
   assert.equal(exchange.status, 200);
   return exchange.json.token as string;
 }
-
 async function waitJob(id: string, token: string) {
   for (let i = 0; i < 400; i++) {
     const result = await call('GET', `/api/jobs/${id}`, undefined, token);
@@ -222,15 +231,29 @@ test('errores internos se registran y solo el admin los ve', async () => {
   assert.ok(result.json.errors.some((entry: any) => entry.message === 'prueba'));
 });
 
-test('rutas desconocidas, método no permitido y verificación de firmas', async () => {
+test('OAuth2 valida el state y no solicita instalar un bot', async () => {
+  const start = await fetch(base + '/api/auth/discord', { redirect: 'manual' });
+  const authorizationUrl = new URL(start.headers.get('location') ?? '');
+  assert.equal(authorizationUrl.searchParams.get('scope'), 'identify');
+  assert.equal(authorizationUrl.searchParams.has('permissions'), false);
+  assert.equal(authorizationUrl.searchParams.has('guild_id'), false);
+  assert.equal(authorizationUrl.searchParams.has('bot'), false);
+
+  const invalid = new URL('/api/auth/discord/callback', base);
+  invalid.searchParams.set('code', 'not-used');
+  invalid.searchParams.set('state', 'invalid-state');
+  assert.equal((await fetch(invalid)).status, 401);
+
+  const code = `oauth-code-${++oauthCodeNumber}`;
+  oauthUsers.set(code, { id: 'state-once-user', username: 'state-once-user', global_name: 'state-once-user' });
+  const callbackUrl = new URL('/api/auth/discord/callback', base);
+  callbackUrl.searchParams.set('code', code);
+  callbackUrl.searchParams.set('state', authorizationUrl.searchParams.get('state')!);
+  const accepted = await fetch(callbackUrl, { redirect: 'manual' });
+  assert.equal(accepted.status, 302);
+  assert.equal((await fetch(callbackUrl)).status, 401, 'el state no se puede reutilizar');
   assert.equal((await call('GET', '/api/nada')).status, 404);
   assert.equal((await call('DELETE', '/api/health')).status, 405);
-  const badSignature = await fetch(base + '/api/discord/interactions', {
-    method: 'POST',
-    headers: { 'x-signature-ed25519': '00', 'x-signature-timestamp': String(Math.floor(Date.now() / 1000)) },
-    body: JSON.stringify({ type: 2, id: 'bad', data: { name: 'synex-login' } }),
-  });
-  assert.equal(badSignature.status, 401);
   assert.equal((await call('GET', '/api/health')).json.status, 'ok');
 });
 
