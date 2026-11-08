@@ -1,4 +1,4 @@
-import { createHash, randomInt } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { SynexError } from '@synex/shared';
 import { execute, LuaError, LuaTable, LuaFunction, type Value } from '@synex/runtime';
 import { obfuscate } from '@synex/transformations';
@@ -60,7 +60,8 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
   if (source.trim() === '') throw new SynexError('el script está vacío', 1, 1, 'E_EMPTY');
 
   // Semilla nueva por compilación: evita mapas de opcodes y máscaras repetibles.
-  const buildSeed = options.seed ?? randomInt(1, 0x7fffffff);
+  // 32 bits de entropía CSPRNG por build; la semilla fija sigue disponible para pruebas reproducibles.
+  const buildSeed = options.seed ?? randomBytes(4).readUInt32LE(0);
   const settings = resolveSettings(options.profile, options.custom);
   const has = (t: Technique) => settings.techniques.includes(t);
   const stages: StageRecord[] = [];

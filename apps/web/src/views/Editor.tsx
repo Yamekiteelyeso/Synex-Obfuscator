@@ -62,14 +62,32 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
     }
   }
 
-  async function importFile(e: any) {
-    const f: File | undefined = e.target.files?.[0];
+  async function importFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const input = e.currentTarget;
+    const f = input.files?.[0];
     if (!f) return;
-    if (f.size > maxBytes) return setMessage(`el archivo ocupa ${formatBytes(f.size)}; el límite es ${formatBytes(maxBytes)}`);
-    setSource(await f.text());
-    setFileName(f.name);
-    setResult(null);
-    setMessage(null);
+    const extension = f.name.split('.').pop()?.toLowerCase();
+    if (!['lua', 'luau', 'txt'].includes(extension ?? '')) {
+      setMessage('Formato no compatible. Sube un archivo .lua, .luau o .txt.');
+      input.value = '';
+      return;
+    }
+    if (f.size > maxBytes) {
+      setMessage(`el archivo ocupa ${formatBytes(f.size)}; el límite es ${formatBytes(maxBytes)}`);
+      input.value = '';
+      return;
+    }
+    try {
+      const text = await f.text();
+      setSource(text);
+      setFileName(f.name);
+      setResult(null);
+      setMessage(null);
+    } catch {
+      setMessage('No se pudo leer el archivo. Comprueba que sea un archivo de texto UTF-8.');
+    } finally {
+      input.value = '';
+    }
   }
 
   function exportResult() {
@@ -87,7 +105,7 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
 
   return (
     <section className="view">
-      <div className="editor-heading"><div><p className="eyebrow">WORKSPACE / PROTECCIÓN DE CÓDIGO</p><h2>Ofuscador</h2><p className="muted">Pega o importa tu script Luau y elige un nivel de protección.</p></div><span className="editor-tag">● {remainingUses === null ? 'USO ILIMITADO' : `${remainingUses} OFUSCACIONES RESTANTES`}</span></div>
+      <div className="editor-heading"><div><p className="eyebrow">WORKSPACE / PROTECCIÓN DE CÓDIGO</p><h2>Ofuscador</h2><p className="muted">Pega tu código o importa un archivo .lua, .luau o .txt.</p></div><span className="editor-tag">● {remainingUses === null ? 'USO ILIMITADO' : `${remainingUses} OFUSCACIONES RESTANTES`}</span></div>
       <div className="toolbar">
         <select aria-label="Perfil" value={profile} onChange={(e: any) => setProfile(e.target.value)} disabled={busy}>
           {profiles.map((p) => <option key={p.name} value={p.name}>{p.name.toUpperCase()}</option>)}

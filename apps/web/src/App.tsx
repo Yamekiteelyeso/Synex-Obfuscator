@@ -141,7 +141,7 @@ export function App() {
 
   return (
     <div className="app">
-      <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
+      <aside id="synex-sidebar" className={`sidebar ${menuOpen ? 'open' : ''}`}>
         <div className="brand"><b className="brand-symbol small">S</b> SYNEX<span>OBFUSCADOR</span></div>
         <nav>
           {visible.map((item) => (
@@ -156,9 +156,10 @@ export function App() {
           <button className="btn ghost" onClick={logout}>Cerrar sesión</button>
         </div>
       </aside>
+      {menuOpen && <button className="sidebar-backdrop" aria-label="Cerrar menú" onClick={() => setMenuOpen(false)} />}
       <main className="main">
         <header className="topbar">
-          <button className="btn ghost menu-btn" aria-label="Menú" onClick={() => setMenuOpen(!menuOpen)}>☰</button>
+          <button className="btn ghost menu-btn" aria-label="Menú" aria-controls="synex-sidebar" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>☰</button>
           <span className="muted">{health ? 'Motor en línea' : 'Motor sin conexión'}</span>
         </header>
         {view === 'editor' && (
