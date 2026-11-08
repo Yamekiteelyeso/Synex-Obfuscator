@@ -47,6 +47,8 @@ interface Data {
 }
 
 const MAX_ERRORS = 200;
+const MAX_HISTORY = 10_000;
+const VALID_PROFILES = ['basic', 'medium', 'max'] as const;
 
 const DEFAULT_SETTINGS: Settings = {
   maxInputBytes: 1024 * 1024,
@@ -70,12 +72,23 @@ export class Store {
           : migratedUsage;
         return { ...raw, plan, obfuscationsUsed } as User;
       });
+      const storedProfiles = Array.isArray(loaded.settings?.enabledProfiles)
+        ? [...new Set(loaded.settings.enabledProfiles.filter((profile): profile is string =>
+          typeof profile === 'string' && (VALID_PROFILES as readonly string[]).includes(profile)))]
+        : DEFAULT_SETTINGS.enabledProfiles;
+      const storedMaxInput = loaded.settings?.maxInputBytes;
+      const settings: Settings = {
+        maxInputBytes: Number.isInteger(storedMaxInput) && storedMaxInput! >= 1024 && storedMaxInput! <= 10 * 1024 * 1024
+          ? storedMaxInput!
+          : DEFAULT_SETTINGS.maxInputBytes,
+        enabledProfiles: storedProfiles.length > 0 ? storedProfiles : [...DEFAULT_SETTINGS.enabledProfiles],
+      };
       this.data = {
         users,
-        history,
-        errors: Array.isArray(loaded.errors) ? loaded.errors : [],
+        history: history.slice(-MAX_HISTORY),
+        errors: Array.isArray(loaded.errors) ? loaded.errors.slice(-MAX_ERRORS) : [],
         planRequests: Array.isArray(loaded.planRequests) ? loaded.planRequests : [],
-        settings: { ...DEFAULT_SETTINGS, ...loaded.settings, enabledProfiles: ['basic', 'medium', 'max'] },
+        settings,
         sessions: Array.isArray(loaded.sessions) ? loaded.sessions.filter((entry) =>
           entry && typeof entry.token === 'string' && typeof entry.userId === 'string'
           && Number.isFinite(entry.expiresAt) && entry.expiresAt > Date.now()) : [],
@@ -145,6 +158,7 @@ export class Store {
 
   addHistory(entry: HistoryEntry): void {
     this.data.history.push(entry);
+    if (this.data.history.length > MAX_HISTORY) this.data.history.splice(0, this.data.history.length - MAX_HISTORY);
     this.save();
   }
 
