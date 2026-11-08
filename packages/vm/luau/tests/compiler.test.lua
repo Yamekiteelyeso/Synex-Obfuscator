@@ -26,7 +26,7 @@ assert(not ok, "compiler allowed nonce reuse")
 -- Version 2 switches record authentication to XChaCha20-Poly1305.
 local artifactV2 = Compiler.compile(instructions, {
 	encryptionKey=encryptionKey, integrityKey=integrityKey,
-	nonces={string.rep("\\8", 24), string.rep("\\9", 24)},
+	nonces={string.rep(string.char(8), 24), string.rep(string.char(9), 24)},
 	prototypeSalt=100, version=2,
 })
 assert(artifactV2.version == 2, "compiler did not preserve artifact version")
