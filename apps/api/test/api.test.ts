@@ -156,11 +156,13 @@ test('admin: solo administradores acceden; puede cambiar la configuración', asy
   await call('PUT', '/api/admin/settings', { enabledProfiles: ['basic', 'medium', 'max'] }, adminToken);
 });
 
-test('perfiles y salud son públicos y no quedan técnicas pendientes', async () => {
+test('solo expone Basic, Medium y Max y mantiene salud pública', async () => {
   const p = await call('GET', '/api/profiles');
   assert.equal(p.status, 200);
   assert.equal(p.json.profiles.length, 3);
+  assert.equal((await call('GET', '/api/auth/discord')).status, 503);
   assert.deepEqual(p.json.profiles.map((x: any) => x.name), ['basic', 'medium', 'max']);
+  assert.equal((await call('POST', '/api/jobs', { source: SCRIPT, profile: 'advanced' }, await login('flujo@synex.test', 'clave-segura-2'))).status, 400);
   assert.ok(p.json.techniques.some((t: any) => t.id === 'vm' && t.status === 'implemented'));
   assert.ok(p.json.techniques.some((t: any) => t.id === 'integrity' && t.status === 'implemented'));
   assert.equal(p.json.techniques.filter((t: any) => t.status !== 'implemented').length, 0);
