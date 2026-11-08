@@ -222,6 +222,7 @@ local function unstr(bytes, key)
   return tbl.concat(out)
 end
 local typefn, select, setmt, getmt, errorfn, pcallfn = type, select, setmetatable, getmetatable, error, pcall
+local rawgetfn, rawsetfn = rawget, rawset
 local getenv, getgenvfn = getfenv, getgenv
 local baseEnv = (getenv and getenv(0)) or _G
 local executorEnv = baseEnv
@@ -229,19 +230,33 @@ if getgenvfn then
   local ok, candidate = pcallfn(getgenvfn)
   if ok and typefn(candidate) == "table" then executorEnv = candidate end
 end
--- Lookup primero en el entorno del executor y después en el entorno Roblox.
--- El proxy evita perder globals nativos cuando getgenv() es una tabla separada.
-local ENV = baseEnv
-if executorEnv ~= baseEnv then
-  ENV = setmt({}, {
-    __index = function(_, key)
-      local value = executorEnv[key]
-      if value ~= nil then return value end
-      return baseEnv[key]
-    end,
-    __newindex = function(_, key, value) executorEnv[key] = value end,
-  })
-end
+-- Blindaje de introspección: el programa virtual no recibe acceso directo a
+-- tablas de entorno, registros internos ni primitivas típicas de hooking.
+-- Esto reduce fugas accidentales; no puede neutralizar un executor que ya
+-- controla el proceso, parchea el runtime o inspecciona memoria.
+local BLOCKED_ENV = {
+  debug=true, getfenv=true, getgenv=true, getrenv=true, getreg=true, getgc=true,
+  hookfunction=true, hookmetamethod=true, getrawmetatable=true, setreadonly=true,
+  getconnections=true, getupvalues=true, getconstants=true, getproto=true,
+  getprotos=true, getscriptbytecode=true, getsenv=true, getloadedmodules=true,
+  getrunningscripts=true, identifyexecutor=true, getexecutorname=true, checkcaller=true,
+}
+-- Resolver globals mediante un proxy privado; no se devuelve ninguna tabla
+-- de entorno y las lecturas del executor evitan sus metamétodos __index.
+local ENV = setmt({}, {
+  __index = function(_, key)
+    if BLOCKED_ENV[key] then return nil end
+    local value = rawgetfn(executorEnv, key)
+    if value ~= nil then return value end
+    value = rawgetfn(baseEnv, key)
+    if value ~= nil then return value end
+    return baseEnv[key]
+  end,
+  __newindex = function(_, key, value)
+    if BLOCKED_ENV[key] then errorfn("acceso de entorno bloqueado", 0) end
+    rawsetfn(executorEnv, key, value)
+  end,
+})
 local STEP_LIMIT = __LIMIT__
 local VALID_OP = __VALID_OPS__
 local OPERAND_MODULUS, OPERAND_HALF = 2147483647, 1073741823
