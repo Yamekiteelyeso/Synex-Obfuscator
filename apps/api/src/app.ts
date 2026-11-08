@@ -5,6 +5,7 @@ import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { JobManager, PROFILES, TECHNIQUES, type JobRecord, type ProfileName, type TechniqueSettings } from '@synex/engine';
 import { Sessions, type AccountPlan, type User } from './auth.js';
 import { Store, type HistoryEntry } from './store.js';
+import { pruneBoundedMap } from './limits.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -159,7 +160,11 @@ export function createApp(opts: AppOptions): App {
   const discordStates = new Map<string, number>();
   const discordTickets = new Map<string, { userId: string; expiresAt: number }>();
   const ipWindow = new Map<string, { count: number; reset: number }>();
+  const maxDiscordStates = 10_000;
+  const maxDiscordTickets = 10_000;
+  const maxIpWindows = 50_000;
   const rateLimit = opts.rateLimitPerMinute ?? 300;
+  let nextIpPruneAt = 0;
 
   const publicUser = (u: User) => ({
     id: u.id,
@@ -274,11 +279,10 @@ export function createApp(opts: AppOptions): App {
       throw new HttpError(503, 'DISCORD_REDIRECT_URI debe usar HTTPS', 'E_DISCORD_CONFIG');
     }
 
-    for (const [oldState, expiresAt] of discordStates) {
-      if (expiresAt <= Date.now()) discordStates.delete(oldState);
-    }
+    const stateNow = Date.now();
+    pruneBoundedMap(discordStates, stateNow, maxDiscordStates, (expiresAt) => expiresAt, 1);
     const state = randomBytes(32).toString('hex');
-    discordStates.set(state, Date.now() + 5 * 60_000);
+    discordStates.set(state, stateNow + 5 * 60_000);
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri.toString(),
@@ -320,6 +324,7 @@ export function createApp(opts: AppOptions): App {
       .find((part) => part.startsWith('synex_oauth_state='))
       ?.slice('synex_oauth_state='.length);
     res.setHeader('Set-Cookie', 'synex_oauth_state=; Path=/api/auth/discord/callback; HttpOnly; SameSite=Lax; Max-Age=0' + (redirectUri.protocol === 'https:' ? '; Secure' : ''));
+    pruneBoundedMap(discordStates, Date.now(), maxDiscordStates, (expiry) => expiry);
     const expiresAt = discordStates.get(state);
     discordStates.delete(state);
     if (!state || stateCookie !== state || !expiresAt || expiresAt < Date.now()) {
@@ -424,8 +429,10 @@ export function createApp(opts: AppOptions): App {
     }
 
     // El ticket es opaco y de un solo uso; el token de sesión nunca va en la URL.
+    const ticketNow = Date.now();
+    pruneBoundedMap(discordTickets, ticketNow, maxDiscordTickets, (entry) => entry.expiresAt, 1);
     const ticket = randomUUID();
-    discordTickets.set(ticket, { userId: user.id, expiresAt: Date.now() + 90_000 });
+    discordTickets.set(ticket, { userId: user.id, expiresAt: ticketNow + 90_000 });
     const home = new URL('/', redirectUri);
     home.searchParams.set('discord_ticket', ticket);
     res.writeHead(302, { Location: home.toString() });
@@ -434,6 +441,7 @@ export function createApp(opts: AppOptions): App {
 
   route('POST', '/api/auth/discord/exchange', 'none', async ({ req, res }) => {
     const body = bodyObject(await readJson(req, 4096)); const ticket = String(body.ticket ?? '');
+    pruneBoundedMap(discordTickets, Date.now(), maxDiscordTickets, (entry) => entry.expiresAt);
     const entry = discordTickets.get(ticket); discordTickets.delete(ticket);
     if (!entry || entry.expiresAt < Date.now()) throw new HttpError(401, 'el enlace de Discord expiró; inténtalo de nuevo', 'E_DISCORD_TICKET');
     const user = store.users.find((u) => u.id === entry.userId);
@@ -632,9 +640,21 @@ export function createApp(opts: AppOptions): App {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const ip = req.socket.remoteAddress ?? 'unknown';
     const now = Date.now();
+    if (now >= nextIpPruneAt) {
+      pruneBoundedMap(ipWindow, now, maxIpWindows, (entry) => entry.reset);
+      nextIpPruneAt = now + 60_000;
+    }
     const w = ipWindow.get(ip);
-    if (!w || w.reset < now) ipWindow.set(ip, { count: 1, reset: now + 60_000 });
-    else if (++w.count > rateLimit) return json(res, 429, { error: { code: 'E_RATE', message: 'demasiadas peticiones' } });
+    if (!w || w.reset <= now) {
+      ipWindow.delete(ip);
+      pruneBoundedMap(ipWindow, now, maxIpWindows, (entry) => entry.reset, 1);
+      ipWindow.set(ip, { count: 1, reset: now + 60_000 });
+    } else {
+      const count = w.count + 1;
+      ipWindow.delete(ip);
+      ipWindow.set(ip, { count, reset: w.reset });
+      if (count > rateLimit) return json(res, 429, { error: { code: 'E_RATE', message: 'demasiadas peticiones' } });
+    }
 
     if (opts.webDir && req.method === 'GET' && !url.pathname.startsWith('/api/')) {
       return serveStatic(opts.webDir, url.pathname, res);
