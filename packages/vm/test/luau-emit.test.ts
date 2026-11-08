@@ -140,7 +140,7 @@ describe('VM Luau emitida: propiedades', () => {
 
   test('combina getgenv con globals nativos del entorno base', () => {
     const src = 'sharedProbe = 40; print(sharedProbe + 2, getgenv().sharedProbe)';
-    const harness = 'executorEnv = {}; getgenv = function() return executorEnv end\\n';
+    const harness = 'executorEnv = {}; getgenv = function() return executorEnv end\n';
     const original = runLua54(harness + src);
     const emitted = runLua54(harness + compileToLuauVm(src, 13));
     assert.ok(original.ok, original.error);
