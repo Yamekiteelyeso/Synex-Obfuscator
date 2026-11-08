@@ -351,7 +351,7 @@ test('emisor Luau: los sellos de prototipo y bloque usan doble acumulador', () =
   const emitted = compileToLuauVm('local x = 1\nprint(x)', 90817);
   assert.match(emitted, /local hashA =/);
   assert.match(emitted, /local hashB =/);
-  assert.match(emitted, /hashB == seal\[2\]/);
+  assert.match(emitted, /hashB == _[a-z0-9]+\[2\]/);
   assert.match(emitted, /hashB == descriptor\[2\]/);
 });
 
