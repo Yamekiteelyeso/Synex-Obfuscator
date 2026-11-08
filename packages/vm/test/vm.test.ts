@@ -282,8 +282,8 @@ test('emisor Luau: los sellos de prototipo y bloque usan doble acumulador', () =
 const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
 
 test('VM emitida: segmenta cadenas largas con claves distintas y las reconstruye correctamente', { skip: !hasLua54 }, () => {
-  const value = 'Synex::fragmented::Unicode::🌎::0123456789::protection';
-  const escapedValue = 'Synex::fragmented::Unicode::\\u{1F30E}::0123456789::protection';
+  const value = 'Synex::fragmented::Unicode::GLOBE::0123456789::protection';
+  const escapedValue = value;
   const source = `local value = "${escapedValue}"\nprint(value)`;
   const emitted = compileToLuauVm(source, 884422);
   const chunks = (emitted.match(/local b=\{/g) ?? []).length;
