@@ -99,7 +99,7 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
 
 const OPERAND_MODULUS = 2147483647;
 
-/** Enmascara cada campo con una clave derivada de semilla, instrucción y posición. */
+/** Enmascara cada campo con una clave derivada de semilla, prototipo, instrucción y posición. */
 function encodeOperand(value: number, pc: number, field: number, seed: number, protoSalt: number): number {
   const normalized = ((value % OPERAND_MODULUS) + OPERAND_MODULUS) % OPERAND_MODULUS;
   const mask = ((seed >>> 0) + pc * 131 + field * 977 + protoSalt * 4099) % OPERAND_MODULUS;
