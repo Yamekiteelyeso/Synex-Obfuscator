@@ -39,13 +39,11 @@ assert(Crypto.open(key, nonce24, ciphertext, tag, aad .. "!") == nil, "tampered 
 assert(Crypto.open(key, nonce24, ciphertext, string.rep("\0", 32), aad) == nil, "tampered tag accepted")
 
 local chainKey = "0123456789abcdef0123456789abcdef"
-local state = { pc=8, sp=3, previousRegister=91, steps=17, opcode=42 }
 local previous = Integrity.start(chainKey, 5)
-local current = Integrity.advance(chainKey, previous, state)
-local valid = Integrity.verify(chainKey, current, previous, state)
-assert(valid, "valid state chain rejected")
-state.pc = state.pc + 1
-local invalid = Integrity.verify(chainKey, current, previous, state)
-assert(not invalid, "mutated VM state accepted")
+local current = Integrity.advanceRecord(chainKey, previous, 1, nonce24, ciphertext, tag, aad)
+local valid = Integrity.verifyRecord(chainKey, current, previous, 1, nonce24, ciphertext, tag, aad)
+assert(valid, "valid static record chain rejected")
+local invalid = Integrity.verifyRecord(chainKey, current, previous, 1, nonce24, ciphertext .. "x", tag, aad)
+assert(not invalid, "mutated record accepted by integrity chain")
 
 print("Synex Luau crypto tests passed")
