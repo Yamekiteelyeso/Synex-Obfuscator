@@ -116,11 +116,40 @@ function protoSeal(code: number[][], seed: number, salt: number, nparams: number
   return hash;
 }
 
+/**
+ * Fuse GETL + SETL en MOVE cuando el segundo registro no es destino de salto.
+ * Se remapean todos los destinos originales antes de barajar el layout físico.
+ * Sólo afecta a slots locales normales: los capturados usan GETBOX/SETBOX.
+ */
+function fuseSuperinstructions(code: Instr[]): Instr[] {
+  const jumpTargets = new Set(code.flatMap((ins) => ins.t === undefined ? [] : [ins.t]));
+  const fused: Instr[] = [];
+  const oldToNew = new Array<number>(code.length);
+  for (let i = 0; i < code.length;) {
+    const current = code[i];
+    const next = code[i + 1];
+    oldToNew[i] = fused.length;
+    if (current.op === 'GETL' && next?.op === 'SETL' && !jumpTargets.has(i + 1)) {
+      oldToNew[i + 1] = fused.length;
+      fused.push({ op: 'MOVE', a: current.a, b: next.a, line: current.line });
+      i += 2;
+    } else {
+      fused.push({ ...current });
+      i += 1;
+    }
+  }
+  for (const ins of fused) {
+    if (ins.t !== undefined) ins.t = oldToNew[ins.t];
+  }
+  return fused;
+}
+
 function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }): string {
   // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
   const protoSalt = ++protoCounter.value;
+  const virtualCode = fuseSuperinstructions(p.code);
   // Randomize physical instruction storage independently for each prototype.
-  const order = Array.from({ length: p.code.length }, (_, i) => i + 1);
+  const order = Array.from({ length: virtualCode.length }, (_, i) => i + 1);
   const shuffle = rng((seed ^ Math.imul(protoSalt, 0x45d9f3b)) >>> 0);
   // La primera instrucción lógica conserva el slot de entrada de la VM.
   for (let i = order.length - 1; i > 1; i--) {
@@ -130,11 +159,11 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   const physicalOf: number[] = [];
   order.forEach((originalPc, physicalIndex) => { physicalOf[originalPc] = physicalIndex + 1; });
   const encodedCode = order.map((originalPc, physicalIndex) => {
-    const ins = p.code[originalPc - 1];
+    const ins = virtualCode[originalPc - 1];
     const pc = physicalIndex + 1;
     const logicalTarget = ins.t !== undefined ? ins.t + 1 : 0;
     const target = logicalTarget ? physicalOf[logicalTarget] : 0;
-    const nextLogical = originalPc < p.code.length ? originalPc + 1 : 0;
+    const nextLogical = originalPc < virtualCode.length ? originalPc + 1 : 0;
     const next = nextLogical ? physicalOf[nextLogical] : 0;
     const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, ins.line ?? 0, next];
     return fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
