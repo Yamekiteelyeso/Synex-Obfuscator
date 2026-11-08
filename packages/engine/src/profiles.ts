@@ -60,7 +60,9 @@ const NORMAL: TechniqueSettings = {
 
 const MEDIUM: TechniqueSettings = {
   ...ADVANCED,
-  controlFlowProbability: 0.3,
+  expressionProbability: 0.8,
+  deadCodeDensity: 0.25,
+  controlFlowProbability: 0.4,
   techniques: [...ADVANCED.techniques, 'controlflow'],
 };
 
@@ -75,6 +77,9 @@ const ROBLOX: TechniqueSettings = {
 
 const MAX: TechniqueSettings = {
   ...PROFESSIONAL,
+  expressionProbability: 1,
+  deadCodeDensity: 0.6,
+  controlFlowProbability: 0.85,
   techniques: [...PROFESSIONAL.techniques, 'vm'],
 };
 
