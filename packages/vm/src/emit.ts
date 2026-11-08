@@ -174,6 +174,20 @@ local STEP_LIMIT = __LIMIT__
 local VALID_OP = __VALID_OPS__
 local OPERAND_MODULUS, OPERAND_HALF = 2147483647, 1073741823
 local OPERAND_SEED = __OPERAND_SEED__
+local function protoIntact(P)
+  local h = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0)) % OPERAND_MODULUS
+  local code = P.__KEY_CODE__
+  for i = 1, #code do
+    local ins = code[i]
+    if typefn(ins) ~= "table" or #ins ~= 6 then return false end
+    for j = 1, 6 do
+      local v = ins[j]
+      if typefn(v) ~= "number" or v ~= floor(v) then return false end
+      h = (h * 33 + v) % OPERAND_MODULUS
+    end
+  end
+  return h == P.__KEY_SEAL__
+end
 local function decodeOperand(value, pc, field, protoSalt)
   local mask = (OPERAND_SEED + pc * 131 + field * 977 + protoSalt * 4099 + (pc * field * protoSalt * 17) % OPERAND_MODULUS) % OPERAND_MODULUS
   local decoded = (value - mask) % OPERAND_MODULUS
@@ -212,6 +226,7 @@ run = function(P, U, args)
   local slots = {}
   local np = P.__KEY_NP__
   local ns = P.__KEY_NS__
+  if not protoIntact(P) then fail("integridad comprometida: prototipo alterado") end
   if typefn(np) ~= "number" or typefn(ns) ~= "number" or np < 0 or np > ns or np ~= floor(np) or ns ~= floor(ns) then fail("prototipo corrupto") end
   for i = 1, np do slots[i] = args[i] end
   local va, nva = {}, 0
