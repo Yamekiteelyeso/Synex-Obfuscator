@@ -298,7 +298,7 @@ test('VM emitida: detecta alteración de bytes de constantes antes de reconstrui
   const payloadStart = emitted.indexOf('local b={', mainStart);
   assert.ok(mainStart >= 0 && payloadStart > mainStart);
   const numberStart = payloadStart + 'local b={'.length;
-  const number = /\\d+/.exec(emitted.slice(numberStart));
+  const number = /\d+/.exec(emitted.slice(numberStart));
   assert.ok(number);
   const tampered = emitted.slice(0, numberStart + number.index)
     + String((Number(number[0]) + 1) % 256)
