@@ -1012,6 +1012,17 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
       }
     }
 
+    // Distinguish member access (.) from Lua concatenation (...) so the
+    // identifier after '..' is still eligible for renaming.
+    if (ch === '.' && next === '.') {
+      const width = source[i + 2] === '.' ? 3 : 2;
+      output += source.slice(i, i + width);
+      i += width;
+      previous = 'operator';
+      previousIdentifier = '';
+      continue;
+    }
+
     if (/[A-Za-z_]/.test(ch)) {
       const start = i++;
       while (i < source.length && /[A-Za-z0-9_]/.test(source[i]!)) i++;
