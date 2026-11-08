@@ -255,6 +255,10 @@ export function createApp(opts: AppOptions): App {
     if (typeof signature !== 'string' || typeof timestamp !== 'string' || !publicKeyHex) {
       throw new HttpError(401, 'firma de Discord ausente o bot no configurado', 'E_DISCORD_SIGNATURE');
     }
+    const timestampMs = Number(timestamp) * 1000;
+    if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60_000) {
+      throw new HttpError(401, 'interacción de Discord expirada', 'E_DISCORD_SIGNATURE');
+    }
     try {
       const derPrefix = Buffer.from('302a300506032b6570032100', 'hex');
       const publicKey = createPublicKey({ key: Buffer.concat([derPrefix, Buffer.from(publicKeyHex, 'hex')]), format: 'der', type: 'spki' });
