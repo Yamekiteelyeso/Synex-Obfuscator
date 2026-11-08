@@ -131,3 +131,22 @@ El perfil no promete compatibilidad con todas las extensiones de sintaxis/tipado
 ## Marca de salida
 
 Todas las salidas comienzan con un comentario Luau de identificación, por ejemplo `-- [Synex Obf] | profile: roblox | vm: on`. Se añade después de transformar el código para que permanezca como primera línea tanto en los perfiles normales como en las salidas virtualizadas.
+
+
+## Synex Obfuscador: planes y acceso con Discord
+
+La aplicación ofrece únicamente tres niveles de ofuscación:
+
+- **Basic:** renombrado de identificadores y protección de cadenas.
+- **Medium:** Basic más transformación de constantes, expresiones, código muerto y aplanado parcial del flujo de control.
+- **Max:** técnicas avanzadas más virtualización mediante la VM Luau.
+
+El registro tradicional por correo sigue disponible. También se puede iniciar sesión con Discord mediante OAuth2. Para activarlo, crea una aplicación en el [Discord Developer Portal](https://discord.com/developers/applications), configura el redirect URI exacto y añade estas variables al entorno del servicio (por ejemplo, Railway):
+
+- `DISCORD_CLIENT_ID`
+- `DISCORD_CLIENT_SECRET`
+- `DISCORD_REDIRECT_URI` — por ejemplo `https://TU-DOMINIO/api/auth/discord/callback`
+
+En la configuración OAuth2 de Discord, habilita los scopes `identify` y `email` y registra el mismo redirect URI. No guardes el client secret en el frontend ni en el repositorio. Si estas variables no están configuradas, el acceso por Discord muestra un aviso y el registro por correo continúa funcionando.
+
+**Nota sobre el bot:** el inicio de sesión implementado usa la autorización oficial de Discord (OAuth2). El proceso/servicio del bot de Discord que atiende comandos o verifica miembros del servidor es un componente separado y necesita su propio bot token, permisos y despliegue; no se debe confundir ese token con el client secret OAuth2.
