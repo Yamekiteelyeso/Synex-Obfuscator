@@ -79,6 +79,13 @@ test('funciones variádicas y select', () => {
   assert.deepEqual(out(src), ['6\t3']);
 });
 
+test('select respeta índices positivos, negativos y validación Lua', () => {
+  assert.deepEqual(out('print(select(2, "a", "b", "c"), select(-1, "a", "b", "c"), select("#", "a", "b", "c"))'), ['b\tc\tc\t3']);
+  assert.throws(() => out('select(0, "a")'), /select.*index out of range/);
+  assert.throws(() => out('select(1.5, "a")'), /select.*index out of range/);
+  assert.throws(() => out('select(-3, "a", "b")'), /select.*index out of range/);
+});
+
 test('métodos con self', () => {
   const src = `
     local Account = {}
