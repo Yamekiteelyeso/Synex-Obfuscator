@@ -225,6 +225,9 @@ test('string.gsub sustituye coincidencias, capturas y respeta límites', () => {
   assert.deepEqual(out('local s, n = string.gsub("abc", "", "-"); print(s, n)'), ['-a-b-c-\t4']);
   assert.throws(() => out('string.gsub("abc", "(.)", "%9")'), /invalid capture index/);
   assert.throws(() => out('string.gsub("abc", "a", "%x")'), /invalid use of/);
+  assert.deepEqual(out('local s, n = string.gsub("a", "a", function() return false end); print(s, n)'), ['a\t1']);
+  assert.throws(() => out('string.gsub("a", "a", {a = true})'), /string or number expected/);
+  assert.throws(() => out('string.gsub("a", "a", function() return true end)'), /string or number expected/);
 });
 test('string.format admite conversiones comunes, ancho y precisión', () => {
   assert.deepEqual(out('print(string.format("%04d %.2f %s %%", 7, 2.5, "ok"))'), ['0007 2.50 ok %']);
