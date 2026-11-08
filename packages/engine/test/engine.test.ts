@@ -94,6 +94,17 @@ test('se registran las etapas con tiempos', () => {
   assert.ok(r.stages.every((s) => s.ms >= 0));
 });
 
+test('runProfile valida semillas uint32 independientemente del perfil', () => {
+  for (const seed of [-1, 0x1_0000_0000, 1.5, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(
+      () => runProfile('print(1)', { profile: 'basic', seed }),
+      (error: any) => error.code === 'E_OPTIONS',
+    );
+  }
+  assert.doesNotThrow(() => runProfile('print(1)', { profile: 'basic', seed: 0 }));
+  assert.doesNotThrow(() => runProfile('print(1)', { profile: 'basic', seed: 0xffff_ffff }));
+});
+
 test('entradas inválidas: vacía, demasiado grande y con errores semánticos', () => {
   assert.throws(() => runProfile('   ', { profile: 'basic' }), (e: any) => e.code === 'E_EMPTY');
   assert.throws(() => runProfile('print(1)', { profile: 'basic', maxInputBytes: 3 }), (e: any) => e.code === 'E_LIMIT');
