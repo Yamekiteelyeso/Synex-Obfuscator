@@ -2,44 +2,54 @@
 
 ## Estado de implementación
 
-Synex compila actualmente mediante TypeScript y emite un intérprete Luau desde packages/vm/src/emit.ts. Los módulos bajo packages/vm/luau son bibliotecas de runtime; sólo afectarán a los payloads cuando el emisor los integre explícitamente.
+Synex compila actualmente mediante TypeScript y emite un intérprete Luau desde `packages/vm/src/emit.ts`. Los módulos bajo `packages/vm/luau` son una base modular probada; todavía no están conectados al emisor que produce los payloads del producto.
 
-## Pipeline
+## Pipeline objetivo
 
 1. Parseo, validación y análisis semántico.
 2. Compilación del AST a IR tipada.
 3. Optimizaciones que preservan semántica y transformaciones de flujo.
-4. Asignación de mapas de opcode y salts por prototipo.
-5. Serialización versionada de prototipos y constantes.
-6. Autenticación de registros y validación de índices antes del dispatcher.
-7. Emisión del wrapper Luau y pruebas de equivalencia, manipulación y rendimiento.
+4. Asignación determinista de opcodes, nombres y salts por build seed.
+5. Serialización versionada de registros por instrucción.
+6. Cifrado autenticado de cada registro con nonce único y AAD ligado a prototipo/posición.
+7. Cadena HMAC estática sobre los registros cifrados, más validación de límites y flujo en runtime.
+8. Emisión del wrapper Luau y pruebas de equivalencia, manipulación y rendimiento.
 
 ## Criptografía disponible en esta fase
 
-crypto.lua ofrece SHA-256, HMAC-SHA-256, HChaCha20, ChaCha20 y XChaCha20. La API seal/open usa cifrado XChaCha20 y Encrypt-then-MAC con una clave HMAC-SHA-256 separada por domain separation. Esto NO es XChaCha20-Poly1305 y no debe anunciarse como tal.
+`crypto.lua` ofrece SHA-256, HMAC-SHA-256, HChaCha20, ChaCha20 y XChaCha20. La API `seal/open` usa XChaCha20 con Encrypt-then-MAC y una clave HMAC-SHA-256 derivada por separación de dominios. Esto **NO es XChaCha20-Poly1305**. No se debe anunciar como tal.
 
-El llamador proporciona una clave de 32 bytes y un nonce de 24 bytes. El nonce no debe repetirse para una misma clave. entropy.lua sólo produce variación no criptográfica y nunca debe utilizarse como generador de claves o nonces. Para secretos y nonces de producción se requiere un servicio de build confiable o un CSPRNG de plataforma.
+El llamador proporciona una clave de 32 bytes y un nonce de 24 bytes. Un nonce no debe repetirse para una misma clave. `compiler.lua` exige nonces suministrados externamente y rechaza duplicados dentro de un prototipo. `entropy.lua` y `build.lua` producen variación/diseño determinista, no secretos criptográficos. Para claves y nonces de producción se requiere un servicio de build confiable o un CSPRNG de plataforma.
 
-## Integridad
+## Formato de registro v1
 
-integrity.lua encadena HMAC-SHA-256 sobre PC, stack pointer, registro previo, contador de pasos y opcode. La autenticación sólo protege frente a un atacante que no conoce la clave MAC. Una clave embebida en un payload cliente puede extraerse; por tanto, las verificaciones con clave embebida son evidencia de manipulación, no una frontera criptográfica de confianza.
+Cada instrucción en claro ocupa 20 bytes: cinco enteros unsigned de 32 bits little-endian (`opcode, a, b, c, nextPC`). Cada registro se cifra individualmente y contiene `nonce[24]`, `ciphertext[20]`, `tag[32]`, `chainTag[32]` y AAD. La cadena HMAC se calcula sobre el registro cifrado anterior, PC, nonce, AAD, ciphertext y tag. La VM sólo descifra el registro actual.
+
+## Modelo de integridad y límites
+
+La cadena HMAC estática puede generarse durante el build y detecta cambios, reordenamientos o sustituciones de registros mientras la clave MAC permanezca fuera del alcance del atacante. Si la clave se incluye en el cliente, puede extraerse: estas verificaciones son tamper-evident, no una frontera de confianza frente al propietario del proceso.
+
+El estado dinámico (PC, SP, registro previo, contador y opcode) se incorpora a un digest de ejecución local. Sin un valor esperado autenticado externo o una ruta de control totalmente conocida, ese digest no puede demostrar por sí solo que el estado runtime es legítimo: SP y PC dependen de ramas y entradas. No se debe afirmar que un MAC precalculado autentica estados runtime arbitrarios.
+
+Las cadenas Luau son inmutables. Asignar `nil` a una variable tras descifrar no garantiza sobrescribir la memoria interna del string. La VM evita materializar el bytecode completo, pero no promete zeroización física del plaintext.
 
 ## Compatibilidad
 
-Ningún global exclusivo de executors es obligatorio. Las capacidades opcionales se consultan defensivamente. La VM conserva los límites de pasos y profundidad y no debe cambiar la semántica del programa.
+Los módulos no requieren `getgenv`, `identifyexecutor`, `typeof` ni `Instance`. La compatibilidad real con Synapse, Script-Ware, Wave y Roblox Studio debe probarse en cada entorno; CI sólo confirma el CLI Luau utilizado en GitHub Actions.
 
 ## No objetivos
 
 - No se afirma que Luau cliente pueda ocultar plaintext al propietario del proceso.
 - Heap addresses, memoria del GC, timing, scheduler y hooks de debug no son entropía criptográfica.
 - No se implementan mecanismos anti-análisis ni anti-inspección.
-- No se afirma compatibilidad con todos los executors sin pruebas.
+- No se promete compatibilidad universal sin pruebas.
+- No se prometen 500k instrucciones/s, overhead inferior al 20% ni tamaño inferior a 3x sin benchmarks.
 
-## Validación requerida
+## Validación
 
-- Vectores conocidos SHA-256 y HMAC.
-- Vectores conocidos HChaCha20 y ChaCha20.
-- Round-trip XChaCha20 y pruebas de alteración de AAD, ciphertext y tag.
-- Mutación del estado de la cadena de integridad.
-- Suites de equivalencia Lua 5.4 y Luau CLI.
-- Benchmarks antes de declarar metas de rendimiento o tamaño.
+- Vectores conocidos SHA-256, HMAC, HChaCha20 y ChaCha20.
+- Round-trip XChaCha20 y rechazo de alteraciones en AAD, ciphertext y tag.
+- Verificación de cadena estática y ejecución de registros individuales.
+- Detección de nonce repetido por prototipo.
+- Pruebas de determinismo del build planner.
+- Suites de equivalencia Lua 5.4/Luau y benchmarks antes de integrar en el perfil Max.
