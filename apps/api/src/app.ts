@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
-import { randomInt, randomUUID } from 'node:crypto';
+import { createPublicKey, randomInt, randomUUID, verify as verifySignature } from 'node:crypto';
 import { JobManager, PROFILES, TECHNIQUES, type JobRecord, type ProfileName, type TechniqueSettings } from '@synex/engine';
 import { hashPassword, LoginLimiter, Sessions, validateCredentials, verifyPassword, type User } from './auth.js';
 import { Store, type HistoryEntry } from './store.js';
@@ -146,6 +146,17 @@ export function createApp(opts: AppOptions): App {
       req.on('error', reject);
     });
 
+  const readRaw = (req: IncomingMessage, limit: number): Promise<Buffer> => new Promise((resolve, reject) => {
+    let size = 0; const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limit) { reject(new HttpError(413, 'interacción demasiado grande', 'E_TOO_LARGE')); req.destroy(); return; }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+
   const bodyObject = (raw: unknown): Record<string, unknown> => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, 'se esperaba un objeto JSON');
     return raw as Record<string, unknown>;
@@ -233,6 +244,38 @@ export function createApp(opts: AppOptions): App {
     const user = store.users.find((u) => u.id === entry.userId);
     if (!user) throw new HttpError(401, 'cuenta de Discord no encontrada', 'E_DISCORD_USER');
     json(res, 200, { token: sessions.create(user.id), user: publicUser(user) });
+  });
+
+  // Endpoint de interacciones: el bot funciona con Discord Interactions (sin Gateway).
+  route('POST', '/api/discord/interactions', 'none', async ({ req, res }) => {
+    const raw = await readRaw(req, 64 * 1024);
+    const signature = req.headers['x-signature-ed25519'];
+    const timestamp = req.headers['x-signature-timestamp'];
+    const publicKeyHex = process.env.DISCORD_PUBLIC_KEY;
+    if (typeof signature !== 'string' || typeof timestamp !== 'string' || !publicKeyHex) {
+      throw new HttpError(401, 'firma de Discord ausente o bot no configurado', 'E_DISCORD_SIGNATURE');
+    }
+    try {
+      const derPrefix = Buffer.from('302a300506032b6570032100', 'hex');
+      const publicKey = createPublicKey({ key: Buffer.concat([derPrefix, Buffer.from(publicKeyHex, 'hex')]), format: 'der', type: 'spki' });
+      const valid = verifySignature(null, Buffer.concat([Buffer.from(timestamp), raw]), publicKey, Buffer.from(signature, 'hex'));
+      if (!valid) throw new Error('invalid signature');
+    } catch {
+      throw new HttpError(401, 'firma de interacción de Discord no válida', 'E_DISCORD_SIGNATURE');
+    }
+    let interaction: any;
+    try { interaction = JSON.parse(raw.toString('utf8')); }
+    catch { throw new HttpError(400, 'JSON de interacción no válido', 'E_BAD_JSON'); }
+    if (interaction.type === 1) return json(res, 200, { type: 1 });
+    if (interaction.type !== 2 || interaction.data?.name !== 'synex-login') {
+      return json(res, 200, { type: 4, data: { content: 'Comando no reconocido.', flags: 64 } });
+    }
+    const redirectUri = process.env.DISCORD_REDIRECT_URI;
+    if (!process.env.DISCORD_CLIENT_ID || !redirectUri) {
+      return json(res, 200, { type: 4, data: { content: 'El inicio de sesión de Synex aún no está configurado.', flags: 64 } });
+    }
+    const loginUrl = new URL('/api/auth/discord', new URL(redirectUri).origin).toString();
+    return json(res, 200, { type: 4, data: { content: 'Inicia sesión o crea tu cuenta de Synex Obfuscador desde aquí: ' + loginUrl, flags: 64 } });
   });
 
   route('POST', '/api/auth/register', 'none', async ({ req, res }) => {
