@@ -109,6 +109,13 @@ const PROGRAMS: Record<string, string> = {
     local function sign(n) return if n > 0 then "pos" elseif n < 0 then "neg" else "zero" end
     print(sign(3), sign(-2), sign(0))`,
   selectIndices: `print(select(2, "a", "b", "c"), select(-1, "a", "b", "c"), select("#", "a", "b", "c"))`,
+  tablePackUnpackRemove: `
+    local packed = table.pack("a", nil, "c")
+    local first, middle, last = table.unpack(packed, 1, packed.n)
+    local values = {"x", "y", "z"}
+    local removed = table.remove(values, 2)
+    print(packed.n, first, middle, last, removed, #values, values[2])
+  `,
   genericForPairs: `
     local t = {10, 20, x = 1}
     local count = 0
