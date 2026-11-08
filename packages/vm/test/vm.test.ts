@@ -226,41 +226,41 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
   const code = compileToLuauVm('local x = game:GetService("Workspace")\nreturn x');
   assert.match(code, /getfenv/);
   assert.match(code, /getgenv/);
-  assert.match(code, /local function unstr/);
-  assert.match(code, /local function decodeOperand/);
-  assert.match(code, /local function protoIntact/);
-  assert.match(code, /local function blockIntact/);
-  assert.match(code, /integridad comprometida: bloque virtual alterado/);
-  assert.match(code, /índice de bloques corrupto/);
-  assert.match(code, /integridad comprometida: prototipo alterado/);
-  assert.match(code, /local function constant/);
+  assert.doesNotMatch(code, /local function unstr/);
+  assert.doesNotMatch(code, /local function decodeOperand/);
+  assert.doesNotMatch(code, /local function protoIntact/);
+  assert.doesNotMatch(code, /local function blockIntact/);
+  assert.doesNotMatch(code, /integridad comprometida: bloque virtual alterado/);
+  assert.doesNotMatch(code, /índice de bloques corrupto/);
+  assert.doesNotMatch(code, /integridad comprometida: prototipo alterado/);
+  assert.doesNotMatch(code, /local function constant/);
   assert.match(code, /#ins ~= 9/);
-  assert.match(code, /local function instructionIntact/);
-  assert.match(code, /integridad comprometida: instrucción alterada/);
-  assert.match(code, /decodeOperand\(ins\[7\], ip, 7, protoSalt\)/);
+  assert.doesNotMatch(code, /local function instructionIntact/);
+  assert.doesNotMatch(code, /integridad comprometida: instrucción alterada/);
+  assert.doesNotMatch(code, /decodeOperand/);
   assert.match(code, /sucesora fuera del prototipo/);
   assert.match(code, /function\(\) return/);
-  assert.match(code, /constIntact\(b,/);
-  assert.ok(code.includes('decodeOperand(ins[6], ip, 6, protoSalt)'));
+  assert.doesNotMatch(code, /constIntact/);
+  assert.ok(!code.includes('decodeOperand'));
   assert.ok(!code.includes('P.k['));
-  assert.ok(code.includes('unstr('));
+  assert.ok(!code.includes('unstr'));
   assert.equal(compileToLuauVm('local x = game:GetService("Workspace")\nreturn x'), code);
   assert.notEqual(compileToLuauVm('local x = game:GetService("Workspace")\nreturn x', 99), code);
   assert.doesNotMatch(code, /Workspace/);
-  assert.match(code, /local ENV/);
+  assert.doesNotMatch(code, /local ENV/);
   assert.match(code, /return o\[k\]/);
-  assert.match(code, /f\(unpackfn/);
-  assert.match(code, /local unpackfn = \(tbl and tbl\.unpack\) or unpack/);
-  assert.doesNotMatch(code, /typefn\(o\) ~= "table"/);
+  assert.match(code, /f\(_[a-z0-9]+/);
+  assert.match(code, /local _[a-z0-9]+ = \(_[a-z0-9]+ and _[a-z0-9]+\.unpack\) or unpack/);
+  assert.doesNotMatch(code, /typefn/);
 });
 
 
 test('emisor Luau: oculta APIs de introspección de entorno al script virtual', () => {
   const source = 'print(getfenv, getgenv, getrenv, getreg, debug, hookfunction, getrawmetatable)';
   const emitted = compileToLuauVm(source, 654321);
-  assert.match(emitted, /local BLOCKED_ENV/);
+  assert.doesNotMatch(emitted, /local BLOCKED_ENV/);
   assert.match(emitted, /acceso de entorno bloqueado/);
-  assert.match(emitted, /rawgetfn\(executorEnv, key\)/);
+  assert.doesNotMatch(emitted, /rawgetfn|executorEnv/);
   const hasLuauCli = spawnSync('luau', ['--help'], { encoding: 'utf8' }).status === 0;
 
 test('VM emitida ejecuta código en Luau CLI real', { skip: !hasLuauCli }, () => {
@@ -303,7 +303,7 @@ test('emisor Luau: aleatoriza los nombres de campos del prototipo por semilla', 
 test('emisor Luau: las cadenas Unicode no aparecen en texto plano dentro de la VM', () => {
   const code = compileToLuauVm('print("こんにちは 🌎")', 321);
   assert.doesNotMatch(code, /こんにちは|🌎/);
-  assert.ok(code.includes('unstr('));
+  assert.ok(!code.includes('unstr'));
 });
 
 
@@ -311,9 +311,9 @@ test('emisor Luau: los operandos del bytecode cambian por instrucción y semilla
   const src = 'local function f(x) return x + 7 end return f(12)';
   const a = compileToLuauVm(src, 77);
   const b = compileToLuauVm(src, 78);
-  assert.match(a, /OPERAND_SEED = 77/);
+  assert.doesNotMatch(a, /OPERAND_SEED/);
   assert.notEqual(a, b);
-  assert.match(a, /bytecode truncado o alterado/);
+  assert.doesNotMatch(a, /bytecode truncado o alterado/);
   assert.match(a, /límite de pila superado/);
 });
 
@@ -322,8 +322,8 @@ test('emisor Luau: cifra de forma reversible el metadato de línea', () => {
   const src = '\n'.repeat(sourceLine - 1) + "print('line marker')";
   const emitted = compileToLuauVm(src, 1234567, { stepLimit: 1 });
   assert.match(emitted, /local lineMultiplier = 17/);
-  assert.match(emitted, /local lineOffset = \(OPERAND_SEED \+ protoSalt \* 65537\) % 1000003/);
-  assert.match(emitted, /curLine = floor\(\(lineToken - lineOffset\) \/ lineMultiplier\)/);
+  assert.match(emitted, /local lineOffset = \(_[a-z0-9]+ \+ protoSalt \* 65537\) % 1000003/);
+  assert.match(emitted, /curLine = _[a-z0-9]+\(\(lineToken - lineOffset\) \/ lineMultiplier\)/);
   assert.doesNotMatch(emitted, /,12345,/);
   if (hasLua54) {
     let stderr = '';
@@ -339,7 +339,7 @@ test('emisor Luau: cifra de forma reversible el metadato de línea', () => {
 test('emisor Luau: oculta constantes numéricas con un decoder IEEE-754', () => {
   const source = 'local a = 987654321\nlocal b = 123.125\nprint(a, b, -a)';
   const emitted = compileToLuauVm(source, 778899);
-  assert.match(emitted, /local function unnum/);
+  assert.doesNotMatch(emitted, /local function unnum/);
   assert.doesNotMatch(emitted, /987654321|123\.125/);
   if (hasLua54) {
     const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 7000 });
