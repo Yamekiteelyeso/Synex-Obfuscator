@@ -271,14 +271,15 @@ export function installStdlib(interp: LuaEnvironment): void {
     const template = String(args[0]);
     let argument = 1;
     let output = '';
-    const quote = (value: string) => '"' + value.replace(/["\\\x00-\x1f\x7f]/g, (ch) => {
+    const quote = (value: string) => '"' + value.replace(/["\\\\\\x00-\\x1f\\x7f]/g, (ch) => {
       const code = ch.charCodeAt(0);
-      if (ch === '"') return '\\"';
-      if (ch === '\\\\') return '\\\\\\\\';
-      if (ch === '\\n') return '\\\\n';
-      if (ch === '\\r') return '\\\\r';
-      if (ch === '\\t') return '\\\\t';
-      return '\\\\' + String(code).padStart(3, '0');
+      const slash = String.fromCharCode(92);
+      if (code === 34) return slash + '"';
+      if (code === 92) return slash + slash;
+      if (code === 10) return slash + 'n';
+      if (code === 13) return slash + 'r';
+      if (code === 9) return slash + 't';
+      return slash + String(code).padStart(3, '0');
     }) + '"';
     for (let index = 0; index < template.length; index++) {
       if (template[index] !== '%') { output += template[index]; continue; }
