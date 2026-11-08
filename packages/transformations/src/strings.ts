@@ -105,7 +105,7 @@ export function createStringEncoder(
         'return v',
         'end',
         '',
-      ].join('\\n');
+      ].join('\n');
     },
   };
 }
