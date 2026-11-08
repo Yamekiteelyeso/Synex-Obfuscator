@@ -161,3 +161,12 @@ No hace falta guardar la Public Key ni un Application ID duplicado: la API obtie
 7. Invita el bot al servidor desde el botón Discord de Synex o con un enlace de instalación que incluya los scopes `bot` y `applications.commands`.
 
 El endpoint valida las firmas Ed25519 y la antigüedad de cada interacción. Los tickets de acceso son aleatorios, privados, de un solo uso y expiran en 90 segundos. El token del bot solo vive en el servidor; nunca se envía al navegador.
+
+
+## Synex v6 — entorno y privacidad de cadenas
+
+La VM usa un proxy privado para resolver globals y filtra APIs de introspección/hooking habituales (`getgenv`, `getfenv`, `getreg`, `getgc`, `debug`, `hookfunction`, `hookmetamethod`, entre otras) desde el entorno del script virtual. Las cadenas del pipeline se descifran bajo demanda y no se guardan en una caché persistente de texto plano.
+
+Estas medidas reducen exposición accidental y dificultan algunas formas simples de inspección, pero **no son una garantía anti-logger**: un executor que controla el proceso puede parchear funciones, instrumentar llamadas, leer memoria o capturar argumentos ya descifrados. No guardes credenciales, tokens ni secretos dentro de scripts ofuscados.
+
+La interfaz principal abre directamente el Ofuscador; Panel e Historial ya no aparecen en la navegación del usuario. La autenticación por Discord utiliza un botón azul con el logotipo oficial.
