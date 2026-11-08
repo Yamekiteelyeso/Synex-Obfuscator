@@ -28,7 +28,7 @@ export function rewrite(root: object, rule: (n: any) => any | undefined): void {
   }
 }
 
-/** Constante entera -> (N + K) - K con K aleatorio: la misma constante, distinta representación. */
+/** Constante entera -> ((N + K) * M - K*M) // M con K y M aleatorios; conserva el entero exacto. */
 export function transformNumbers(chunk: A.Chunk, rand: () => number): void {
   rewrite(chunk, (n) => {
     if (n.kind !== 'Number') return undefined;
