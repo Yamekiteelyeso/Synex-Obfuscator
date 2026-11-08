@@ -116,6 +116,15 @@ const PROGRAMS: Record<string, string> = {
     local removed = table.remove(values, 2)
     print(packed.n, first, middle, last, removed, #values, values[2])
   `,
+  tableMoveCloneClear: `
+    local values = {1, 2, 3, 4}
+    table.move(values, 1, 3, 2)
+    local copy = table.clone(values)
+    copy[1] = 99
+    print(table.concat(values, ","), copy[1])
+    table.clear(copy)
+    print(#copy)
+  `,
   tableSortAndStringCase: `
     local values = {4, 1, 3, 2}
     table.sort(values)
