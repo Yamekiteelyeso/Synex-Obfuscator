@@ -116,6 +116,13 @@ const PROGRAMS: Record<string, string> = {
     local removed = table.remove(values, 2)
     print(packed.n, first, middle, last, removed, #values, values[2])
   `,
+  tableAndStringRanges: `
+    local t = {"a", "b", "c", "d"}
+    table.insert(t, 2, "x")
+    local removed = table.remove(t, 3)
+    print(table.concat(t, "-", 2, 4), removed)
+    print(string.sub("abcdef", -3, -1), string.byte("abcd", 2, 3), string.rep("z", 3, "."))
+  `,
   genericForPairs: `
     local t = {10, 20, x = 1}
     local count = 0
