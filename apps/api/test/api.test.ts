@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp, type App } from '../src/index.js';
 import { Store } from '../src/store.js';
+import { Sessions } from '../src/auth.js';
 
 const WORKER = fileURLToPath(new URL('../../../packages/engine/dist/worker.js', import.meta.url));
 const SCRIPT = 'local total = 0\nfor i = 1, 4 do total = total + i end\nprint("total", total)';
@@ -297,6 +298,27 @@ test('OAuth2 valida el state y no solicita instalar un bot', async () => {
   assert.equal((await call('GET', '/api/nada')).status, 404);
   assert.equal((await call('DELETE', '/api/health')).status, 405);
   assert.equal((await call('GET', '/api/health')).json.status, 'ok');
+});
+
+
+test('las sesiones Discord sobreviven a una reconstrucción del servidor', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'synex-sessions-'));
+  const file = join(dir, 'data.json');
+  try {
+    const firstStore = new Store(file);
+    const firstSessions = new Sessions(60_000, () => 1_000, firstStore);
+    const token = firstSessions.create('persistent-discord-user');
+
+    const restartedStore = new Store(file);
+    const restartedSessions = new Sessions(60_000, () => 2_000, restartedStore);
+    assert.equal(restartedSessions.userIdFor(token), 'persistent-discord-user');
+
+    restartedSessions.revoke(token);
+    const thirdSessions = new Sessions(60_000, () => 3_000, new Store(file));
+    assert.equal(thirdSessions.userIdFor(token), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('Store persiste cuentas, plan, uso y solicitudes; migra uso del historial anterior', () => {
