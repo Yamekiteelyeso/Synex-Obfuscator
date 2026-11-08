@@ -190,10 +190,8 @@ export function createApp(opts: AppOptions): App {
     const stored = id ? store.users.find((u) => u.id === id) : null;
     if (!stored) return null;
     // El permiso se deriva del ID permitido en el servidor, nunca de un rol antiguo persistido.
-    return {
-      ...stored,
-      role: (opts.adminDiscordIds ?? []).includes(stored.discordId ?? '') ? 'admin' : 'user',
-    };
+    stored.role = (opts.adminDiscordIds ?? []).includes(stored.discordId ?? '') ? 'admin' : 'user';
+    return stored;
   };
 
   const routes: Route[] = [];
