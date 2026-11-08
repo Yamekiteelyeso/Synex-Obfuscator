@@ -24,6 +24,17 @@ local function runtimeState(vm, instruction)
 		steps=vm.steps + 1, opcode=instruction.opcode}
 end
 
+function M.deriveKeys(masterEncryptionKey, masterIntegrityKey, prototypeSalt)
+	assert(type(masterEncryptionKey) == "string" and #masterEncryptionKey == 32,
+		"master encryption key must be 32 bytes")
+	assert(type(masterIntegrityKey) == "string" and #masterIntegrityKey >= 16,
+		"master integrity key must be at least 16 bytes")
+	local context = tostring(math.floor(prototypeSalt or 0))
+	local encryptionKey = Crypto.hmacSha256(masterEncryptionKey, "Synex/prototype-encryption/v1:" .. context)
+	local integrityKey = Crypto.hmacSha256(masterIntegrityKey, "Synex/prototype-integrity/v1:" .. context)
+	return encryptionKey, integrityKey
+end
+
 function M.new(options)
 	assert(type(options) == "table", "VM options must be a table")
 	assert(type(options.records) == "table", "records must be a table")
@@ -33,10 +44,12 @@ function M.new(options)
 		"integrity key must be at least 16 bytes")
 	local count = #options.records
 	assert(count > 0, "VM requires at least one instruction")
+	local encryptionKey, integrityKey = M.deriveKeys(
+		options.encryptionKey, options.integrityKey, options.prototypeSalt or 0)
 	return {
-		records=options.records, encryptionKey=options.encryptionKey,
-		integrityKey=options.integrityKey,
-		chain=Integrity.start(options.integrityKey, options.prototypeSalt or 0),
+		records=options.records, encryptionKey=encryptionKey,
+		integrityKey=integrityKey,
+		chain=Integrity.start(integrityKey, options.prototypeSalt or 0),
 		stateChain=string.rep("\0", 32),
 		pc=options.entryPC or 1, sp=0, stack={}, steps=0, previousRegister=0,
 		maxSteps=math.max(1, math.floor(options.maxSteps or 1000000)),
@@ -117,8 +130,9 @@ function M.encodeRecord(opcode, a, b, c, nextPC)
 	return table.concat(out)
 end
 
-function M.sealRecord(encryptionKey, integrityKey, nonce, instruction, previousChain, pc, aad)
+function M.sealRecord(masterEncryptionKey, masterIntegrityKey, nonce, instruction, previousChain, pc, prototypeSalt, aad)
 	assert(type(nonce) == "string" and #nonce == 24, "nonce must be 24 bytes")
+	local encryptionKey, integrityKey = M.deriveKeys(masterEncryptionKey, masterIntegrityKey, prototypeSalt or 0)
 	local plain = M.encodeRecord(instruction.opcode, instruction.a, instruction.b,
 		instruction.c, instruction.nextPC)
 	local ciphertext, tag = Crypto.seal(encryptionKey, nonce, plain, aad or "")
