@@ -118,7 +118,7 @@ describe('VM Luau emitida: propiedades', () => {
     const a = compileToLuauVm(PROGRAMS.loops, 2101);
     const b = compileToLuauVm(PROGRAMS.loops, 2102);
     const armOrder = (code: string) =>
-      [...code.matchAll(/^    (?:if|elseif) op == (\\d+) then/gm)].map((match) => match[1]);
+      [...code.matchAll(/^    (?:if|elseif) op == (\d+) then/gm)].map((match) => match[1]);
     assert.deepEqual(armOrder(a), armOrder(compileToLuauVm(PROGRAMS.loops, 2101)));
     assert.notDeepEqual(armOrder(a), armOrder(b));
     assert.equal(armOrder(a).length, 52);

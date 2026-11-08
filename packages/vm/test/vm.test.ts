@@ -282,9 +282,9 @@ const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
 
 test('VM emitida: segmenta cadenas largas con claves distintas y las reconstruye correctamente', { skip: !hasLua54 }, () => {
   const value = 'Synex::fragmented::Unicode::🌎::0123456789::protection';
-  const source = `local value = "${value}"\\nprint(value)`;
+  const source = `local value = "${value}"\nprint(value)`;
   const emitted = compileToLuauVm(source, 884422);
-  const chunks = (emitted.match(/unstr\\(\\{/g) ?? []).length;
+  const chunks = (emitted.match(/unstr\(\{/g) ?? []).length;
   assert.ok(chunks >= 5, `se esperaban varios fragmentos, se emitieron ${chunks}`);
   assert.doesNotMatch(emitted, /Synex::fragmented::Unicode|0123456789/);
   const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 7000 });
