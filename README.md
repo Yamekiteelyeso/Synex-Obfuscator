@@ -12,10 +12,22 @@ Ofuscador profesional de scripts Luau. Monorepo TypeScript.
 | `packages/ir` | Bytecode de pila por función y compilador AST→IR: slots, celdas para locales capturados, upvalues, bucles, llamadas múltiples, tablas |
 | `packages/transformations` | Pipeline: renombrado de locales (determinista por semilla), protección de cadenas con cabecera de descifrado, aplanado del flujo de control (incluye funciones locales y break/continue), comprobación de integridad en tiempo de ejecución y verificación de salida (25 pruebas de aplanado e integridad, con ejecución real en Lua 5.4) |
 | `packages/vm` | VM de pila que ejecuta el IR (referencia en TypeScript) y emisor de la transformación mediante VM: compila el programa al IR y lo sustituye por un intérprete en Luau con códigos de operación aleatorios por build. Pruebas: 18 programas ejecutados en Lua 5.4 original y emitido, con salida idéntica (19 pruebas) |
-| `packages/runtime` | Intérprete de referencia de Luau sobre el AST, con biblioteca mínima (print, pairs, ipairs, table.concat/insert, string.char, bit32). Oráculo para pruebas de equivalencia (18 pruebas) |
+| `packages/runtime` | Intérprete de referencia sobre el AST, con globals básicos, `table`, `string`, `math` y `bit32`; oráculo de equivalencia para la VM y las transformaciones. La biblioteca implementa un subconjunto documentado de Lua/Luau, no toda la biblioteca estándar. |
 | `packages/engine` | Motor de orquestación: planes públicos (Basic, Medium, Max), etapas con tiempos, digest SHA-256, comprobación de equivalencia, VM configurable y sistema de trabajos en worker_threads con límites de cola, tamaño y tiempo. Incluye pruebas del perfil completo en Lua 5.4 real (13 pruebas) |
 | `apps/api` | API HTTP sin dependencias: autenticación exclusiva por Discord, cuentas y planes persistidos en JSON, cuota Free por cuenta, solicitudes y aprobación administrativa de upgrades, límite de peticiones por IP y endpoints de trabajos. |
 | `apps/web` | Acceso solo por Discord, editor con perfiles Basic/Medium/Max según plan, sección Free/Premium/Plus, estado de cuota y administración de solicitudes de upgrade. |
+
+## Biblioteca estándar del runtime
+
+El intérprete de referencia y la VM comparten estas implementaciones:
+
+- **Globales:** `print`, `tostring`, `tonumber`, `type`, `error`, `pcall`, `select`, `pairs`, `ipairs`.
+- **`table`:** `concat`, `pack`, `unpack`, `insert`, `remove`, `sort`, `move`, `clone`, `clear`, `find`, `create`.
+- **`string`:** `char`, `len`, `byte`, `sub`, `rep`, `lower`, `upper`, `reverse`, `split`.
+- **`math`:** operaciones trigonométricas y numéricas habituales, `abs`, `min`, `max`, `clamp`, `sign`, `round`, `modf`, `random`, `randomseed`, `type`, `tointeger`, `pi` y `huge`.
+- **`bit32`:** `band`, `bor`, `bxor`.
+
+No están implementadas todavía todas las APIs de Lua/Luau: por ejemplo, patrones y capturas de `string.find`, `string.match`, `string.gsub`, `string.format`, corrutinas, metatablas completas y APIs específicas de Roblox. El generador aleatorio del runtime es reproducible y útil para pruebas, pero no pretende replicar bit a bit el PRNG de Lua 5.4 ni es criptográfico. Las cadenas internas son byte-strings UTF-8; las funciones de caso convierten sólo ASCII para evitar alterar bytes no ASCII.
 
 ## Estado del lexer
 
@@ -86,7 +98,7 @@ Los niveles aplican configuraciones predefinidas del motor. Basic es el nivel es
 ## Limitaciones de la ofuscación actual
 
 - La equivalencia se verifica con Lua 5.4 real, no con Luau: este entorno no tiene `luau`. Se compila el ejecutor con `tools/lua54/build.sh` (requiere `liblua5.4-0` y `gcc`). Las pruebas que dependen de él se omiten si falta. Luau y Lua 5.4 difieren en sintaxis (`continue`, `+=`) y en biblioteca, así que el aplanado con `continue` se verifica sólo con el intérprete de referencia.
-- Pendiente: ejecutar las pruebas en Luau real.
+- Pendiente: ejecutar las pruebas en Luau real. La suite actual ejecuta la salida generada con Lua 5.4 real y verifica el intérprete/VM TypeScript; no equivale a una prueba de Roblox Luau.
 - La protección de cadenas codifica bytes UTF-8 con una clave por literal y una máscara dependiente de posición; se descifra bajo demanda sin mantener una caché persistente de texto plano. El valor reconstruido existe durante su uso y puede observarse en memoria o interceptando el runtime. Sigue siendo ofuscación reversible, no cifrado ni almacenamiento seguro de secretos.
 - Las posiciones de los parámetros en el análisis semántico son aproximadas.
 
