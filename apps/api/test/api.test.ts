@@ -250,12 +250,14 @@ test('OAuth2 valida el state y no solicita instalar un bot', async () => {
   missingCookie.searchParams.set('state', authorizationUrl.searchParams.get('state')!);
   assert.equal((await fetch(missingCookie)).status, 401, 'el state también debe estar ligado a una cookie del navegador');
 
+  const validStart = await fetch(base + '/api/auth/discord', { redirect: 'manual' });
+  const validAuthorizationUrl = new URL(validStart.headers.get('location') ?? '');
   const code = `oauth-code-${++oauthCodeNumber}`;
   oauthUsers.set(code, { id: 'state-once-user', username: 'state-once-user', global_name: 'state-once-user' });
   const callbackUrl = new URL('/api/auth/discord/callback', base);
   callbackUrl.searchParams.set('code', code);
-  callbackUrl.searchParams.set('state', authorizationUrl.searchParams.get('state')!);
-  const stateCookie = (start.headers.get('set-cookie') ?? '').split(';')[0];
+  callbackUrl.searchParams.set('state', validAuthorizationUrl.searchParams.get('state')!);
+  const stateCookie = (validStart.headers.get('set-cookie') ?? '').split(';')[0];
   const accepted = await fetch(callbackUrl, { redirect: 'manual', headers: { cookie: stateCookie } });
   assert.equal(accepted.status, 302);
   assert.equal((await fetch(callbackUrl)).status, 401, 'el state no se puede reutilizar');
