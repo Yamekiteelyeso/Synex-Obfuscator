@@ -736,6 +736,15 @@ export function installStdlib(interp: LuaEnvironment): void {
   }));
   mathLib.set('pow', fn('pow', (args) => [Math.pow(toNumber(args[0], at), toNumber(args[1], at))]));
   mathLib.set('isnan', fn('isnan', (args) => [Number.isNaN(toNumber(args[0], at))]));
+  mathLib.set('isinf', fn('isinf', (args) => [!Number.isNaN(toNumber(args[0], at)) && !Number.isFinite(toNumber(args[0], at))]));
+  mathLib.set('isfinite', fn('isfinite', (args) => [Number.isFinite(toNumber(args[0], at))]));
+  mathLib.set('noise', fn('noise', (args) => {
+    if (args.length < 1 || args.length > 3) throw new LuaError('bad argument to math.noise (expected one to three coordinates)');
+    const x = toNumber(args[0], at);
+    const y = args[1] === undefined ? 0 : toNumber(args[1], at);
+    const z = args[2] === undefined ? 0 : toNumber(args[2], at);
+    return [luauPerlinNoise(x, y, z)];
+  }));
   mathLib.set('lerp', fn('lerp', (args) => {
     const start = toNumber(args[0], at);
     const finish = toNumber(args[1], at);
@@ -748,7 +757,7 @@ export function installStdlib(interp: LuaEnvironment): void {
     const inputMax = toNumber(args[2], at);
     const outputMin = toNumber(args[3], at);
     const outputMax = toNumber(args[4], at);
-    return [outputMin + (value - inputMin) / (inputMax - inputMin) * (outputMax - outputMin)];
+    return [outputMin + (value - inputMin) * (outputMax - outputMin) / (inputMax - inputMin)];
   }));
   mathLib.set('round', fn('round', (args) => {
     const value = toNumber(args[0], at);
@@ -827,6 +836,11 @@ export function installStdlib(interp: LuaEnvironment): void {
   }));
   mathLib.set('pi', Math.PI);
   mathLib.set('huge', Infinity);
+  mathLib.set('nan', Number.NaN);
+  mathLib.set('e', Math.E);
+  mathLib.set('phi', 1.618033988749895);
+  mathLib.set('sqrt2', Math.SQRT2);
+  mathLib.set('tau', 2 * Math.PI);
   g.set('math', mathLib);
 
   const bit = new LuaTable();
