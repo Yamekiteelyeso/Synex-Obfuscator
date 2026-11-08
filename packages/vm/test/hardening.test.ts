@@ -130,6 +130,12 @@ describe('watermark de procedencia', () => {
     assert.equal(result.stdout.trim(), 'watermark-ok');
   });
 
+  test('rechaza semillas fuera del rango uint32 y valores no enteros', () => {
+    for (const seed of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 0x1_0000_0000]) {
+      assert.throws(() => compileToLuauVm('print(1)', seed), /semilla inválida/);
+    }
+  });
+
   test('rechaza identificadores de procedencia con caracteres de control', () => {
     assert.throws(() => compileToLuauVm('print(1)', 1, { watermark: 'release\\nprint(2)' }), /watermark inválido/);
     assert.throws(() => compileToLuauVm('print(1)', 1, { watermark: 'x'.repeat(65) }), /watermark inválido/);
