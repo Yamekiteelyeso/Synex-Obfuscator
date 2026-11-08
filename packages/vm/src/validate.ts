@@ -3,7 +3,7 @@ import type { Op, Proto } from '@synex/ir';
 
 /** Operaciones válidas del IR con los campos que deben ser índices válidos. */
 const VALID_OPS = new Set<Op>([
-  'CONST', 'NIL', 'TRUE', 'FALSE', 'POP', 'GETL', 'SETL', 'NEWBOX', 'GETBOX', 'SETBOX', 'BOXSLOT',
+  'CONST', 'NIL', 'TRUE', 'FALSE', 'POP', 'GETL', 'SETL', 'MOVE', 'NEWBOX', 'GETBOX', 'SETBOX', 'BOXSLOT',
   'GETUP', 'SETUP', 'GETG', 'SETG', 'GETI', 'SETI', 'SELF',
   'ADD', 'SUB', 'MUL', 'DIV', 'IDIV', 'MOD', 'POW', 'CONCAT', 'EQ', 'NE', 'LT', 'LE', 'GT', 'GE',
   'NEG', 'NOT', 'LEN', 'JMP', 'JF', 'JFK', 'JTK', 'FORTEST', 'FORSTEP', 'GENCALL',
