@@ -271,7 +271,7 @@ export function installStdlib(interp: LuaEnvironment): void {
     const template = String(args[0]);
     let argument = 1;
     let output = '';
-    const quote = (value: string) => '"' + value.replace(/[\\"\\x00-\\x1f\\x7f]/g, (ch) => {
+    const quote = (value: string) => '"' + value.replace(/["\\\x00-\x1f\x7f]/g, (ch) => {
       const code = ch.charCodeAt(0);
       if (ch === '"') return '\\"';
       if (ch === '\\\\') return '\\\\\\\\';
