@@ -1027,7 +1027,10 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
     }
 
     output += ch;
-    if (!/\s/.test(ch)) previous = ch;
+    if (!/\s/.test(ch)) {
+      previous = ch;
+      if (ch !== '.' && ch !== ':') previousIdentifier = '';
+    }
     i++;
   }
   return output;
