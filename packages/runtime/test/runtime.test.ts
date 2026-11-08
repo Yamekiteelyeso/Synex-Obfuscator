@@ -163,13 +163,26 @@ test('string.char valida bytes y string.split conserva campos vacíos', () => {
   assert.throws(() => out('string.char(1.5)'), /out of range/);
 });
 
-test('string.find soporta búsqueda literal, índices negativos y modo plain explícito', () => {
+test('string.find soporta patrones Lua, capturas, índices negativos y modo plain', () => {
   assert.deepEqual(out('local a, b = string.find("hello hello", "hello", 1, true); local c, d = string.find("hello hello", "hello", 2, true); local e = string.find("hello", "z", 1, true); print(a, b, c, d, e)'), ['1\t5\t7\t11\tnil']);
+  assert.deepEqual(out('print(string.find("abc123", "(%a+)(%d+)"))'), ['1\t6\tabc\t123']);
   assert.deepEqual(out('print(string.find("abcdef", "cd", -4, true))'), ['3\t4']);
   assert.deepEqual(out('print(string.find("abc", "a", -5, true))'), ['nil']);
-  assert.throws(() => out('string.find("abc", "a.c")'), /pattern matching is not implemented/);
+  assert.deepEqual(out('print(string.find("abc123", "%d+"))'), ['4\t6']);
 });
 
+test('string.match devuelve coincidencias y capturas Lua', () => {
+  assert.deepEqual(out('print(string.match("user42", "(%a+)(%d+)")); print(string.match("abc", "%d+"))'), ['user\t42', 'nil']);
+  assert.deepEqual(out('print(string.match("abc123", "%d+", -3))'), ['123']);
+  assert.throws(() => out('string.match("abc", "%b()")'), /not supported yet/);
+});
+
+test('string.gsub sustituye coincidencias, capturas y respeta límites', () => {
+  assert.deepEqual(out('local s, n = string.gsub("a1 b2 c3", "(%a)(%d)", "%1=%2"); print(s, n)'), ['a=1 b=2 c=3\t3']);
+  assert.deepEqual(out('local s, n = string.gsub("one two", "%a+", string.upper, 1); print(s, n)'), ['ONE two\t1']);
+  assert.deepEqual(out('local s, n = string.gsub("a-b-a", "a", {a = "x"}); print(s, n)'), ['x-b-x\t2']);
+  assert.deepEqual(out('local s, n = string.gsub("aaa", "a", "b", 0); print(s, n)'), ['aaa\t0']);
+});
 test('string.format admite conversiones comunes, ancho y precisión', () => {
   assert.deepEqual(out('print(string.format("%04d %.2f %s %%", 7, 2.5, "ok"))'), ['0007 2.50 ok %']);
   assert.deepEqual(out('print(string.format("%#x %+d %.3g", 255, 8, 12.345))'), ['0xff +8 12.3']);
