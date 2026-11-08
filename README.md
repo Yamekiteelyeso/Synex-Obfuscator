@@ -53,15 +53,14 @@ La autenticación de usuarios es exclusivamente mediante Discord OAuth2. El back
 | POST | /api/auth/logout | usuario |
 | GET | /api/me | usuario (identidad, plan y cuota) |
 | GET | /api/plans | público |
-| GET/POST | /api/plan-requests | usuario |
 | POST | /api/jobs | usuario (cuota y perfiles comprobados en servidor) |
 | GET | /api/jobs | usuario (historial propio) |
 | GET | /api/jobs/:id | dueño |
 | GET | /api/jobs/:id/code | dueño (descarga `.obf.luau`) |
 | GET | /api/stats | usuario |
 | GET | /api/profiles, /api/health | público |
-| GET | /api/admin/users, /jobs, /errors, /settings, /plan-requests | admin |
-| PUT | /api/admin/settings, /api/admin/plan-requests/:id | admin |
+| GET | /api/admin/users, /jobs, /errors, /settings | admin |
+| PUT | /api/admin/settings, /api/admin/users/:id/plan | admin |
 
 Las cuentas, el plan, el contador de usos, el historial y las solicitudes se guardan en el archivo configurado en `SYNEX_DATA_FILE`. Para conservarlos en Railway, monta un Volume en `/data`. Los tokens de sesión y los resultados de código siguen residiendo en memoria del proceso.
 
@@ -210,6 +209,6 @@ Los planes de cuenta son independientes de los perfiles de ofuscación:
 
 Cada petición de trabajo aceptada consume un uso Free, incluso si luego el script falla al procesarse. El contador vive en el registro persistente de la cuenta y las cuentas antiguas migran su contador desde el historial existente. El servidor aplica la cuota y los perfiles permitidos; la interfaz no es la única barrera.
 
-La sección **Planes** registra solicitudes de Premium o Plus. Un administrador revisa la solicitud y, después de confirmar el pago por el canal de venta externo, puede aprobarla desde Administración. Esta implementación no procesa tarjetas ni pagos automáticamente y los precios deben definirse antes de anunciar una tarifa.
+La sección **Planes** no permite enviar solicitudes ni procesar compras dentro de la web: los botones de Premium y Plus muestran `Contact one admin for buy`. El administrador asigna manualmente el plan desde Administración después de confirmar la compra por un canal externo. No hay pasarela de pago integrada.
 
 Para asignar administradores configura `SYNEX_ADMIN_DISCORD_IDS` con uno o varios IDs de usuario de Discord separados por comas. No hay acceso administrativo por correo o contraseña.
