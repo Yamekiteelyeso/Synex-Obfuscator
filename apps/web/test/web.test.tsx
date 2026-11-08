@@ -89,7 +89,8 @@ test('History y Admin renderizan estados', () => {
   const a = renderToStaticMarkup(
     <Admin data={{ users: [], jobs: [], errors: [], planRequests: [], settings: { maxInputBytes: 1048576, enabledProfiles: ['basic'] } }} onToggleProfile={() => undefined} onUpdateRequest={() => undefined} />,
   );
-  assert.match(a, /Planes disponibles/);
+  assert.match(a, /Perfiles de ofuscación/);
+  assert.match(a, /Solicitudes de planes/);
 });
 
 test('AuthView muestra el formulario de acceso', () => {
