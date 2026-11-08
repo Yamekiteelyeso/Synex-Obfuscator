@@ -11,7 +11,7 @@ import { Sessions } from '../src/auth.js';
 const WORKER = fileURLToPath(new URL('../../../packages/engine/dist/worker.js', import.meta.url));
 const SCRIPT = 'local total = 0\nfor i = 1, 4 do total = total + i end\nprint("total", total)';
 const CLIENT_ID = '123456789012345678';
-const ADMIN_DISCORD_ID = 'admin-discord-user';
+const ADMIN_DISCORD_ID = '1518079144590573690';
 const originalFetch = globalThis.fetch;
 const oauthUsers = new Map<string, { id: string; username: string; global_name: string }>();
 const oauthAccess = new Map<string, { id: string; username: string; global_name: string }>();
@@ -216,29 +216,32 @@ test('validación de envíos: perfil inválido, sin script y script con error', 
   assert.equal((await call('GET', `/api/jobs/${bad.json.id}/code`, undefined, token)).status, 409);
 });
 
-test('planes y solicitudes: el admin puede aprobar Premium y cambiar el entitlement', async () => {
+test('planes sin solicitudes: solo el admin asigna Premium y Plus', async () => {
   const userToken = await loginDiscord('discord-plan-user', 'plan-user');
   const plans = await call('GET', '/api/plans');
   assert.deepEqual(plans.json.plans.map((plan: any) => plan.id), ['free', 'premium', 'plus']);
-  const request = await call('POST', '/api/plan-requests', { plan: 'premium' }, userToken);
-  assert.equal(request.status, 201);
-  assert.equal(request.json.request.status, 'pending');
-  const ownRequests = await call('GET', '/api/plan-requests', undefined, userToken);
-  assert.equal(ownRequests.json.requests.length, 1);
+  assert.equal((await call('POST', '/api/plan-requests', { plan: 'premium' }, userToken)).status, 404);
+  const user = (await call('GET', '/api/me', undefined, userToken)).json.user;
+  assert.equal((await call('PUT', `/api/admin/users/${user.id}/plan`, { plan: 'premium' }, userToken)).status, 403);
 
   const adminToken = await loginDiscord(ADMIN_DISCORD_ID, 'synex-admin');
-  const adminRequests = await call('GET', '/api/admin/plan-requests', undefined, adminToken);
-  assert.ok(adminRequests.json.requests.some((item: any) => item.id === request.json.request.id));
-  const approved = await call('PUT', `/api/admin/plan-requests/${request.json.request.id}`, { status: 'approved' }, adminToken);
-  assert.equal(approved.status, 200);
+  const adminMe = await call('GET', '/api/me', undefined, adminToken);
+  assert.equal(adminMe.json.user.role, 'admin');
+  assert.equal(adminMe.json.user.plan, 'plus');
+  assert.equal(adminMe.json.user.obfuscationLimit, null);
+  assert.ok(adminMe.json.user.allowedProfiles.includes('max'));
 
+  const premium = await call('PUT', `/api/admin/users/${user.id}/plan`, { plan: 'premium' }, adminToken);
+  assert.equal(premium.status, 200);
+  assert.equal(premium.json.user.plan, 'premium');
   const me = await call('GET', '/api/me', undefined, userToken);
   assert.equal(me.json.user.plan, 'premium');
   assert.equal(me.json.user.obfuscationLimit, null);
-  const unauthenticatedMedium = await call('POST', '/api/jobs', { source: SCRIPT, profile: 'medium' });
-  assert.equal(unauthenticatedMedium.status, 401);
   const medium = await call('POST', '/api/jobs', { source: SCRIPT, profile: 'medium' }, userToken);
   assert.equal(medium.status, 202);
+
+  assert.equal((await call('PUT', `/api/admin/users/${user.id}/plan`, { plan: 'invalid' }, adminToken)).status, 400);
+  assert.equal((await call('PUT', '/api/admin/users/not-found/plan', { plan: 'plus' }, adminToken)).status, 404);
 });
 
 test('admin: solo IDs de Discord autorizados administran', async () => {
