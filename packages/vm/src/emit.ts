@@ -256,6 +256,11 @@ run = function(P, U, args)
     local t = decodeOperand(ins[4], ip, 4, protoSalt)
     local c = decodeOperand(ins[5], ip, 5, protoSalt) == 1
     if not VALID_OP[op] then fail("opcode inválido") end
+    if (op == OP_GETL or op == OP_SETL or op == OP_NEWBOX or op == OP_GETBOX or op == OP_SETBOX or op == OP_BOXSLOT) and (a < 0 or a >= ns) then fail("slot fuera de rango") end
+    if (op == OP_FORTEST or op == OP_FORSTEP or op == OP_GENCALL) and (a < 0 or a + 2 >= ns) then fail("slot de iterador fuera de rango") end
+    if (op == OP_CONST or op == OP_GETG or op == OP_SETG or op == OP_SELF) and (a < 0 or a >= #P.__KEY_CONST__) then fail("constante fuera de rango") end
+    if (op == OP_GETUP or op == OP_SETUP) and (a < 0 or a >= #U) then fail("upvalue fuera de rango") end
+    if op == OP_CLOSURE and (a < 0 or a >= #P.__KEY_CHILD__) then fail("closure fuera de rango") end
     if (op == OP_JMP or op == OP_JF or op == OP_JFK or op == OP_JTK or op == OP_FORTEST or op == OP_GENCALL)
       and (t < 1 or t > #code) then fail("salto fuera del prototipo") end
     steps = steps + 1
