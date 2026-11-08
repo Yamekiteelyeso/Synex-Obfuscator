@@ -93,13 +93,19 @@ test('History y Admin renderizan estados', () => {
   assert.match(a, /Solicitudes de planes/);
 });
 
-test('AuthView muestra el formulario de acceso', () => {
+test('AuthView explica que Discord registra automáticamente y muestra errores de acceso', () => {
   const html = renderToStaticMarkup(<AuthView onAuth={() => undefined} />);
-  assert.match(html, /Iniciar sesión/);
+  assert.match(html, /Acceder o crear cuenta/);
+  assert.match(html, /creará automáticamente tu cuenta gratuita/);
+  assert.match(html, /entrarás a esa misma cuenta/);
   assert.match(html, /Continuar con Discord/);
   assert.match(html, /discord-logo/);
-  assert.doesNotMatch(html, /type="email"|type="password"|Crear cuenta/);
+  assert.doesNotMatch(html, /type="email"|type="password"/);
   assert.match(html, /href=\"\/api\/auth\/discord\"/);
+
+  const withError = renderToStaticMarkup(<AuthView onAuth={() => undefined} error="Error de autorización de prueba" />);
+  assert.match(withError, /role=\"alert\"/);
+  assert.match(withError, /Error de autorización de prueba/);
 });
 
 

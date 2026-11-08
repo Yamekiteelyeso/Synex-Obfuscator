@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, TOKEN_KEY } from './api';
 import { AuthView, SessionUser } from './views/Auth';
 import { Editor, ProfileInfo, TechniqueInfo } from './views/Editor';
@@ -16,6 +16,12 @@ function readToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
 
+function discordErrorMessage(reason: string): string {
+  if (reason === 'cancelled') return 'Cancelaste la autorización en Discord. Puedes volver a intentarlo cuando quieras.';
+  if (reason === 'expired') return 'La autorización caducó o no coincide con esta sesión. Inicia el proceso de nuevo.';
+  return 'Discord no pudo validar el acceso. Comprueba la configuración OAuth2 y vuelve a intentarlo.';
+}
+
 export function App() {
   const [token, setToken] = useState<string | null>(readToken);
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -25,6 +31,11 @@ export function App() {
   const [techniques, setTechniques] = useState<TechniqueInfo[]>([]);
   const [admin, setAdmin] = useState<AdminData | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(() => {
+    const reason = new URLSearchParams(window.location.search).get('discord_error');
+    return reason ? discordErrorMessage(reason) : null;
+  });
+  const ticketExchangeStarted = useRef(false);
   const [discordPending, setDiscordPending] = useState(() => new URLSearchParams(window.location.search).has('discord_ticket'));
 
   const logout = useCallback(() => {
@@ -59,12 +70,27 @@ export function App() {
 
   useEffect(() => {
     const ticket = new URLSearchParams(window.location.search).get('discord_ticket');
-    if (!ticket) return;
-    window.history.replaceState({}, document.title, window.location.pathname);
+    if (!ticket || ticketExchangeStarted.current) return;
+
+    // El ticket es de un solo uso: evita consumirlo dos veces si React vuelve
+    // a ejecutar el efecto durante el montaje.
+    ticketExchangeStarted.current = true;
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete('discord_ticket');
+    window.history.replaceState({}, document.title, cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+
     api<{ token: string; user: SessionUser }>('POST', '/api/auth/discord/exchange', { ticket }).then((r) => {
       try { localStorage.setItem(TOKEN_KEY, r.token); } catch { /* sesión en memoria */ }
-      setToken(r.token); setUser(r.user);
-    }).catch(() => { setToken(null); setUser(null); }).finally(() => setDiscordPending(false));
+      setAuthError(null);
+      setToken(r.token);
+      setUser(r.user);
+    }).catch((error) => {
+      setToken(null);
+      setUser(null);
+      setAuthError(error instanceof ApiError
+        ? `No se pudo terminar el acceso con Discord: ${error.message}`
+        : 'No se pudo terminar el acceso con Discord. Vuelve a intentarlo.');
+    }).finally(() => setDiscordPending(false));
   }, []);
 
   useEffect(() => {
@@ -81,7 +107,7 @@ export function App() {
   useEffect(() => { void refresh(); }, [refresh]);
 
   if (discordPending) return <div className="auth-screen"><div className="auth-card"><div className="brand-mark">SYNEX</div><p>Conectando tu cuenta de Discord…</p></div></div>;
-  if (!token) return <AuthView onAuth={(t, u) => { setToken(t); setUser(u); }} />;
+  if (!token) return <AuthView error={authError} onAuth={(t, u) => { setToken(t); setUser(u); setAuthError(null); }} />;
 
   const visible = NAV.filter((item) => !item.adminOnly || user?.role === 'admin');
   const remainingUses = user?.obfuscationLimit === null || user?.obfuscationLimit === undefined
