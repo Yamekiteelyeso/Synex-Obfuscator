@@ -82,6 +82,7 @@ function luaPatternToRegExp(pattern: string): RegExp {
       continue;
     }
     if (ch === '(') {
+      if (pattern[i + 1] === ')') throw new LuaError('Lua position captures () are not supported yet');
       groupHasQuantifier.push(false);
       output += '(';
       lastAtomIsWildcard = false;
@@ -123,8 +124,7 @@ function luaPatternToRegExp(pattern: string): RegExp {
       lastClosedGroupHasQuantifier = false;
       continue;
     }
-    if (ch === '{' || ch === '}' || ch === '|') output += escapeLuaLiteral(ch);
-    else output += ch;
+    output += escapeLuaLiteral(ch);
     lastAtomIsWildcard = false;
     previousWasQuantifier = false;
     lastClosedGroupHasQuantifier = false;
