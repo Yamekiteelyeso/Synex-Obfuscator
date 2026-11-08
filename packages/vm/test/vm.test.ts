@@ -228,12 +228,15 @@ test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => 
   const source = [
     'local function add(a, b) return a + b end',
     'local label = "Synex VM"',
+    'local original = 42',
+    'local copied = original',
     'local object = {value = add(20, 22)}',
-    'print(label, object.value)',
+    'print(label, object.value, copied)',
   ].join(String.fromCharCode(10));
   const emitted = compileToLuauVm(source, 918273);
   const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
-  assert.equal(output.trim(), ['Synex VM', '42'].join(String.fromCharCode(9)));
+  assert.match(emitted, /slots\\[b \\+ 1\\] = slots\\[a \\+ 1\\]/);
+  assert.equal(output.trim(), ['Synex VM', '42', '42'].join(String.fromCharCode(9)));
   const mainMarker = emitted.indexOf('local MAIN = {');
   assert.ok(mainMarker >= 0);
   const numeric = /\d+/.exec(emitted.slice(mainMarker + 'local MAIN = {'.length));
