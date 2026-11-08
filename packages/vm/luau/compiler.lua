@@ -13,7 +13,7 @@ function M.compile(instructions, options)
 	assert(type(options.nonces) == "table" and #options.nonces == #instructions,
 		"one unique nonce is required per instruction")
 	local version = options.version or 1
-	assert(version == 1 or version == 2, "unsupported bytecode version")
+	assert(version == 1 or version == 2 or version == 3, "unsupported bytecode version")
 	local prototypeSalt = math.floor(options.prototypeSalt or 0)
 	local _, prototypeIntegrityKey = VM.deriveKeys(
 		options.encryptionKey, options.integrityKey, prototypeSalt)
@@ -25,7 +25,7 @@ function M.compile(instructions, options)
 		assert(type(nonce) == "string" and #nonce == 24, "each nonce must be 24 bytes")
 		assert(not nonceSet[nonce], "nonce reuse within a prototype is forbidden")
 		nonceSet[nonce] = true
-		local aad = (options.aadPrefix or "synex:v1") .. ":" .. tostring(prototypeSalt) .. ":" .. tostring(index)
+		local aad = (options.aadPrefix or "synex:v1") .. ":" .. tostring(prototypeSalt) .. ":" .. tostring(index) .. (version == 3 and ":v3" or "")
 		local record = VM.sealRecord(options.encryptionKey, options.integrityKey,
 			nonce, instruction, chain, index, prototypeSalt, aad, version)
 		records[index] = record
