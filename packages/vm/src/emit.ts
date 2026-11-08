@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { analyze } from '@synex/semantic';
 import { parse } from '@synex/parser';
 import { compile, type Instr, type Op, type Proto } from '@synex/ir';
@@ -33,6 +34,21 @@ const ALL_OPS = [
 type MissingOps = Exclude<Op, (typeof ALL_OPS)[number]>;
 const allOpsComplete: [MissingOps] extends [never] ? true : false = true;
 void allOpsComplete;
+
+/** Material de semilla aceptado por el emisor: entero reproducible o clave CSPRNG por build. */
+type SeedMaterial = number | string;
+
+/** Derivación con separación de dominio para que cada subsistema use un stream distinto. */
+function deriveSeed(material: SeedMaterial, domain: string): number {
+  const encoded = typeof material === 'number' ? `number:${material >>> 0}` : `master:${material}`;
+  return createHash('sha256')
+    .update('synex-vm-seed-v2\\0', 'utf8')
+    .update(domain, 'utf8')
+    .update('\\0', 'utf8')
+    .update(encoded, 'utf8')
+    .digest()
+    .readUInt32LE(0);
+}
 
 /** Generador determinista (mulberry32) para permutar códigos de operación. */
 function rng(seed: number): () => number {
@@ -767,28 +783,32 @@ export interface EmitOptions {
   stepLimit?: number;
 }
 
-export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): string {
+export function emitLuauVm(main: Proto, seed: SeedMaterial = 1, options: EmitOptions = {}): string {
   validateProto(main);
   const limit = options.stepLimit ?? 5_000_000;
   if (!Number.isInteger(limit) || limit <= 0) throw new SynexError('límite de pasos inválido', 1, 1, 'E_OPTIONS');
-  const ops = opcodeTable(seed);
-  let body = shuffleDispatch(TEMPLATE, seed).replace(/\bOP_([A-Z]+)\b/g, (_m, name: string) => {
+  const opcodeSeed = deriveSeed(seed, 'opcode-table');
+  const dispatchSeed = deriveSeed(seed, 'dispatch-order');
+  const keySeed = deriveSeed(seed, 'prototype-field-names');
+  const operandSeed = deriveSeed(seed, 'operand-and-seal');
+  const ops = opcodeTable(opcodeSeed);
+  let body = shuffleDispatch(TEMPLATE, dispatchSeed).replace(/\bOP_([A-Z]+)\b/g, (_m, name: string) => {
     const code = ops[name as Op];
     if (code === undefined) throw new Error(`operación sin código: ${name}`);
     return String(code);
   });
-  const keys = protoKeys(seed);
+  const keys = protoKeys(keySeed);
   const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal, BLOCKMAP: keys.blockmap, BLOCKS: keys.blocks };
   body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL|BLOCKMAP|BLOCKS)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
   body = body.replace('__VALID_OPS__', '{' + ALL_OPS.map((op) => '[' + ops[op] + ']=true').join(',') + '}');
-  body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
-  body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }));
+  body = body.replace('__OPERAND_SEED__', String((operandSeed >>> 0) % OPERAND_MODULUS));
+  body = body.replace('__MAIN__', serializeProto(main, ops, keys, operandSeed, { value: 0 }, { value: 0 }));
   return body.trimStart();
 }
 
 /** Compila un script Luau al IR y lo emite como programa de VM. */
-export function compileToLuauVm(source: string, seed = 1, options: EmitOptions = {}): string {
+export function compileToLuauVm(source: string, seed: SeedMaterial = 1, options: EmitOptions = {}): string {
   const chunk = parse(source);
   const analysis = analyze(chunk);
   const [first] = analysis.diagnostics;
