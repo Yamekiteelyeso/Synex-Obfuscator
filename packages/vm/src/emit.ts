@@ -77,17 +77,26 @@ function protoKeys(seed: number): ProtoKeys {
 function luaConst(v: unknown, seed: number, stringIndex: { value: number }): string {
   if (v === undefined || v === null) return 'nil';
   if (typeof v === 'string') {
-    // Cifrado polimórfico del pool de constantes: cada literal usa una clave
-    // distinta derivada de la semilla del build y se reconstruye en runtime.
+    // Cada literal largo se reparte en fragmentos con claves independientes.
+    // El runtime los reconstruye sólo cuando la constante se utiliza.
     const bytes = Buffer.from(v, 'utf8');
-    const index = ++stringIndex.value;
-    const key = ((seed >>> 0) + index * 73) % 251 + 1;
-    let state = key;
-    const encoded = Array.from(bytes, (b, i) => {
-      state = (state * 73 + 41) % 256;
-      return (b + state + (i + 1) * 17) % 256;
-    }).join(',');
-    return `function() return unstr({${encoded}},${key}) end`;
+    if (bytes.length === 0) return 'function() return "" end';
+    const parts: string[] = [];
+    for (let offset = 0; offset < bytes.length;) {
+      const index = ++stringIndex.value;
+      const chunkSize = Math.min(bytes.length - offset, bytes.length <= 12
+        ? bytes.length
+        : 5 + (((seed >>> 0) + index * 13 + offset * 7) % 8));
+      const key = ((seed >>> 0) + index * 73) % 251 + 1;
+      let state = key;
+      const encoded = Array.from(bytes.subarray(offset, offset + chunkSize), (byte, i) => {
+        state = (state * 73 + 41) % 256;
+        return (byte + state + (i + 1) * 17) % 256;
+      }).join(',');
+      parts.push(`unstr({${encoded}},${key})`);
+      offset += chunkSize;
+    }
+    return `function() return ${parts.join('..')} end`;
   }
   if (typeof v === 'number') {
     // IEEE-754 little-endian: el literal numérico no se emite directamente.
@@ -265,7 +274,9 @@ local function unstr(bytes, key)
     state = (state * 73 + 41) % 256
     out[i] = strlib.char((bytes[i] - state - i * 17) % 256)
   end
-  return tbl.concat(out)
+  local value = tbl.concat(out)
+  for i = 1, #out do out[i] = nil end
+  return value
 end
 local function unnum(bytes, key)
   local decoded = {}
@@ -695,6 +706,30 @@ end
 return main(...)
 `;
 
+/**
+ * Reordena los brazos reales del dispatcher para cada semilla, manteniendo
+ * intactos los cuerpos de operación y el fallback de opcode inválido.
+ */
+function shuffleDispatch(template: string, seed: number): string {
+  const start = template.indexOf('    if op == OP_CONST then');
+  const fallback = '\n    else\n      fail("operación desconocida " .. tostring(op))\n    end';
+  const end = template.indexOf(fallback, start);
+  if (start < 0 || end < 0) throw new Error('dispatcher VM incompleto');
+  const block = template.slice(start, end);
+  const markers = [...block.matchAll(/^    (?:if|elseif) op == OP_[A-Z]+ then/gm)];
+  if (markers.length !== ALL_OPS.length) throw new Error('cantidad inesperada de operaciones en dispatcher');
+  const arms = markers.map((marker, index) => block.slice(marker.index!, markers[index + 1]?.index ?? block.length));
+  const random = rng((seed ^ 0x2c1b3c6d) >>> 0);
+  for (let i = arms.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [arms[i], arms[j]] = [arms[j], arms[i]];
+  }
+  const reordered = arms.map((arm, index) =>
+    arm.replace(/^    (?:if|elseif) op/, `    ${index === 0 ? 'if' : 'elseif'} op`),
+  ).join('');
+  return template.slice(0, start) + reordered + template.slice(end);
+}
+
 /** Emite el script Luau que ejecuta el prototipo principal dentro de la VM. */
 export interface EmitOptions {
   /** Instrucciones máximas antes de abortar la ejecución. */
@@ -706,7 +741,7 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
   const limit = options.stepLimit ?? 5_000_000;
   if (!Number.isInteger(limit) || limit <= 0) throw new SynexError('límite de pasos inválido', 1, 1, 'E_OPTIONS');
   const ops = opcodeTable(seed);
-  let body = TEMPLATE.replace(/\bOP_([A-Z]+)\b/g, (_m, name: string) => {
+  let body = shuffleDispatch(TEMPLATE, seed).replace(/\bOP_([A-Z]+)\b/g, (_m, name: string) => {
     const code = ops[name as Op];
     if (code === undefined) throw new Error(`operación sin código: ${name}`);
     return String(code);

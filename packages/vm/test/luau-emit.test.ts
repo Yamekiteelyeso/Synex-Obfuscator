@@ -114,6 +114,16 @@ describe('VM Luau emitida: propiedades', () => {
     assert.doesNotMatch(out, /OP_[A-Z]+|__MAIN__/);
   });
 
+  test('baraja el orden real del dispatcher por build y conserva determinismo', () => {
+    const a = compileToLuauVm(PROGRAMS.loops, 2101);
+    const b = compileToLuauVm(PROGRAMS.loops, 2102);
+    const armOrder = (code: string) =>
+      [...code.matchAll(/^    (?:if|elseif) op == (\\d+) then/gm)].map((match) => match[1]);
+    assert.deepEqual(armOrder(a), armOrder(compileToLuauVm(PROGRAMS.loops, 2101)));
+    assert.notDeepEqual(armOrder(a), armOrder(b));
+    assert.equal(armOrder(a).length, 52);
+  });
+
   test('cada build asigna códigos distintos', () => {
     const a = opcodeTable(1);
     const b = opcodeTable(2);
