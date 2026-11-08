@@ -143,6 +143,19 @@ test('table.create crea secuencias con valor inicial opcional', () => {
   assert.throws(() => out('table.create(-1)'), /invalid size/);
 });
 
+test('biblioteca math cubre operaciones numéricas y clamp de Luau', () => {
+  assert.deepEqual(out('print(math.abs(-4), math.floor(2.9), math.ceil(2.1), math.sqrt(81), math.max(1, 9, 3), math.min(1, 9, 3))'), ['4\t2\t3\t9\t9\t1']);
+  assert.deepEqual(out('print(math.clamp(12, 0, 10), math.clamp(-2, 0, 10), math.sign(-3), math.round(2.5))'), ['10\t0\t-1\t3']);
+  assert.deepEqual(out('local i, f = math.modf(-2.75); print(i, f, math.type(2), math.type(2.5), math.tointeger(2.5))'), ['-2\t-0.75\tinteger\tfloat\tnil']);
+  assert.throws(() => out('math.clamp(1, 4, 2)'), /min must be <= max/);
+});
+
+test('math.randomseed hace reproducible math.random y valida intervalos', () => {
+  const src = 'math.randomseed(123); local a = math.random(1, 10); local b = math.random(); math.randomseed(123); print(a, math.random(1, 10), b == math.random())';
+  assert.deepEqual(out(src), ['' + (Number(out('math.randomseed(123); print(math.random(1, 10))')[0])) + '\t' + (Number(out('math.randomseed(123); print(math.random(1, 10))')[0])) + '\ttrue']);
+  assert.throws(() => out('math.random(4, 2)'), /interval is empty/);
+});
+
 test('string.char valida bytes y string.split conserva campos vacíos', () => {
   assert.deepEqual(out('local t = string.split("a,,b,", ","); print(#t, t[1], t[2], t[3], t[4])'), ['4\ta\t\tb\t']);
   assert.throws(() => out('string.char(256)'), /out of range/);
