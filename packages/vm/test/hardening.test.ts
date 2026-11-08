@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parse } from '@synex/parser';
 import { analyze } from '@synex/semantic';
 import { compile, type Proto } from '@synex/ir';
-import { compileToLuauVm, validateProto } from '../src/index.js';
+import { compileToLuauVm, validateProto, VM } from '../src/index.js';
 import { lua54Available, runLua54 } from '../../../tools/lua54/lua54.js';
 
 function protoOf(src: string): Proto {
@@ -29,6 +29,47 @@ describe('validación del bytecode', () => {
     const c = p.code.find((i) => i.op === 'CONST')!;
     c.a = 999;
     assert.throws(() => validateProto(p), /constante fuera de rango/);
+  });
+
+
+  test('rechaza operandos ausentes o no enteros en todas las familias', () => {
+    const p = protoOf('local x = 1 print(x)');
+    const local = p.code.find((i) => i.op === 'GETL')!;
+    local.a = 0.5;
+    assert.throws(() => validateProto(p), /operando a no es un entero seguro|ranura fuera de rango/);
+  });
+
+  test('rechaza nombres globales que no sean constantes de cadena', () => {
+    const p = protoOf('print(1)');
+    const global = p.code.find((i) => i.op === 'GETG')!;
+    p.consts[global.a!] = 123;
+    assert.throws(() => validateProto(p), /nombre global\/método no es una cadena/);
+  });
+
+  test('rechaza banderas y descriptores CALL inconsistentes', () => {
+    const p = protoOf('print(1)');
+    const call = p.code.find((i) => i.op === 'CALL')!;
+    call.b = -2;
+    assert.throws(() => validateProto(p), /descriptor CALL inválido/);
+  });
+
+  test('rechaza prototipos cíclicos', () => {
+    const p = protoOf('local function f() return 1 end');
+    p.protos.push(p);
+    assert.throws(() => validateProto(p), /ciclo en árbol de prototipos/);
+  });
+
+  test('valida correctamente closures con upvalues al ejecutarlos', () => {
+    const p = protoOf('local x = 7 local function f() return x end print(f())');
+    const vm = new VM();
+    assert.doesNotThrow(() => vm.execute(p));
+    assert.deepEqual(vm.output, ['7']);
+  });
+
+  test('la VM pública rechaza bytecode manipulado antes de ejecutarlo', () => {
+    const p = protoOf('print(1)');
+    p.code[0].op = 'UNKNOWN' as any;
+    assert.throws(() => new VM().execute(p), /operación desconocida/);
   });
 
   test('rechaza una operación desconocida', () => {
