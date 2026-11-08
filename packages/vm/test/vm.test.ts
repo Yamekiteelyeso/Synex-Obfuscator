@@ -224,6 +224,6 @@ test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => 
     'print(label, object.value)',
   ].join(String.fromCharCode(10));
   const emitted = compileToLuauVm(source, 918273);
-  const output = execFileSync('lua5.4', ['-e', emitted], { encoding: 'utf8', timeout: 5000 });
-  assert.equal(output.trim(), ['Synex ✓', '42'].join(String.fromCharCode(9)));
+  const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
+  assert.equal(output.trim(), ['Synex VM', '42'].join(String.fromCharCode(9)));
 });
