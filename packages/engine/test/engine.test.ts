@@ -119,10 +119,9 @@ test('JobManager ejecuta trabajos en workers aislados y devuelve el resultado', 
   const done = await jobs.waitFor(rec.id);
   assert.equal(done.status, 'done');
   assert.ok(done.result?.code);
+  assert.equal(done.result!.profile, 'medium');
   jobs.discardResult(rec.id);
   assert.equal(jobs.get(rec.id)?.result, undefined);
-  assert.ok(done.result);
-  assert.equal(done.result!.profile, 'medium');
 });
 
 test('JobManager marca error de validación como failed con código', async () => {
