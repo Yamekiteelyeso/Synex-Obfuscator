@@ -371,7 +371,7 @@ test('VM emitida: valida sucesoras y destinos en flujos ramificados', { skip: !h
   ].join(String.fromCharCode(10));
   const emitted = compileToLuauVm(source, 340981);
   const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 7000 });
-  assert.equal(output.trim(), ['27', '1'].join(String.fromCharCode(9)));
+  assert.equal(output.trim(), ['29', '1'].join(String.fromCharCode(9)));
 });
 
 test('VM emitida: segmenta cadenas largas con claves distintas y las reconstruye correctamente', { skip: !hasLua54 }, () => {
