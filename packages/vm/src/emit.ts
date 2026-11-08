@@ -384,7 +384,7 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
   });
   const keys = protoKeys(seed);
   const keyValues: Record<string, string> = { NP: keys.np, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt };
-  body = body.replace(/__KEY_(NP|VA|CODE|CONST|CHILD|UP)__/g, (_m, name: string) => keyValues[name]);
+  body = body.replace(/__KEY_(NP|VA|CODE|CONST|CHILD|UP|SALT)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
   body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }));
