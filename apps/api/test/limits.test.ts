@@ -30,3 +30,12 @@ test('pruneBoundedMap rejects invalid capacity settings', () => {
   assert.throws(() => pruneBoundedMap(new Map(), 0, 0, () => 1), /invalid bounded map capacity/);
   assert.throws(() => pruneBoundedMap(new Map(), 0, 2, () => 1, 2), /invalid bounded map capacity/);
 });
+
+test('pruneBoundedMap can evict an undefined map key', () => {
+  const entries = new Map< string | undefined, { expiresAt: number }>([
+    [undefined, { expiresAt: 100 }],
+    ['retained', { expiresAt: 100 }],
+  ]);
+  pruneBoundedMap(entries, 10, 2, (entry) => entry.expiresAt, 1);
+  assert.deepEqual([...entries.keys()], ['retained']);
+});
