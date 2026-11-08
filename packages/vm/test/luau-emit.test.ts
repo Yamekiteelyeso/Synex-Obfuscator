@@ -1,4 +1,8 @@
 import { test, describe } from 'node:test';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { parse } from '@synex/parser';
 import { compileToLuauVm, opcodeTable } from '../src/index.js';
@@ -157,4 +161,51 @@ describe('VM Luau emitida: propiedades', () => {
     assert.match(out, /salto fuera del prototipo/);
   });
 
+});
+
+
+const luauCliAvailable = existsSync('/usr/local/bin/luau');
+
+describe('VM Luau cifrada v3: emisor de producción', { skip: !luauCliAvailable && 'falta Luau CLI' }, () => {
+  test('emite registros cifrados y conserva semántica, también en prototipos hijos', () => {
+    const source = `
+      local function combine(a, b)
+        local function inner(x) return x * 3 end
+        return inner(a) + b
+      end
+      print(combine(7, 5))
+    `;
+    const output = compileToLuauVm(source, 987654, { encryptedRecords: true });
+    assert.match(output, /ciphertext="[0-9a-f]{72}"/);
+    assert.match(output, /chainTag="[0-9a-f]{64}"/);
+    assert.match(output, /openPoly1305/);
+    const directory = mkdtempSync(join(tmpdir(), 'synex-v3-'));
+    try {
+      const file = join(directory, 'encrypted.lua');
+      writeFileSync(file, output, 'utf8');
+      const result = spawnSync('luau', [file], { encoding: 'utf8', timeout: 15000 });
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      assert.equal(result.stdout.trim(), '26');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test('rechaza alteraciones del ciphertext antes de ejecutar instrucciones', () => {
+    const output = compileToLuauVm('print(123)', 1234, { encryptedRecords: true });
+    const match = output.match(/ciphertext="([0-9a-f]{72})"/);
+    assert.ok(match, 'se esperaba un registro cifrado');
+    const changed = match[1]![0] === '0' ? '1' : '0';
+    const tampered = output.replace(match[0], 'ciphertext="' + changed + match[1]!.slice(1) + '"');
+    const directory = mkdtempSync(join(tmpdir(), 'synex-v3-tamper-'));
+    try {
+      const file = join(directory, 'tampered.lua');
+      writeFileSync(file, tampered, 'utf8');
+      const result = spawnSync('luau', [file], { encoding: 'utf8', timeout: 15000 });
+      assert.notEqual(result.status, 0, 'el runtime aceptó ciphertext manipulado');
+      assert.match(result.stderr + result.stdout, /integridad|autenticación|cadena/i);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

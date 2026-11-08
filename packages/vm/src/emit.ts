@@ -3,6 +3,9 @@ import { parse } from '@synex/parser';
 import { compile, type Instr, type Op, type Proto } from '@synex/ir';
 import { SynexError } from '@synex/shared';
 import { validateProto } from './validate.js';
+import { readFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { compileLuauRecordsV3, type LuauInstructionV3 } from './record-format.js';
 
 /**
  * Transformación mediante VM. El programa se compila al IR de Synex y se
@@ -242,7 +245,9 @@ function shuffleConstantPool(code: Instr[], constants: unknown[], seed: number, 
   return { code: rewritten, constants: shuffled };
 }
 
-function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }, parentSalt = 0, parentSlot = 0): string {
+interface EncryptedEmitterContext { enabled: boolean; masterEncryptionKey: Buffer; masterIntegrityKey: Buffer; }
+
+function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }, parentSalt = 0, parentSlot = 0, encryptedContext?: EncryptedEmitterContext): string {
   // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
   const protoSalt = ++protoCounter.value;
   const fusedCode = fuseSuperinstructions(p.code);
@@ -315,10 +320,17 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   const blockDescriptors = blockDescriptorValues.map((values) => '{' + values.join(',') + '}').join(',');
   const upvalueValues = p.upvals.map((d) => [d.fromLocal ? 1 : 0, d.index]);
   const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg, blockMap, blockDescriptorValues, p.consts.length, p.protos.length, upvalueValues, parentSalt, parentSlot);
-  const code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
+  let code: string;
+  if (encryptedContext?.enabled) {
+    const instructions: LuauInstructionV3[] = encodedCode.map((fields) => ({ opcode: fields[0]!, a: fields[1]!, b: fields[2]!, target: fields[3]!, c: fields[4]!, line: fields[5]!, nextPC: fields[6]!, checkA: fields[7]!, checkB: fields[8]! }));
+    const artifact = compileLuauRecordsV3(instructions, { masterEncryptionKey: encryptedContext.masterEncryptionKey, masterIntegrityKey: encryptedContext.masterIntegrityKey, prototypeSalt: protoSalt, nonces: instructions.map(() => randomBytes(24)) });
+    code = artifact.records.map((record) => '{nonce="' + record.nonce.toString('hex') + '",ciphertext="' + record.ciphertext.toString('hex') + '",tag="' + record.tag.toString('hex') + '",chainTag="' + record.chainTag.toString('hex') + '",aad="' + record.aad.toString('hex') + '"}').join(',');
+  } else {
+    code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
+  }
   const consts = constantPool.constants.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
-  const children = p.protos.map((c, index) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter, protoSalt, index + 1)).join(',');
+  const children = p.protos.map((c, index) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter, protoSalt, index + 1, encryptedContext)).join(',');
   return `{${keys.salt}=${protoSalt},${keys.seal}={${seal.join(',')}},${keys.parent}=${parentSalt},${keys.slot}=${parentSlot},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
@@ -328,6 +340,7 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
  * Luau y en Lua 5.4 (sin goto, continue, operadores de bits ni "//").
  */
 const TEMPLATE = String.raw`
+__CRYPTO_RUNTIME__
 local strlib, tbl, floor, tointeger = string, table, math.floor, math.tointeger
 local constIntact
 local unpackfn = (tbl and tbl.unpack) or unpack
@@ -425,6 +438,54 @@ constIntact = function(bytes, sealA, sealB, key)
     hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
   end
   return hashA == sealA and hashB == sealB
+end
+local MASTER_ENCRYPTION_KEY_HEX = "__MASTER_ENCRYPTION_KEY__"
+local MASTER_INTEGRITY_KEY_HEX = "__MASTER_INTEGRITY_KEY__"
+local function hexBytes(hex)
+  if typefn(hex) ~= "string" or #hex % 2 ~= 0 then return nil end
+  local out = {}
+  for i = 1, #hex, 2 do
+    local value = tonumber(strlib.sub(hex, i, i + 1), 16)
+    if value == nil then return nil end
+    out[#out + 1] = strlib.char(value)
+  end
+  return tbl.concat(out)
+end
+local function readU32LE(bytes, offset)
+  local a, b, c, d = strlib.byte(bytes, offset, offset + 3)
+  if d == nil then return nil end
+  return a + b * 256 + c * 65536 + d * 16777216
+end
+local function decodeEncryptedPrototype(P)
+  local code = P.__KEY_CODE__
+  if typefn(code) ~= "table" or #code == 0 then return end
+  local first = code[1]
+  if typefn(first) ~= "table" or typefn(first.nonce) ~= "string" then return end
+  if typefn(Crypto) ~= "table" or typefn(Integrity) ~= "table" then errorfn("runtime criptográfico no disponible", 0) end
+  local masterEncryptionKey = hexBytes(MASTER_ENCRYPTION_KEY_HEX)
+  local masterIntegrityKey = hexBytes(MASTER_INTEGRITY_KEY_HEX)
+  if not masterEncryptionKey or #masterEncryptionKey ~= 32 or not masterIntegrityKey or #masterIntegrityKey ~= 32 then errorfn("claves de bytecode inválidas", 0) end
+  local salt = P.__KEY_SALT__
+  local context = tostring(floor(salt))
+  local encryptionKey = Crypto.hmacSha256(masterEncryptionKey, "Synex/prototype-encryption/v1:" .. context)
+  local integrityKey = Crypto.hmacSha256(masterIntegrityKey, "Synex/prototype-integrity/v1:" .. context)
+  local chain = Integrity.start(integrityKey, salt)
+  for index = 1, #code do
+    local record = code[index]
+    if typefn(record) ~= "table" then errorfn("registro cifrado corrupto", 0) end
+    local nonce, ciphertext = hexBytes(record.nonce), hexBytes(record.ciphertext)
+    local tag, chainTag, aad = hexBytes(record.tag), hexBytes(record.chainTag), hexBytes(record.aad)
+    if not nonce or #nonce ~= 24 or not ciphertext or #ciphertext ~= 36 or not tag or #tag ~= 16 or not chainTag or #chainTag ~= 32 or not aad then errorfn("registro cifrado truncado", 0) end
+    local valid, nextChain = Integrity.verifyRecord(integrityKey, chainTag, chain, index, nonce, ciphertext, tag, aad)
+    if not valid then errorfn("cadena de integridad comprometida", 0) end
+    local plain = Crypto.openPoly1305(encryptionKey, nonce, ciphertext, tag, aad)
+    if not plain or #plain ~= 36 then errorfn("autenticación de bytecode fallida", 0) end
+    local fields = {}
+    for field = 1, 9 do fields[field] = readU32LE(plain, (field - 1) * 4 + 1); if fields[field] == nil then errorfn("instrucción cifrada inválida", 0) end end
+    code[index] = fields
+    chain = nextChain
+    plain = nil
+  end
 end
 local function protoIntact(P)
   if typefn(P) ~= "table" then return false end
@@ -596,6 +657,7 @@ run = function(P, U, args, expectedParentSalt, expectedParentSlot)
     or P.__KEY_PARENT__ ~= (expectedParentSalt or 0) or P.__KEY_SLOT__ ~= (expectedParentSlot or 0) then
     fail("integridad comprometida: relación jerárquica alterada")
   end
+  decodeEncryptedPrototype(P)
   if not protoIntact(P) then fail("integridad comprometida: prototipo alterado") end
   if typefn(np) ~= "number" or typefn(ns) ~= "number" or np < 0 or np > ns or np ~= floor(np) or ns ~= floor(ns) then fail("prototipo corrupto") end
   for i = 1, np do slots[i] = args[i] end
@@ -853,6 +915,8 @@ export interface EmitOptions {
   stepLimit?: number;
   /** Identificador de procedencia opcional, visible en el fuente emitido. */
   watermark?: string;
+  /** Cifra cada instrucción del payload VM con XChaCha20-Poly1305. */
+  encryptedRecords?: boolean;
 }
 
 export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): string {
@@ -868,6 +932,8 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     || !/^[A-Za-z0-9._:-]+$/.test(watermark))) {
     throw new SynexError('watermark inválido (usa 1-64 caracteres: letras, números, . _ : -)', 1, 1, 'E_OPTIONS');
   }
+  const encrypted = options.encryptedRecords === true;
+  const encryptedContext: EncryptedEmitterContext = { enabled: encrypted, masterEncryptionKey: encrypted ? randomBytes(32) : Buffer.alloc(32), masterIntegrityKey: encrypted ? randomBytes(32) : Buffer.alloc(32) };
   const ops = opcodeTable(seed);
   let body = shuffleDispatch(TEMPLATE, seed).replace(/\bOP_([A-Z]+)\b/g, (_m, name: string) => {
     const code = ops[name as Op];
@@ -878,9 +944,19 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
   const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal, PARENT: keys.parent, SLOT: keys.slot, BLOCKMAP: keys.blockmap, BLOCKS: keys.blocks };
   body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL|PARENT|SLOT|BLOCKMAP|BLOCKS)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
+  if (encrypted) {
+    const cryptoSource = readFileSync(new URL('../luau/crypto.lua', import.meta.url), 'utf8');
+    const integritySource = readFileSync(new URL('../luau/integrity.lua', import.meta.url), 'utf8').replace('local Crypto = require("./crypto")', '');
+    body = body.replace('__CRYPTO_RUNTIME__', 'local Crypto = (function()\n' + cryptoSource + '\nend)()\nlocal Integrity = (function(Crypto)\n' + integritySource + '\nend)(Crypto)');
+    body = body.replace('__MASTER_ENCRYPTION_KEY__', encryptedContext.masterEncryptionKey.toString('hex'));
+    body = body.replace('__MASTER_INTEGRITY_KEY__', encryptedContext.masterIntegrityKey.toString('hex'));
+  } else {
+    body = body.replace('__CRYPTO_RUNTIME__', 'local Crypto, Integrity = nil, nil');
+    body = body.replace('__MASTER_ENCRYPTION_KEY__', '').replace('__MASTER_INTEGRITY_KEY__', '');
+  }
   body = body.replace('__VALID_OPS__', '{' + ALL_OPS.map((op) => '[' + ops[op] + ']=true').join(',') + '}');
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
-  body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }));
+  body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }, 0, 0, encryptedContext));
   const marker = watermark === undefined ? '' : `-- Synex provenance: ${watermark}\n`;
   return marker + body.trimStart();
 }

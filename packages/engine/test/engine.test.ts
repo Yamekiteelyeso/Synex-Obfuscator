@@ -169,13 +169,15 @@ test('Max aplica la configuración más intensa y emite bytecode VM protegido', 
   const result = runProfile(SAMPLE, { profile: 'max', seed: 424242 });
   assert.equal(result.code.split(String.fromCharCode(10))[0], '-- [Synex Obf] | profile: max | vm: on');
   assert.match(result.code, /decodeOperand/);
+  assert.match(result.code, /ciphertext="[0-9a-f]{72}"/);
+  assert.match(result.code, /openPoly1305/);
   assert.ok(!result.code.includes('P.k['));
 });
 
 const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
 
 test('Max completo: transformaciones y VM conservan el resultado en Lua 5.4', { skip: !hasLua54 }, () => {
-  const result = runProfile(SAMPLE, { profile: 'max', seed: 8675309 });
+  const result = runProfile(SAMPLE, { profile: 'max', seed: 8675309, encryptedRecords: false });
   const output = execFileSync('lua5.4', ['-'], { input: result.code, encoding: 'utf8', timeout: 7000 });
   assert.equal(output.trim(), ['items', '22', 'false'].join(String.fromCharCode(9)));
 });
