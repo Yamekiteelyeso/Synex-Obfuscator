@@ -713,6 +713,8 @@ export function installStdlib(interp: LuaEnvironment): void {
     let exponent = toNumber(args[1], at);
     if (!Number.isSafeInteger(exponent)) throw new LuaError('bad argument to math.ldexp (integer exponent expected)');
     if (value === 0 || !Number.isFinite(value) || exponent === 0) return [value];
+    if (exponent > 2200) return [value > 0 ? Infinity : -Infinity];
+    if (exponent < -2200) return [value > 0 ? 0 : -0];
     while (exponent > 1023) {
       value *= 2 ** 1023;
       exponent -= 1023;
