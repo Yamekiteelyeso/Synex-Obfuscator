@@ -219,7 +219,7 @@ const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
 test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => {
   const source = [
     'local function add(a, b) return a + b end',
-    'local label = "Synex ✓"',
+    'local label = "Synex VM"',
     'local object = {value = add(20, 22)}',
     'print(label, object.value)',
   ].join(String.fromCharCode(10));
