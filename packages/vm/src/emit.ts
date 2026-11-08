@@ -307,6 +307,7 @@ local function unnum(bytes, key)
   local mantissa = (decoded[7] % 16) * 2^48 + decoded[6] * 2^40 + decoded[5] * 2^32
     + decoded[4] * 2^24 + decoded[3] * 2^16 + decoded[2] * 2^8 + decoded[1]
   if exponent == 2047 then
+    for i = 1, 8 do decoded[i] = nil end
     if mantissa == 0 then return sign == 1 and (-1/0) or (1/0) end
     return (0/0)
   end
@@ -317,6 +318,7 @@ local function unnum(bytes, key)
     value = (1 + mantissa / 2^52) * 2^(exponent - 1023)
   end
   if sign == 1 then value = -value end
+  for i = 1, 8 do decoded[i] = nil end
   -- Lua 5.4 distingue enteros y floats al convertir a texto; Luau puede no
   -- exponer math.tointeger, en cuyo caso conserva el número double.
   if tointeger and (value ~= 0 or sign == 0) then

@@ -184,7 +184,8 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
   assert.match(code, /integridad comprometida: instrucción alterada/);
   assert.match(code, /decodeOperand\(ins\[7\], ip, 7, protoSalt\)/);
   assert.match(code, /sucesora fuera del prototipo/);
-  assert.match(code, /function\(\) return unstr/);
+  assert.match(code, /function\(\) return/);
+  assert.match(code, /constIntact\(b,/);
   assert.ok(code.includes('decodeOperand(ins[6], ip, 6, protoSalt)'));
   assert.ok(!code.includes('P.k['));
   assert.ok(code.includes('unstr('));
@@ -285,7 +286,7 @@ test('VM emitida: segmenta cadenas largas con claves distintas y las reconstruye
   const escapedValue = 'Synex::fragmented::Unicode::\\u{1F30E}::0123456789::protection';
   const source = `local value = "${escapedValue}"\nprint(value)`;
   const emitted = compileToLuauVm(source, 884422);
-  const chunks = (emitted.match(/unstr\(\{/g) ?? []).length;
+  const chunks = (emitted.match(/local b=\{/g) ?? []).length;
   assert.ok(chunks >= 5, `se esperaban varios fragmentos, se emitieron ${chunks}`);
   assert.doesNotMatch(emitted, /Synex::fragmented::Unicode|0123456789/);
   const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 7000 });
@@ -295,14 +296,12 @@ test('VM emitida: segmenta cadenas largas con claves distintas y las reconstruye
 test('VM emitida: detecta alteración de bytes de constantes antes de reconstruirlas', { skip: !hasLua54 }, () => {
   const emitted = compileToLuauVm('print("Synex protected constant")', 556677);
   const mainStart = emitted.indexOf('local MAIN = {');
-  const payloadStart = emitted.indexOf('local b={', mainStart);
-  assert.ok(mainStart >= 0 && payloadStart > mainStart);
-  const numberStart = payloadStart + 'local b={'.length;
-  const number = /\d+/.exec(emitted.slice(numberStart));
-  assert.ok(number);
-  const tampered = emitted.slice(0, numberStart + number.index)
-    + String((Number(number[0]) + 1) % 256)
-    + emitted.slice(numberStart + number.index + number[0].length);
+  const payload = /local b=\{(\d+)/.exec(emitted.slice(mainStart));
+  assert.ok(mainStart >= 0 && payload);
+  const numberStart = mainStart + payload.index + 'local b={'.length;
+  const tampered = emitted.slice(0, numberStart)
+    + String((Number(payload[1]) + 1) % 256)
+    + emitted.slice(numberStart + payload[1].length);
   assert.throws(
     () => execFileSync('lua5.4', ['-'], { input: tampered, encoding: 'utf8', timeout: 7000 }),
     /integridad comprometida: constante alterada/,
