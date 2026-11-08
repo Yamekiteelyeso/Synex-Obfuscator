@@ -687,6 +687,7 @@ export function installStdlib(interp: LuaEnvironment): void {
 
   const mathLib = new LuaTable();
   let randomState = 0n;
+  // PCG32 transition and seed procedure follow Luau VM/src/lmathlib.cpp (MIT).
   const pcg32Random = (): number => {
     const oldState = randomState;
     randomState = BigInt.asUintN(64, oldState * 6364136223846793005n + 105n);
