@@ -23,4 +23,38 @@ local ok = pcall(function()
 		nonces={string.rep("\4", 24), string.rep("\4", 24)}, prototypeSalt=99})
 end)
 assert(not ok, "compiler allowed nonce reuse")
+-- Version 2 switches record authentication to XChaCha20-Poly1305.
+local artifactV2 = Compiler.compile(instructions, {
+	encryptionKey=encryptionKey, integrityKey=integrityKey,
+	nonces={string.rep("\\8", 24), string.rep("\\9", 24)},
+	prototypeSalt=100, version=2,
+})
+assert(artifactV2.version == 2, "compiler did not preserve artifact version")
+assert(#artifactV2.records[1].tag == 16, "v2 must use a 16-byte Poly1305 tag")
+local vmV2 = VM.new({records=artifactV2.records, version=artifactV2.version,
+	encryptionKey=encryptionKey, integrityKey=integrityKey,
+	prototypeSalt=artifactV2.prototypeSalt, maxSteps=10, maxStack=8})
+local stackV2, spV2, stepsV2 = VM.execute(vmV2, handlers)
+assert(spV2 == 2 and stackV2[1] == 20 and stackV2[2] == 22 and stepsV2 == 2,
+	"v2 Poly1305 artifact did not execute")
+
+local invalidVersion = pcall(function()
+	Compiler.compile(instructions, {encryptionKey=encryptionKey, integrityKey=integrityKey,
+		nonces=nonces, version=3})
+end)
+assert(not invalidVersion, "compiler accepted an unknown format version")
+
+local tampered = {
+	version=artifactV2.version, prototypeSalt=artifactV2.prototypeSalt,
+	records={}, finalChain=artifactV2.finalChain,
+}
+for i, record in ipairs(artifactV2.records) do
+	tampered.records[i] = table.clone(record)
+end
+tampered.records[1].aad = tampered.records[1].aad .. ":tampered"
+local tamperedVm = VM.new({records=tampered.records, version=tampered.version,
+	encryptionKey=encryptionKey, integrityKey=integrityKey,
+	prototypeSalt=tampered.prototypeSalt})
+assert(not pcall(function() VM.readInstruction(tamperedVm) end),
+	"v2 accepted a record with modified AAD")
 print("Synex Luau compiler tests passed")
