@@ -25,6 +25,14 @@ El llamador proporciona una clave de 32 bytes y un nonce de 24 bytes. Un nonce n
 
 Cada instrucción en claro ocupa 20 bytes: cinco enteros unsigned de 32 bits little-endian (`opcode, a, b, c, nextPC`). Cada registro se cifra individualmente y contiene `nonce[24]`, `ciphertext[20]`, `tag[32]`, `chainTag[32]` y AAD. La cadena HMAC se calcula sobre el registro cifrado anterior, PC, nonce, AAD, ciphertext y tag. La VM sólo descifra el registro actual.
 
+## Formatos versionados (módulos Luau)
+ 
+- **v1** conserva compatibilidad: XChaCha20 + HMAC-SHA-256 por registro, tag de 32 bytes.
+- **v2** usa XChaCha20-Poly1305 por registro, tag de 16 bytes. La cadena HMAC estática adicional sigue encadenando nonce, AAD, ciphertext y tag para detectar reordenamientos y sustituciones antes del descifrado.
+- `compiler.lua` mantiene v1 como valor predeterminado; `options.version = 2` solicita explícitamente v2. `runtime.lua` despacha según `artifact.version` y rechaza versiones desconocidas.
+- El lector de registros selecciona la primitiva de autenticación por versión. Los artefactos v1 existentes siguen siendo legibles; no se hace autodetección ambigua del algoritmo.
+- Este versionado aplica al runtime modular bajo `packages/vm/luau`. **Todavía no está integrado al emisor TypeScript `emit.ts` ni habilitado en los perfiles de producto.**
+
 ## Modelo de integridad y límites
 
 La cadena HMAC estática puede generarse durante el build y detecta cambios, reordenamientos o sustituciones de registros mientras la clave MAC permanezca fuera del alcance del atacante. Si la clave se incluye en el cliente, puede extraerse: estas verificaciones son tamper-evident, no una frontera de confianza frente al propietario del proceso.
