@@ -175,12 +175,13 @@ export function installStdlib(interp: LuaEnvironment): void {
   stringLib.set('sub', fn('sub', (args) => {
     const s = String(args[0]);
     const length = s.length;
-    const normalize = (index: number) => index < 0 ? Math.max(length + index + 1, 1) : Math.min(index, length);
+    const normalize = (index: number, isLast: boolean) =>
+      index < 0 ? Math.max(length + index + 1, 1) : isLast ? Math.min(index, length) : index;
     const firstRaw = toNumber(args[1], at);
     const lastRaw = args[2] === undefined ? -1 : toNumber(args[2], at);
     if (!Number.isInteger(firstRaw) || !Number.isInteger(lastRaw)) throw new LuaError('bad argument to string.sub (integer index expected)');
-    const first = normalize(firstRaw);
-    const last = normalize(lastRaw);
+    const first = normalize(firstRaw, false);
+    const last = normalize(lastRaw, true);
     if (first < 1 || first > length || last < first) return [''];
     return [s.slice(first - 1, last)];
   }));
