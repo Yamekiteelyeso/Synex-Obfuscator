@@ -210,6 +210,14 @@ test('string.gmatch itera coincidencias y capturas sin repetir matches vacíos',
   assert.deepEqual(out('local words = {}; for word in string.gmatch("one two three", "%a+") do table.insert(words, word) end; print(table.concat(words, ","))'), ['one,two,three']);
   assert.deepEqual(out('local pairs = {}; for left, right in string.gmatch("a1 b2", "(%a)(%d)") do table.insert(pairs, left .. right) end; print(table.concat(pairs, ","))'), ['a1,b2']);
 });
+test('los patrones Lua permiten referencias numéricas a capturas', () => {
+  assert.deepEqual(out('print(string.match("go go!", "(%a+)%s+%1"))'), ['go']);
+  assert.deepEqual(out('print(string.find("echo echo", "(%a+)%s+%1"))'), ['1\t9\techo']);
+  assert.deepEqual(out('local s, n = string.gsub("a a b b", "(%a)%s+%1", "%1!"); print(s, n)'), ['a! b!\t2']);
+  assert.throws(() => out('string.match("abc", "%1")'), /invalid Lua pattern backreference/);
+  assert.throws(() => out('string.match("abc", "([%1])")'), /inside character classes/);
+});
+
 test('string.match devuelve coincidencias y capturas Lua', () => {
   assert.deepEqual(out('print(string.match("user42", "(%a+)(%d+)")); print(string.match("abc", "%d+"))'), ['user\t42', 'nil']);
   assert.deepEqual(out('print(string.match("abc123", "%d+", -3))'), ['123']);
