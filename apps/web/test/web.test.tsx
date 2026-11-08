@@ -87,10 +87,10 @@ test('History y Admin renderizan estados', () => {
   const h = renderToStaticMarkup(<History jobs={[{ id: '1', fileName: 'a.lua', profile: 'basic', status: 'failed', createdAt: 0, error: { message: 'E_X' } }]} />);
   assert.match(h, /E_X/);
   const a = renderToStaticMarkup(
-    <Admin data={{ users: [], jobs: [], errors: [], planRequests: [], settings: { maxInputBytes: 1048576, enabledProfiles: ['basic'] } }} onToggleProfile={() => undefined} onUpdateRequest={() => undefined} />,
+    <Admin data={{ users: [], jobs: [], errors: [], settings: { maxInputBytes: 1048576, enabledProfiles: ['basic'] } }} onToggleProfile={() => undefined} onSetUserPlan={() => undefined} />,
   );
   assert.match(a, /Perfiles de ofuscación/);
-  assert.match(a, /Solicitudes de planes/);
+  assert.match(a, /Cuentas/);
 });
 
 test('AuthView explica que Discord registra automáticamente y muestra errores de acceso', () => {
@@ -109,7 +109,7 @@ test('AuthView explica que Discord registra automáticamente y muestra errores d
 });
 
 
-test('Plans muestra Free, Premium y Plus y el consumo gratuito', () => {
+test('Plans muestra contacto de compra, Free, Premium y Plus y el consumo gratuito', () => {
   const html = renderToStaticMarkup(<Plans
     token="test-token"
     user={{ id: 'discord-user', discordUsername: 'test', role: 'user', plan: 'free', obfuscationsUsed: 1, obfuscationLimit: 2, allowedProfiles: ['basic'] }}
@@ -119,4 +119,6 @@ test('Plans muestra Free, Premium y Plus y el consumo gratuito', () => {
   assert.match(html, /Premium/);
   assert.match(html, /Plus/);
   assert.match(html, /1 de 2 restantes/);
+  assert.match(html, /Contact one admin for buy/);
+  assert.doesNotMatch(html, /Solicitar Premium|Tus solicitudes/);
 });
