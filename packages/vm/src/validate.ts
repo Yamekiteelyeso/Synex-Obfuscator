@@ -3,7 +3,7 @@ import type { Op, Proto } from '@synex/ir';
 
 /** Operaciones válidas del IR con los campos que deben ser índices válidos. */
 const VALID_OPS = new Set<Op>([
-  'CONST', 'NIL', 'TRUE', 'FALSE', 'POP', 'GETL', 'SETL', 'NEWBOX', 'GETBOX', 'SETBOX', 'BOXSLOT',
+  'CONST', 'NIL', 'TRUE', 'FALSE', 'POP', 'GETL', 'SETL', 'MOVE', 'NEWBOX', 'GETBOX', 'SETBOX', 'BOXSLOT',
   'GETUP', 'SETUP', 'GETG', 'SETG', 'GETI', 'SETI', 'SELF',
   'ADD', 'SUB', 'MUL', 'DIV', 'IDIV', 'MOD', 'POW', 'CONCAT', 'EQ', 'NE', 'LT', 'LE', 'GT', 'GE',
   'NEG', 'NOT', 'LEN', 'JMP', 'JF', 'JFK', 'JTK', 'FORTEST', 'FORSTEP', 'GENCALL',
@@ -29,6 +29,7 @@ export function validateProto(proto: Proto): void {
   if (!Number.isInteger(proto.nparams) || proto.nparams < 0) fail('número de parámetros inválido', proto, -1);
   if (!Number.isInteger(proto.nslots) || proto.nslots < proto.nparams) fail('número de ranuras inválido', proto, -1);
   proto.code.forEach((ins, pc) => {
+    if (ins.op === 'MOVE' && (!Number.isInteger(ins.a) || !Number.isInteger(ins.b) || ins.a! < 0 || ins.a! >= proto.nslots || ins.b! < 0 || ins.b! >= proto.nslots)) fail('ranura MOVE fuera de rango', proto, pc);
     if (!VALID_OPS.has(ins.op)) fail(`operación desconocida ${String(ins.op)}`, proto, pc);
     if (JUMPS.has(ins.op)) {
       if (!Number.isInteger(ins.t) || ins.t! < 0 || ins.t! >= proto.code.length) fail('salto fuera del código', proto, pc);

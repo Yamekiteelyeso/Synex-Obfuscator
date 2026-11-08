@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomInt } from 'node:crypto';
 import { SynexError } from '@synex/shared';
 import { execute, LuaError, LuaTable, LuaFunction, type Value } from '@synex/runtime';
 import { obfuscate } from '@synex/transformations';
@@ -59,6 +59,8 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
   }
   if (source.trim() === '') throw new SynexError('el script está vacío', 1, 1, 'E_EMPTY');
 
+  // Semilla nueva por compilación: evita mapas de opcodes y máscaras repetibles.
+  const buildSeed = options.seed ?? randomInt(1, 0x7fffffff);
   const settings = resolveSettings(options.profile, options.custom);
   const has = (t: Technique) => settings.techniques.includes(t);
   const stages: StageRecord[] = [];
@@ -72,7 +74,7 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
   };
 
   const result = obfuscate(source, {
-    seed: options.seed ?? 1,
+    seed: buildSeed,
     renameIdentifiers: has('identifiers'),
     encodeStrings: has('strings'),
     transformNumbers: has('numbers'),
@@ -87,7 +89,7 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
   const vmEnabled = has('vm');
   if (vmEnabled) {
     onStage('vm');
-    code = compileToLuauVm(result.code, options.seed ?? 1);
+    code = compileToLuauVm(result.code, buildSeed);
   }
 
   // El comentario se agrega al final de todas las transformaciones para que

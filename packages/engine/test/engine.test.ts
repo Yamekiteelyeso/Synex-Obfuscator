@@ -14,31 +14,40 @@ print(label, total, total == 25)
 `;
 
 test('los perfiles tienen configuraciones distintas y reales', () => {
+  assert.deepEqual(Object.keys(PROFILES).sort(), ['basic', 'max', 'medium']);
   const b = JSON.stringify(PROFILES.basic);
-  const a = JSON.stringify(PROFILES.advanced);
-  const p = JSON.stringify(PROFILES.professional);
+  const a = JSON.stringify(PROFILES.medium);
+  const p = JSON.stringify(PROFILES.max);
   assert.notEqual(b, a);
   assert.notEqual(a, p);
-  assert.ok(PROFILES.professional.deadCodeDensity > PROFILES.advanced.deadCodeDensity);
+  assert.ok(PROFILES.max.deadCodeDensity > PROFILES.medium.deadCodeDensity);
 });
 
-test('perfil roblox aplica VM y transformaciones conservadoras', () => {
-  const settings = resolveSettings('roblox');
+test('Max activa VM y transformaciones avanzadas', () => {
+  const settings = resolveSettings('max');
   assert.ok(settings.techniques.includes('identifiers'));
   assert.ok(settings.techniques.includes('strings'));
   assert.ok(settings.techniques.includes('vm'));
-  assert.ok(!settings.techniques.includes('controlflow'));
-  const result = runProfile(SAMPLE, { profile: 'roblox', seed: 4, checkEquivalence: true });
+  assert.ok(settings.techniques.includes('controlflow'));
+  const result = runProfile(SAMPLE, { profile: 'max', seed: 4, checkEquivalence: true });
   assert.equal(result.equivalence.status, 'unverifiable');
 });
 
-test('basic, advanced y professional producen salidas distintas y todas equivalentes', () => {
-  const outs = (['basic', 'advanced', 'professional'] as const).map((profile) =>
+test('Basic, Medium y Max producen salidas distintas y equivalentes', () => {
+  const outs = (['basic', 'medium', 'max'] as const).map((profile) =>
     runProfile(SAMPLE, { profile, seed: 4, checkEquivalence: true }));
-  for (const r of outs) assert.equal(r.equivalence.status, 'equivalent');
+  assert.equal(outs[0].equivalence.status, 'equivalent');
+  assert.equal(outs[1].equivalence.status, 'equivalent');
+  assert.equal(outs[2].equivalence.status, 'unverifiable'); // la VM se verifica ejecutando el artefacto en Lua 5.4.
   assert.notEqual(outs[0].code, outs[1].code);
   assert.notEqual(outs[1].code, outs[2].code);
   assert.ok(outs[2].stats.deadBlocks > 0);
+});
+
+test('sin semilla fija, cada build Max genera una variante distinta', () => {
+  const a = runProfile('print("variant")', { profile: 'max' });
+  const b = runProfile('print("variant")', { profile: 'max' });
+  assert.notEqual(a.code, b.code);
 });
 
 test('basic no inserta código muerto ni transforma constantes', () => {
@@ -71,14 +80,14 @@ test('custom sin técnicas válidas se rechaza', () => {
 });
 
 test('digest SHA-256 coincide con el código entregado', () => {
-  const a = runProfile(SAMPLE, { profile: 'advanced', seed: 6 });
-  const b = runProfile(SAMPLE, { profile: 'advanced', seed: 6 });
+  const a = runProfile(SAMPLE, { profile: 'medium', seed: 6 });
+  const b = runProfile(SAMPLE, { profile: 'medium', seed: 6 });
   assert.equal(a.digest, b.digest);
   assert.match(a.digest, /^[0-9a-f]{64}$/);
 });
 
 test('se registran las etapas con tiempos', () => {
-  const r = runProfile(SAMPLE, { profile: 'professional', seed: 1 });
+  const r = runProfile(SAMPLE, { profile: 'max', seed: 1 });
   const names = r.stages.map((s) => s.name);
   assert.ok(names.includes('parse'));
   assert.ok(names.includes('generate'));
@@ -98,7 +107,7 @@ test('equivalencia: una biblioteca ausente falla igual en original y ofuscado', 
 });
 
 test('equivalencia: un error de ejecución idéntico se considera equivalente', () => {
-  const r = runProfile('local t = nil\nprint(t.x)', { profile: 'advanced', checkEquivalence: true });
+  const r = runProfile('local t = nil\nprint(t.x)', { profile: 'medium', checkEquivalence: true });
   assert.equal(r.equivalence.status, 'equivalent');
 });
 
@@ -106,11 +115,11 @@ const WORKER = fileURLToPath(new URL('../dist/worker.js', import.meta.url));
 
 test('JobManager ejecuta trabajos en workers aislados y devuelve el resultado', async () => {
   const jobs = new JobManager({ workerPath: WORKER, concurrency: 2, timeoutMs: 20000 });
-  const rec = jobs.submit(SAMPLE, { profile: 'advanced', seed: 3 });
+  const rec = jobs.submit(SAMPLE, { profile: 'medium', seed: 3 });
   const done = await jobs.waitFor(rec.id);
   assert.equal(done.status, 'done');
   assert.ok(done.result);
-  assert.equal(done.result!.profile, 'advanced');
+  assert.equal(done.result!.profile, 'medium');
 });
 
 test('JobManager marca error de validación como failed con código', async () => {
@@ -143,9 +152,9 @@ test('JobManager procesa varios trabajos y los lista', async () => {
 
 test('todas las salidas empiezan con la marca Synex y declaran si usan VM', () => {
   const basic = runProfile('print("hola")', { profile: 'basic', seed: 8 });
-  const roblox = runProfile('print("hola")', { profile: 'roblox', seed: 8 });
+  const max = runProfile('print("hola")', { profile: 'max', seed: 8 });
   assert.ok(basic.code.startsWith('-- [Synex Obf] | profile: basic | vm: off\n'));
-  assert.ok(roblox.code.startsWith('-- [Synex Obf] | profile: roblox | vm: on\n'));
+  assert.ok(max.code.startsWith('-- [Synex Obf] | profile: max | vm: on\n'));
 });
 
 

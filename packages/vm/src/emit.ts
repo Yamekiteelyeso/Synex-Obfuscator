@@ -18,7 +18,7 @@ import { validateProto } from './validate.js';
 /** Todas las operaciones del IR. El tipo obliga a listarlas todas. */
 const ALL_OPS = [
   'CONST', 'NIL', 'TRUE', 'FALSE', 'POP',
-  'GETL', 'SETL', 'NEWBOX', 'GETBOX', 'SETBOX', 'BOXSLOT',
+  'GETL', 'SETL', 'MOVE', 'NEWBOX', 'GETBOX', 'SETBOX', 'BOXSLOT',
   'GETUP', 'SETUP', 'GETG', 'SETG',
   'GETI', 'SETI', 'SELF',
   'ADD', 'SUB', 'MUL', 'DIV', 'IDIV', 'MOD', 'POW', 'CONCAT',
@@ -59,7 +59,7 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
-type ProtoKeys = { np: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string };
+type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string; seal: string; blockmap: string; blocks: string };
 
 /** Los nombres de los campos del prototipo también cambian por semilla. */
 function protoKeys(seed: number): ProtoKeys {
@@ -71,7 +71,7 @@ function protoKeys(seed: number): ProtoKeys {
     used.add(name);
     return name;
   };
-  return { np: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next() };
+  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), blockmap: next(), blocks: next() };
 }
 
 function luaNumber(n: number): string {
@@ -89,8 +89,12 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
     const bytes = Buffer.from(v, 'utf8');
     const index = ++stringIndex.value;
     const key = ((seed >>> 0) + index * 73) % 251 + 1;
-    const encoded = Array.from(bytes, (b, i) => (b + key + (i + 1) * 17) % 256).join(',');
-    return `unstr({${encoded}},${key})`;
+    let state = key;
+    const encoded = Array.from(bytes, (b, i) => {
+      state = (state * 73 + 41) % 256;
+      return (b + state + (i + 1) * 17) % 256;
+    }).join(',');
+    return `function() return unstr({${encoded}},${key}) end`;
   }
   if (typeof v === 'number') return luaNumber(v);
   if (typeof v === 'boolean') return v ? 'true' : 'false';
@@ -102,22 +106,102 @@ const OPERAND_MODULUS = 2147483647;
 /** Enmascara cada campo con una clave derivada de semilla, prototipo, instrucción y posición. */
 function encodeOperand(value: number, pc: number, field: number, seed: number, protoSalt: number): number {
   const normalized = ((value % OPERAND_MODULUS) + OPERAND_MODULUS) % OPERAND_MODULUS;
-  const mask = ((seed >>> 0) + pc * 131 + field * 977 + protoSalt * 4099) % OPERAND_MODULUS;
+  const mask = ((seed >>> 0) + pc * 131 + field * 977 + protoSalt * 4099 + (pc * field * protoSalt * 17) % OPERAND_MODULUS) % OPERAND_MODULUS;
   return (normalized + mask) % OPERAND_MODULUS;
+}
+
+function protoSeal(code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean): number {
+  let hash = ((seed >>> 0) + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
+  for (const instruction of code) for (const value of instruction) hash = (hash * 33 + value) % OPERAND_MODULUS;
+  return hash;
+}
+
+/**
+ * Fuse GETL + SETL en MOVE cuando el segundo registro no es destino de salto.
+ * Se remapean todos los destinos originales antes de barajar el layout físico.
+ * Sólo afecta a slots locales normales: los capturados usan GETBOX/SETBOX.
+ */
+function fuseSuperinstructions(code: Instr[]): Instr[] {
+  const jumpTargets = new Set(code.flatMap((ins) => ins.t === undefined ? [] : [ins.t]));
+  const fused: Instr[] = [];
+  const oldToNew = new Array<number>(code.length);
+  for (let i = 0; i < code.length;) {
+    const current = code[i];
+    const next = code[i + 1];
+    oldToNew[i] = fused.length;
+    if (current.op === 'GETL' && next?.op === 'SETL' && !jumpTargets.has(i + 1)) {
+      oldToNew[i + 1] = fused.length;
+      fused.push({ op: 'MOVE', a: current.a, b: next.a, line: current.line });
+      i += 2;
+    } else {
+      fused.push({ ...current });
+      i += 1;
+    }
+  }
+  for (const ins of fused) {
+    if (ins.t !== undefined) ins.t = oldToNew[ins.t];
+  }
+  return fused;
 }
 
 function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }): string {
   // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
   const protoSalt = ++protoCounter.value;
-  const code = p.code.map((ins: Instr, index: number) => {
-    const pc = index + 1;
-    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, ins.t !== undefined ? ins.t + 1 : 0, ins.c ? 1 : 0, ins.line ?? 0];
-    return `{${fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt)).join(',')}}`;
+  const virtualCode = fuseSuperinstructions(p.code);
+  // Randomize physical instruction storage independently for each prototype.
+  const order = Array.from({ length: virtualCode.length }, (_, i) => i + 1);
+  const shuffle = rng((seed ^ Math.imul(protoSalt, 0x45d9f3b)) >>> 0);
+  // La primera instrucción lógica conserva el slot de entrada de la VM.
+  for (let i = order.length - 1; i > 1; i--) {
+    const j = 1 + Math.floor(shuffle() * i);
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const physicalOf: number[] = [];
+  order.forEach((originalPc, physicalIndex) => { physicalOf[originalPc] = physicalIndex + 1; });
+  const encodedCode = order.map((originalPc, physicalIndex) => {
+    const ins = virtualCode[originalPc - 1];
+    const pc = physicalIndex + 1;
+    const logicalTarget = ins.t !== undefined ? ins.t + 1 : 0;
+    const target = logicalTarget ? physicalOf[logicalTarget] : 0;
+    const nextLogical = originalPc < virtualCode.length ? originalPc + 1 : 0;
+    const next = nextLogical ? physicalOf[nextLogical] : 0;
+    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, ins.line ?? 0, next];
+    return fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
+  });
+  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg);
+  // Bloques básicos: entrada, destinos de salto y sucesores de bifurcaciones.
+  const leaders = new Set<number>([0]);
+  virtualCode.forEach((ins, index) => {
+    if (ins.t !== undefined) leaders.add(ins.t);
+    if (['JMP', 'JF', 'JFK', 'JTK', 'FORTEST', 'GENCALL', 'RET'].includes(ins.op) && index + 1 < virtualCode.length) leaders.add(index + 1);
+  });
+  const sortedLeaders = [...leaders].sort((a, b) => a - b);
+  const logicalBlock = new Array<number>(virtualCode.length);
+  sortedLeaders.forEach((start, blockIndex) => {
+    const end = sortedLeaders[blockIndex + 1] ?? virtualCode.length;
+    for (let i = start; i < end; i++) logicalBlock[i] = blockIndex + 1;
+  });
+  const blockMembers = new Map<number, number[]>();
+  order.forEach((originalPc, physicalIndex) => {
+    const id = logicalBlock[originalPc - 1];
+    const members = blockMembers.get(id) ?? [];
+    members.push(physicalIndex + 1);
+    blockMembers.set(id, members);
+  });
+  const blockMap = order.map((originalPc) => logicalBlock[originalPc - 1]);
+  const blockDescriptors = [...blockMembers.entries()].sort((a, b) => a[0] - b[0]).map(([id, pcs]) => {
+    let hash = ((seed >>> 0) + protoSalt * 97 + id * 31) % OPERAND_MODULUS;
+    for (const pc of pcs) {
+      hash = (hash * 33 + pc) % OPERAND_MODULUS;
+      for (const value of encodedCode[pc - 1]) hash = (hash * 33 + value) % OPERAND_MODULUS;
+    }
+    return '{' + [hash, ...pcs].join(',') + '}';
   }).join(',');
+  const code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
   const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
   const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter)).join(',');
-  return `{${keys.salt}=${protoSalt},${keys.np}=${p.nparams},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
+  return `{${keys.salt}=${protoSalt},${keys.seal}=${seal},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -130,8 +214,10 @@ local strlib, tbl, floor = string, table, math.floor
 local unpackfn = (tbl and tbl.unpack) or unpack
 local function unstr(bytes, key)
   local out = {}
+  local state = key
   for i = 1, #bytes do
-    out[i] = strlib.char((bytes[i] - key - i * 17) % 256)
+    state = (state * 73 + 41) % 256
+    out[i] = strlib.char((bytes[i] - state - i * 17) % 256)
   end
   return tbl.concat(out)
 end
@@ -157,10 +243,48 @@ if executorEnv ~= baseEnv then
   })
 end
 local STEP_LIMIT = __LIMIT__
+local VALID_OP = __VALID_OPS__
 local OPERAND_MODULUS, OPERAND_HALF = 2147483647, 1073741823
 local OPERAND_SEED = __OPERAND_SEED__
+local function protoIntact(P)
+  local h = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0)) % OPERAND_MODULUS
+  local code = P.__KEY_CODE__
+  for i = 1, #code do
+    local ins = code[i]
+    if typefn(ins) ~= "table" or #ins ~= 7 then return false end
+    for j = 1, 7 do
+      local v = ins[j]
+      if typefn(v) ~= "number" or v ~= floor(v) then return false end
+      h = (h * 33 + v) % OPERAND_MODULUS
+    end
+  end
+  return h == P.__KEY_SEAL__
+end
+local function blockIntact(P, blockId)
+  local descriptor = P.__KEY_BLOCKS__[blockId]
+  if typefn(descriptor) ~= "table" or #descriptor < 2 then return false end
+  local h = (OPERAND_SEED + P.__KEY_SALT__ * 97 + blockId * 31) % OPERAND_MODULUS
+  for j = 2, #descriptor do
+    local pc = descriptor[j]
+    if typefn(pc) ~= "number" or pc < 1 or pc > #P.__KEY_CODE__ or P.__KEY_BLOCKMAP__[pc] ~= blockId then return false end
+    local ins = P.__KEY_CODE__[pc]
+    if typefn(ins) ~= "table" or #ins ~= 7 then return false end
+    h = (h * 33 + pc) % OPERAND_MODULUS
+    for k = 1, 7 do
+      local value = ins[k]
+      if typefn(value) ~= "number" or value ~= floor(value) then return false end
+      h = (h * 33 + value) % OPERAND_MODULUS
+    end
+  end
+  return h == descriptor[1]
+end
+local function constant(P, index)
+  local value = P.__KEY_CONST__[index]
+  if typefn(value) == "function" then return value() end
+  return value
+end
 local function decodeOperand(value, pc, field, protoSalt)
-  local mask = (OPERAND_SEED + pc * 131 + field * 977 + protoSalt * 4099) % OPERAND_MODULUS
+  local mask = (OPERAND_SEED + pc * 131 + field * 977 + protoSalt * 4099 + (pc * field * protoSalt * 17) % OPERAND_MODULUS) % OPERAND_MODULUS
   local decoded = (value - mask) % OPERAND_MODULUS
   if decoded > OPERAND_HALF then decoded = decoded - OPERAND_MODULUS end
   return decoded
@@ -196,6 +320,9 @@ run = function(P, U, args)
   local ok, result = pcallfn(function()
   local slots = {}
   local np = P.__KEY_NP__
+  local ns = P.__KEY_NS__
+  if not protoIntact(P) then fail("integridad comprometida: prototipo alterado") end
+  if typefn(np) ~= "number" or typefn(ns) ~= "number" or np < 0 or np > ns or np ~= floor(np) or ns ~= floor(ns) then fail("prototipo corrupto") end
   for i = 1, np do slots[i] = args[i] end
   local va, nva = {}, 0
   if P.__KEY_VA__ then
@@ -203,6 +330,8 @@ run = function(P, U, args)
   end
   local st, sp = {}, 0
   local code, pc = P.__KEY_CODE__, 1
+  local activeBlock = 0
+  if typefn(P.__KEY_BLOCKMAP__) ~= "table" or #P.__KEY_BLOCKMAP__ ~= #code or typefn(P.__KEY_BLOCKS__) ~= "table" then fail("índice de bloques corrupto") end
   local protoSalt = P.__KEY_SALT__
   local function push(v)
     sp = sp + 1
@@ -218,6 +347,7 @@ run = function(P, U, args)
   end
   local function popN(k)
     local out = {n = k}
+    if typefn(k) ~= "number" or k < 0 or k ~= floor(k) or k > sp then fail("lectura de pila fuera de rango") end
     local base = sp - k
     for i = 1, k do out[i] = st[base + i]; st[base + i] = nil end
     sp = base
@@ -237,40 +367,55 @@ run = function(P, U, args)
   while true do
     local ip = pc
     local ins = code[ip]
+    local blockId = P.__KEY_BLOCKMAP__[ip]
+    if typefn(blockId) ~= "number" or blockId < 1 or blockId ~= floor(blockId) then fail("bloque virtual inválido") end
+    if blockId ~= activeBlock then
+      if not blockIntact(P, blockId) then fail("integridad comprometida: bloque virtual alterado") end
+      activeBlock = blockId
+    end
     if not ins then fail("bytecode truncado o alterado") end
     -- Comprueba la forma del registro antes de decodificarlo; evita que una
     -- salida truncada o manipulada termine en errores opacos de indexación.
-    if typefn(ins) ~= "table" or #ins ~= 6 then fail("instrucción corrupta") end
-    for field = 1, 6 do
+    if typefn(ins) ~= "table" or #ins ~= 7 then fail("instrucción corrupta") end
+    for field = 1, 7 do
       local value = ins[field]
       if typefn(value) ~= "number" or value ~= floor(value) then fail("operando corrupto") end
     end
-    pc = ip + 1
     local op = decodeOperand(ins[1], ip, 1, protoSalt)
     local a = decodeOperand(ins[2], ip, 2, protoSalt)
     local b = decodeOperand(ins[3], ip, 3, protoSalt)
     local t = decodeOperand(ins[4], ip, 4, protoSalt)
     local c = decodeOperand(ins[5], ip, 5, protoSalt) == 1
+    pc = decodeOperand(ins[7], ip, 7, protoSalt)
+    if pc < 0 or pc > #code then fail('sucesora fuera del prototipo') end
+    if not VALID_OP[op] then fail("opcode inválido") end
+    if (op == OP_GETL or op == OP_SETL or op == OP_NEWBOX or op == OP_GETBOX or op == OP_SETBOX or op == OP_BOXSLOT) and (a < 0 or a >= ns) then fail("slot fuera de rango") end
+    if op == OP_MOVE and (a < 0 or a >= ns or b < 0 or b >= ns) then fail("slot MOVE fuera de rango") end
+    if (op == OP_FORTEST or op == OP_FORSTEP or op == OP_GENCALL) and (a < 0 or a + 2 >= ns) then fail("slot de iterador fuera de rango") end
+    if (op == OP_CONST or op == OP_GETG or op == OP_SETG or op == OP_SELF) and (a < 0 or a >= #P.__KEY_CONST__) then fail("constante fuera de rango") end
+    if (op == OP_GETUP or op == OP_SETUP) and (a < 0 or a >= #U) then fail("upvalue fuera de rango") end
+    if op == OP_CLOSURE and (a < 0 or a >= #P.__KEY_CHILD__) then fail("closure fuera de rango") end
     if (op == OP_JMP or op == OP_JF or op == OP_JFK or op == OP_JTK or op == OP_FORTEST or op == OP_GENCALL)
       and (t < 1 or t > #code) then fail("salto fuera del prototipo") end
     steps = steps + 1
     if steps > STEP_LIMIT then fail("límite de ejecución superado") end
     curLine = decodeOperand(ins[6], ip, 6, protoSalt)
-    if op == OP_CONST then push(P.__KEY_CONST__[a + 1])
+    if op == OP_CONST then push(constant(P, a + 1))
     elseif op == OP_NIL then push(nil)
     elseif op == OP_TRUE then push(true)
     elseif op == OP_FALSE then push(false)
     elseif op == OP_POP then pop()
     elseif op == OP_GETL then push(slots[a + 1])
     elseif op == OP_SETL then slots[a + 1] = pop()
+    elseif op == OP_MOVE then slots[b + 1] = slots[a + 1]
     elseif op == OP_NEWBOX then slots[a + 1] = {v = pop()}
     elseif op == OP_BOXSLOT then slots[a + 1] = {v = slots[a + 1]}
     elseif op == OP_GETBOX then push(slots[a + 1].v)
     elseif op == OP_SETBOX then slots[a + 1].v = pop()
     elseif op == OP_GETUP then push(U[a + 1].v)
     elseif op == OP_SETUP then U[a + 1].v = pop()
-    elseif op == OP_GETG then push(ENV[P.__KEY_CONST__[a + 1]])
-    elseif op == OP_SETG then ENV[P.__KEY_CONST__[a + 1]] = pop()
+    elseif op == OP_GETG then push(ENV[constant(P, a + 1)])
+    elseif op == OP_SETG then ENV[constant(P, a + 1)] = pop()
     elseif op == OP_GETI then
       local k = pop()
       local o = pop()
@@ -283,7 +428,7 @@ run = function(P, U, args)
       o[k] = v
     elseif op == OP_SELF then
       local o = pop()
-      push(index(o, P.__KEY_CONST__[a + 1]))
+      push(index(o, constant(P, a + 1)))
       push(o)
     elseif op == OP_ADD then local y = pop(); local x = pop(); push(x + y)
     elseif op == OP_SUB then local y = pop(); local x = pop(); push(x - y)
@@ -416,9 +561,10 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     return String(code);
   });
   const keys = protoKeys(seed);
-  const keyValues: Record<string, string> = { NP: keys.np, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt };
-  body = body.replace(/__KEY_(NP|VA|CODE|CONST|CHILD|UP|SALT)__/g, (_m, name: string) => keyValues[name]);
+  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal, BLOCKMAP: keys.blockmap, BLOCKS: keys.blocks };
+  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL|BLOCKMAP|BLOCKS)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
+  body = body.replace('__VALID_OPS__', '{' + ALL_OPS.map((op) => '[' + ops[op] + ']=true').join(',') + '}');
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
   body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }));
   return body.trimStart();

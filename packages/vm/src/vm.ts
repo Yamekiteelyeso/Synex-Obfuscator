@@ -107,6 +107,8 @@ export class VM implements LuaEnvironment {
 
         case 'GETL': stack.push(slots[ins.a!] as Value); break;
         case 'SETL': slots[ins.a!] = popValue(); break;
+        // Superinstrucción fusionada: copia directa entre slots no capturados.
+        case 'MOVE': slots[ins.b!] = slots[ins.a!]; break;
         case 'NEWBOX': slots[ins.a!] = { v: popValue() } as Cell; break;
         case 'BOXSLOT': slots[ins.a!] = { v: slots[ins.a!] as Value } as Cell; break;
         case 'GETBOX': stack.push((slots[ins.a!] as Cell).v); break;

@@ -173,6 +173,16 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
   assert.match(code, /getgenv/);
   assert.match(code, /local function unstr/);
   assert.match(code, /local function decodeOperand/);
+  assert.match(code, /local function protoIntact/);
+  assert.match(code, /local function blockIntact/);
+  assert.match(code, /integridad comprometida: bloque virtual alterado/);
+  assert.match(code, /índice de bloques corrupto/);
+  assert.match(code, /integridad comprometida: prototipo alterado/);
+  assert.match(code, /local function constant/);
+  assert.match(code, /#ins ~= 7/);
+  assert.match(code, /decodeOperand\(ins\[7\], ip, 7, protoSalt\)/);
+  assert.match(code, /sucesora fuera del prototipo/);
+  assert.match(code, /function\(\) return unstr/);
   assert.ok(code.includes('decodeOperand(ins[6], ip, 6, protoSalt)'));
   assert.ok(!code.includes('P.k['));
   assert.ok(code.includes('unstr('));
@@ -221,10 +231,20 @@ test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => 
   const source = [
     'local function add(a, b) return a + b end',
     'local label = "Synex VM"',
+    'local original = 42',
+    'local copied = original',
     'local object = {value = add(20, 22)}',
-    'print(label, object.value)',
+    'print(label, object.value, copied)',
   ].join(String.fromCharCode(10));
   const emitted = compileToLuauVm(source, 918273);
   const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
-  assert.equal(output.trim(), ['Synex VM', '42'].join(String.fromCharCode(9)));
+  assert.ok(emitted.includes('slots[b + 1] = slots[a + 1]'));
+  assert.equal(output.trim(), ['Synex VM', '42', '42'].join(String.fromCharCode(9)));
+  const mainMarker = emitted.indexOf('local MAIN = {');
+  assert.ok(mainMarker >= 0);
+  const numeric = /\d+/.exec(emitted.slice(mainMarker + 'local MAIN = {'.length));
+  assert.ok(numeric);
+  const tamperAt = mainMarker + 'local MAIN = {'.length + numeric.index;
+  const tampered = emitted.slice(0, tamperAt) + String(Number(numeric[0]) + 1) + emitted.slice(tamperAt + numeric[0].length);
+  assert.throws(() => execFileSync('lua5.4', ['-'], { input: tampered, encoding: 'utf8', timeout: 5000 }), /integridad comprometida/);
 });
