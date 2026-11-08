@@ -81,7 +81,7 @@ interface Ctx {
 type Handler = (ctx: Ctx) => Promise<void> | void;
 interface Route { method: string; pattern: RegExp; keys: string[]; auth: 'none' | 'user' | 'admin'; handler: Handler }
 
-const VALID_PROFILES = ['normal', 'medium', 'max', 'basic', 'advanced', 'professional', 'roblox', 'custom'] as const;
+const VALID_PROFILES = ['basic', 'medium', 'max'] as const;
 
 export function createApp(opts: AppOptions): App {
   const store = new Store(opts.dataFile ?? null);
@@ -94,6 +94,8 @@ export function createApp(opts: AppOptions): App {
     maxQueue: 200,
   });
   const codes = new Map<string, string>();
+  const discordStates = new Map<string, number>();
+  const discordTickets = new Map<string, { userId: string; expiresAt: number }>();
   const ipWindow = new Map<string, { count: number; reset: number }>();
   const rateLimit = opts.rateLimitPerMinute ?? 300;
 
@@ -107,7 +109,7 @@ export function createApp(opts: AppOptions): App {
     });
   }
 
-  const publicUser = (u: User) => ({ id: u.id, email: u.email, role: u.role, createdAt: u.createdAt });
+  const publicUser = (u: User) => ({ id: u.id, email: u.email, discordUsername: u.discordUsername, role: u.role, createdAt: u.createdAt });
 
   const json = (res: ServerResponse, status: number, body: unknown) => {
     const data = JSON.stringify(body);
@@ -177,13 +179,55 @@ export function createApp(opts: AppOptions): App {
 
   route('GET', '/api/profiles', 'none', ({ res }) => {
     json(res, 200, {
-      profiles: VALID_PROFILES.map((name) => ({
-        name,
-        techniques: name === 'custom' ? [] : PROFILES[name].techniques,
-        settings: name === 'custom' ? null : PROFILES[name],
-      })),
+      profiles: VALID_PROFILES.map((name) => ({ name, techniques: PROFILES[name].techniques, settings: PROFILES[name] })),
       techniques: Object.entries(TECHNIQUES).map(([id, t]) => ({ id, label: t.label, status: t.status })),
     });
+  });
+
+  route('GET', '/api/auth/discord', 'none', ({ res, req }) => {
+    const clientId = process.env.DISCORD_CLIENT_ID;
+    if (!clientId) throw new HttpError(503, 'Discord aún no está configurado', 'E_DISCORD_CONFIG');
+    const state = randomUUID();
+    discordStates.set(state, Date.now() + 10 * 60_000);
+    const origin = process.env.DISCORD_REDIRECT_URI || `https://${req.headers.host}/api/auth/discord/callback`;
+    const params = new URLSearchParams({ client_id: clientId, redirect_uri: origin, response_type: 'code', scope: 'identify email', state });
+    res.writeHead(302, { Location: `https://discord.com/oauth2/authorize?${params}` }); res.end();
+  });
+
+  route('GET', '/api/auth/discord/callback', 'none', async ({ req, res, url }) => {
+    const code = url.searchParams.get('code'); const state = url.searchParams.get('state');
+    const expiry = state ? discordStates.get(state) : undefined;
+    if (!code || !state || !expiry || expiry < Date.now()) throw new HttpError(400, 'sesión de Discord inválida o expirada', 'E_DISCORD_STATE');
+    discordStates.delete(state);
+    const clientId = process.env.DISCORD_CLIENT_ID; const clientSecret = process.env.DISCORD_CLIENT_SECRET;
+    if (!clientId || !clientSecret) throw new HttpError(503, 'Discord aún no está configurado', 'E_DISCORD_CONFIG');
+    const redirectUri = process.env.DISCORD_REDIRECT_URI || `https://${req.headers.host}/api/auth/discord/callback`;
+    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: 'authorization_code', code, redirect_uri: redirectUri }) });
+    if (!tokenResponse.ok) throw new HttpError(401, 'Discord no pudo validar el acceso', 'E_DISCORD_AUTH');
+    const tokenData = await tokenResponse.json() as { access_token?: string };
+    if (!tokenData.access_token) throw new HttpError(401, 'Discord no devolvió un token válido', 'E_DISCORD_AUTH');
+    const profileResponse = await fetch('https://discord.com/api/users/@me', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+    if (!profileResponse.ok) throw new HttpError(401, 'no se pudo obtener el perfil de Discord', 'E_DISCORD_PROFILE');
+    const profile = await profileResponse.json() as { id: string; username: string; email?: string; verified?: boolean };
+    let user = store.users.find((u) => u.discordId === profile.id);
+    if (!user) {
+      const email = profile.verified && profile.email ? profile.email.toLowerCase() : `discord-${profile.id}@users.synex.invalid`;
+      user = store.users.find((u) => u.email === email);
+      if (user && user.discordId && user.discordId !== profile.id) throw new HttpError(409, 'ese correo ya está vinculado a otra cuenta de Discord', 'E_DISCORD_LINK');
+      if (user) { user.discordId = profile.id; user.discordUsername = profile.username; store.updateUser(user); }
+      else { user = { id: randomUUID(), email, role: 'user', passwordHash: '', discordId: profile.id, discordUsername: profile.username, createdAt: Date.now() }; store.addUser(user); }
+    } else { user.discordUsername = profile.username; store.updateUser(user); }
+    const ticket = randomUUID(); discordTickets.set(ticket, { userId: user.id, expiresAt: Date.now() + 60_000 });
+    res.writeHead(302, { Location: `/?discord_ticket=${encodeURIComponent(ticket)}` }); res.end();
+  });
+
+  route('POST', '/api/auth/discord/exchange', 'none', async ({ req, res }) => {
+    const body = bodyObject(await readJson(req, 4096)); const ticket = String(body.ticket ?? '');
+    const entry = discordTickets.get(ticket); discordTickets.delete(ticket);
+    if (!entry || entry.expiresAt < Date.now()) throw new HttpError(401, 'el enlace de Discord expiró; inténtalo de nuevo', 'E_DISCORD_TICKET');
+    const user = store.users.find((u) => u.id === entry.userId);
+    if (!user) throw new HttpError(401, 'cuenta de Discord no encontrada', 'E_DISCORD_USER');
+    json(res, 200, { token: sessions.create(user.id), user: publicUser(user) });
   });
 
   route('POST', '/api/auth/register', 'none', async ({ req, res }) => {
@@ -233,7 +277,7 @@ export function createApp(opts: AppOptions): App {
     const body = bodyObject(await readJson(req, settings.maxInputBytes * 2 + 4096));
     if (typeof body.source !== 'string' || body.source.trim() === '') throw new HttpError(400, 'falta el script', 'E_VALIDATION');
     const profile = String(body.profile ?? 'basic') as ProfileName;
-    if (!VALID_PROFILES.includes(profile)) throw new HttpError(400, 'perfil no válido', 'E_VALIDATION');
+    if (!VALID_PROFILES.includes(profile)) throw new HttpError(400, 'plan no válido; usa Basic, Medium o Max', 'E_VALIDATION');
     if (!settings.enabledProfiles.includes(profile)) throw new HttpError(403, 'perfil deshabilitado por el administrador', 'E_DISABLED');
     // Semilla criptográficamente aleatoria si el cliente no fija una: cada build
     // produce una permutación distinta de opcodes sin romper reproducibilidad opt-in.
