@@ -58,14 +58,13 @@ export function App() {
       const me = await api<{ user: SessionUser }>('GET', '/api/me', undefined, token);
       setUser(me.user);
       if (me.user.role === 'admin') {
-        const [u, j, e, s, requests] = await Promise.all([
+        const [u, j, e, s] = await Promise.all([
           api<any>('GET', '/api/admin/users', undefined, token),
           api<any>('GET', '/api/admin/jobs', undefined, token),
           api<any>('GET', '/api/admin/errors', undefined, token),
           api<any>('GET', '/api/admin/settings', undefined, token),
-          api<any>('GET', '/api/admin/plan-requests', undefined, token),
         ]);
-        setAdmin({ users: u.users, jobs: j.jobs, errors: e.errors, settings: s.settings, planRequests: requests.requests });
+        setAdmin({ users: u.users, jobs: j.jobs, errors: e.errors, settings: s.settings });
       } else {
         setAdmin(null);
       }
@@ -130,13 +129,13 @@ export function App() {
     setAdmin({ ...admin, settings: result.settings });
   }
 
-  async function updatePlanRequest(id: string, status: 'approved' | 'rejected') {
+  async function setUserPlan(userId: string, plan: 'free' | 'premium' | 'plus') {
     if (!token) return;
     try {
-      await api('PUT', `/api/admin/plan-requests/${id}`, { status }, token);
+      await api('PUT', `/api/admin/users/${encodeURIComponent(userId)}/plan`, { plan }, token);
       await refresh();
     } catch (error) {
-      window.alert(error instanceof ApiError ? error.message : 'No se pudo actualizar la solicitud');
+      window.alert(error instanceof ApiError ? error.message : 'No se pudo actualizar el plan');
     }
   }
 
@@ -174,7 +173,7 @@ export function App() {
         )}
         {view === 'plans' && user && <Plans token={token} user={user} onRefresh={refresh} />}
         {view === 'admin' && user?.role === 'admin' && (
-          <Admin data={admin} onToggleProfile={toggleProfile} onUpdateRequest={updatePlanRequest} />
+          <Admin data={admin} onToggleProfile={toggleProfile} onSetUserPlan={setUserPlan} />
         )}
       </main>
     </div>
