@@ -169,7 +169,7 @@ test('string.find soporta patrones Lua, capturas, índices negativos y modo plai
   assert.deepEqual(out('print(string.find("abcdef", "cd", -4, true))'), ['3\t4']);
   assert.deepEqual(out('print(string.find("abc", "a", -5, true))'), ['nil']);
   assert.deepEqual(out('print(string.find("abc123", "%d+"))'), ['4\t6']);
-  assert.deepEqual(out('print(string.find("a.b", "a.b"), string.find("a.b", "a%.b"))'), ['1\t3\t1\t3']);
+  assert.deepEqual(out('local a, b = string.find("a.b", "a.b"); local c, d = string.find("a.b", "a%.b"); print(a, b, c, d)'), ['1\t3\t1\t3']);
   assert.deepEqual(out('print(string.find("a123b", "a.-b"))'), ['1\t5']);
 });
 
