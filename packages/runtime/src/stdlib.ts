@@ -163,11 +163,12 @@ export function installStdlib(interp: LuaEnvironment): void {
   stringLib.set('byte', fn('byte', (args) => {
     const s = String(args[0]);
     const length = s.length;
-    const normalize = (index: number) => index < 0 ? length + index + 1 : index;
-    const first = normalize(args[1] === undefined ? 1 : toNumber(args[1], at));
-    const last = normalize(args[2] === undefined ? first : toNumber(args[2], at));
+    const normalize = (index: number, isLast: boolean) =>
+      index < 0 ? Math.max(length + index + 1, 1) : isLast ? Math.min(index, length) : index;
+    const first = normalize(args[1] === undefined ? 1 : toNumber(args[1], at), false);
+    const last = normalize(args[2] === undefined ? first : toNumber(args[2], at), true);
     if (!Number.isInteger(first) || !Number.isInteger(last)) throw new LuaError('bad argument to string.byte (integer index expected)');
-    if (first < 1 || first > length || last < 1 || last > length || last < first) return [];
+    if (first < 1 || first > length || last < first || last < 1) return [];
     const result: Value[] = [];
     for (let i = first; i <= last; i++) result.push(s.charCodeAt(i - 1));
     return result;
