@@ -52,6 +52,17 @@ local badAeadTag = string.sub(aeadTag, 1, 15) .. string.char((string.byte(aeadTa
 assert(Crypto.openPoly1305(key, nonce24, aeadCipher, badAeadTag, aad) == nil,
 	"XChaCha20-Poly1305 accepted modified tag")
 
+-- Interoperability vector generated with libsodium's
+-- crypto_aead_xchacha20poly1305_ietf_encrypt.
+local vectorKey = unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+local vectorNonce = unhex("000102030405060708090a0b0c0d0e0f1011121314151617")
+local vectorMessage = "Synex interoperable XChaCha20-Poly1305 vector"
+local vectorAad = "synex:aad:v1"
+local vectorCipher, vectorTag = Crypto.sealPoly1305(vectorKey, vectorNonce, vectorMessage, vectorAad)
+expect(hex(vectorCipher .. vectorTag),
+	"cdbb611ae8f2e4c0472154a1bb37da89292b4d85a595758a3c725e840d80a536327f87d771522912b0f6da36bd805a85e932a324f60d3023812880f67c",
+	"XChaCha20-Poly1305 libsodium interoperability")
+
 local chainKey = "0123456789abcdef0123456789abcdef"
 local previous = Integrity.start(chainKey, 5)
 local current = Integrity.advanceRecord(chainKey, previous, 1, nonce24, ciphertext, tag, aad)
