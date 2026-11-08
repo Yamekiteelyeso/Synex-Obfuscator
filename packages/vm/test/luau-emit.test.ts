@@ -140,7 +140,7 @@ describe('VM Luau emitida: propiedades', () => {
 
   test('valida la estructura de instrucciones y los destinos de salto en runtime', () => {
     const out = compileToLuauVm(PROGRAMS.loops, 11);
-    assert.match(out, /if typefn\(ins\) ~= "table" or #ins ~= 6 then fail\("instrucción corrupta"\) end/);
+    assert.match(out, /if typefn\(ins\) ~= "table" or #ins ~= 7 then fail\("instrucción corrupta"\) end/);
     assert.match(out, /if typefn\(value\) ~= "number" or value ~= floor\(value\) then fail\("operando corrupto"\) end/);
     assert.match(out, /salto fuera del prototipo/);
   });
