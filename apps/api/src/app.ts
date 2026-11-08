@@ -125,7 +125,37 @@ export function createApp(opts: AppOptions): App {
     timeoutMs: opts.timeoutMs ?? 30_000,
     maxQueue: 200,
   });
-  const codes = new Map<string, string>();
+  const codes = new Map<string, { code: string; bytes: number; expiresAt: number }>();
+  const maxRetainedCodeBytes = 64 * 1024 * 1024;
+  const maxRetainedCodeEntries = 100;
+  const codeTtlMs = 30 * 60 * 1000;
+  let retainedCodeBytes = 0;
+  const pruneCodes = (): void => {
+    const now = Date.now();
+    for (const [id, entry] of codes) {
+      if (entry.expiresAt <= now) {
+        codes.delete(id);
+        retainedCodeBytes -= entry.bytes;
+      }
+    }
+  };
+  const retainCode = (id: string, code: string): void => {
+    pruneCodes();
+    const bytes = Buffer.byteLength(code, 'utf8');
+    if (bytes > maxRetainedCodeBytes) return;
+    while (codes.size >= maxRetainedCodeEntries || retainedCodeBytes + bytes > maxRetainedCodeBytes) {
+      const oldest = codes.entries().next().value as [string, { code: string; bytes: number; expiresAt: number }] | undefined;
+      if (!oldest) break;
+      codes.delete(oldest[0]);
+      retainedCodeBytes -= oldest[1].bytes;
+    }
+    codes.set(id, { code, bytes, expiresAt: Date.now() + codeTtlMs });
+    retainedCodeBytes += bytes;
+  };
+  const getRetainedCode = (id: string): string | undefined => {
+    pruneCodes();
+    return codes.get(id)?.code;
+  };
   const discordStates = new Map<string, number>();
   const discordTickets = new Map<string, { userId: string; expiresAt: number }>();
   const ipWindow = new Map<string, { count: number; reset: number }>();
@@ -474,13 +504,14 @@ export function createApp(opts: AppOptions): App {
         durationMs: done.startedAt && done.finishedAt ? done.finishedAt - done.startedAt : undefined,
       };
       if (done.result) {
-        codes.set(rec.id, done.result.code);
+        retainCode(rec.id, done.result.code);
         patch.digest = done.result.digest;
         patch.outputBytes = done.result.stats.outputBytes;
         patch.equivalence = done.result.equivalence.status;
       }
       if (done.error) patch.error = done.error;
       store.updateHistory(rec.id, patch);
+      jobs.discardResult(rec.id);
     });
     json(res, 202, {
       id: rec.id, status: rec.status, profile,
@@ -502,12 +533,12 @@ export function createApp(opts: AppOptions): App {
 
   route('GET', '/api/jobs/:id', 'user', ({ res, user, params }) => {
     const h = ownedJob(params.id, user!);
-    json(res, 200, { job: { ...h, live: jobs.get(h.id)?.status ?? h.status, hasCode: codes.has(h.id) } });
+    json(res, 200, { job: { ...h, live: jobs.get(h.id)?.status ?? h.status, hasCode: getRetainedCode(h.id) !== undefined } });
   });
 
   route('GET', '/api/jobs/:id/code', 'user', ({ res, user, params }) => {
     const h = ownedJob(params.id, user!);
-    const code = codes.get(h.id);
+    const code = getRetainedCode(h.id);
     if (code === undefined) throw new HttpError(409, 'el trabajo no tiene resultado disponible', 'E_NO_RESULT');
     const name = h.fileName.replace(/\.luau?$/i, '') + '.obf.luau';
     res.writeHead(200, {
