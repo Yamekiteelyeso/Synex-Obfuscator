@@ -1,6 +1,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
 export type Role = 'admin' | 'user';
+export type AccountPlan = 'free' | 'premium' | 'plus';
 
 export interface User {
   id: string;
@@ -10,6 +11,8 @@ export interface User {
   discordId?: string;
   discordUsername?: string;
   createdAt: number;
+  plan: AccountPlan;
+  obfuscationsUsed: number;
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { createPublicKey, randomInt, randomUUID, verify as verifySignature } from 'node:crypto';
 import { JobManager, PROFILES, TECHNIQUES, type JobRecord, type ProfileName, type TechniqueSettings } from '@synex/engine';
-import { hashPassword, LoginLimiter, Sessions, validateCredentials, verifyPassword, type User } from './auth.js';
+import { Sessions, type AccountPlan, type User } from './auth.js';
 import { Store, type HistoryEntry } from './store.js';
 
 const MIME: Record<string, string> = {
@@ -48,9 +48,8 @@ export interface AppOptions {
   workerPath: string;
   /** Carpeta con la aplicación web compilada (apps/web/dist). Si se omite, no se sirven archivos estáticos. */
   webDir?: string;
-  /** Crea un administrador al arrancar si aún no existe. */
-  adminEmail?: string;
-  adminPassword?: string;
+  /** IDs de Discord autorizados como administradores, separados en server.ts por comas. */
+  adminDiscordIds?: string[];
   concurrency?: number;
   timeoutMs?: number;
   /** Peticiones por minuto y por IP. */
@@ -83,10 +82,47 @@ interface Route { method: string; pattern: RegExp; keys: string[]; auth: 'none' 
 
 const VALID_PROFILES = ['basic', 'medium', 'max'] as const;
 
+const ACCOUNT_PLANS: Record<AccountPlan, {
+  name: string;
+  priceLabel: string;
+  limit: number | null;
+  profiles: readonly string[];
+  description: string;
+  features: string[];
+}> = {
+  free: {
+    name: 'Free',
+    priceLabel: 'Gratis',
+    limit: 2,
+    profiles: ['basic'],
+    description: 'Para probar Synex y proteger scripts pequeños.',
+    features: ['2 ofuscaciones por cuenta de Discord', 'Perfil Basic', 'Historial de tus trabajos'],
+  },
+  premium: {
+    name: 'Premium',
+    priceLabel: 'Consultar precio',
+    limit: null,
+    profiles: ['basic', 'medium'],
+    description: 'Para uso frecuente y transformaciones intermedias.',
+    features: ['Ofuscaciones ilimitadas', 'Perfiles Basic y Medium', 'Solicitudes de upgrade guardadas'],
+  },
+  plus: {
+    name: 'Plus',
+    priceLabel: 'Consultar precio',
+    limit: null,
+    profiles: ['basic', 'medium', 'max'],
+    description: 'Acceso completo a los perfiles de Synex.',
+    features: ['Ofuscaciones ilimitadas', 'Basic, Medium y Max', 'VM y protección avanzada del perfil Max'],
+  },
+};
+
+function isPaidPlan(value: unknown): value is Exclude<AccountPlan, 'free'> {
+  return value === 'premium' || value === 'plus';
+}
+
 export function createApp(opts: AppOptions): App {
   const store = new Store(opts.dataFile ?? null);
   const sessions = new Sessions();
-  const limiter = new LoginLimiter();
   const jobs = new JobManager({
     workerPath: opts.workerPath,
     concurrency: opts.concurrency ?? 2,
@@ -100,17 +136,17 @@ export function createApp(opts: AppOptions): App {
   const ipWindow = new Map<string, { count: number; reset: number }>();
   const rateLimit = opts.rateLimitPerMinute ?? 300;
 
-  if (opts.adminEmail && opts.adminPassword && !store.users.some((u) => u.email === opts.adminEmail)) {
-    store.addUser({
-      id: randomUUID(),
-      email: opts.adminEmail,
-      role: 'admin',
-      passwordHash: hashPassword(opts.adminPassword),
-      createdAt: Date.now(),
-    });
-  }
-
-  const publicUser = (u: User) => ({ id: u.id, email: u.email, discordUsername: u.discordUsername, role: u.role, createdAt: u.createdAt });
+  const publicUser = (u: User) => ({
+    id: u.id,
+    discordId: u.discordId,
+    discordUsername: u.discordUsername,
+    role: u.role,
+    plan: u.plan,
+    obfuscationsUsed: u.obfuscationsUsed,
+    obfuscationLimit: ACCOUNT_PLANS[u.plan].limit,
+    allowedProfiles: ACCOUNT_PLANS[u.plan].profiles,
+    createdAt: u.createdAt,
+  });
 
   const json = (res: ServerResponse, status: number, body: unknown) => {
     const data = JSON.stringify(body);
@@ -196,6 +232,14 @@ export function createApp(opts: AppOptions): App {
     });
   });
 
+  route('GET', '/api/plans', 'none', ({ res }) => {
+    json(res, 200, {
+      plans: (Object.entries(ACCOUNT_PLANS) as [AccountPlan, typeof ACCOUNT_PLANS[AccountPlan]][]).map(([id, plan]) => ({
+        id, ...plan,
+      })),
+    });
+  });
+
   // El botón invita al usuario a instalar el bot; la identidad se verifica con /synex-login.
   route('GET', '/api/auth/discord', 'none', ({ res }) => {
     const clientId = process.env.DISCORD_CLIENT_ID;
@@ -278,15 +322,18 @@ export function createApp(opts: AppOptions): App {
       user = {
         id: randomUUID(),
         email: `discord-${discordUser.id}@users.synex.invalid`,
-        role: 'user',
+        role: (opts.adminDiscordIds ?? []).includes(String(discordUser.id)) ? 'admin' : 'user',
         passwordHash: '',
         discordId: String(discordUser.id),
         discordUsername: String(discordUser.global_name || discordUser.username),
         createdAt: Date.now(),
+        plan: 'free',
+        obfuscationsUsed: 0,
       };
       store.addUser(user);
     } else {
       user.discordUsername = String(discordUser.global_name || discordUser.username);
+      user.role = (opts.adminDiscordIds ?? []).includes(String(discordUser.id)) ? 'admin' : 'user';
       store.updateUser(user);
     }
     const ticket = randomUUID();
@@ -309,34 +356,12 @@ export function createApp(opts: AppOptions): App {
     return json(res, 200, response);
   });
 
-  route('POST', '/api/auth/register', 'none', async ({ req, res }) => {
-    const body = bodyObject(await readJson(req, 4096));
-    const err = validateCredentials(body.email, body.password);
-    if (err) throw new HttpError(400, err, 'E_VALIDATION');
-    const email = String(body.email).toLowerCase();
-    if (store.users.some((u) => u.email === email)) throw new HttpError(409, 'el correo ya está registrado', 'E_EXISTS');
-    const user: User = {
-      id: randomUUID(),
-      email,
-      role: 'user',
-      passwordHash: hashPassword(String(body.password)),
-      createdAt: Date.now(),
-    };
-    store.addUser(user);
-    json(res, 201, { user: publicUser(user) });
+  route('POST', '/api/auth/register', 'none', async ({ res }) => {
+    json(res, 410, { error: { code: 'E_DISCORD_ONLY', message: 'El acceso ahora es únicamente mediante Discord.' } });
   });
 
-  route('POST', '/api/auth/login', 'none', async ({ req, res }) => {
-    const body = bodyObject(await readJson(req, 4096));
-    const email = String(body.email ?? '').toLowerCase();
-    if (limiter.blocked(email)) throw new HttpError(429, 'demasiados intentos, espera 15 minutos', 'E_LOCKED');
-    const user = store.users.find((u) => u.email === email);
-    if (!user || typeof body.password !== 'string' || !verifyPassword(body.password, user.passwordHash)) {
-      limiter.fail(email);
-      throw new HttpError(401, 'credenciales no válidas', 'E_AUTH');
-    }
-    limiter.reset(email);
-    json(res, 200, { token: sessions.create(user.id), user: publicUser(user) });
+  route('POST', '/api/auth/login', 'none', async ({ res }) => {
+    json(res, 410, { error: { code: 'E_DISCORD_ONLY', message: 'El acceso ahora es únicamente mediante Discord.' } });
   });
 
   // ------------------------------------------------------------ usuario
@@ -351,6 +376,30 @@ export function createApp(opts: AppOptions): App {
     json(res, 200, { user: publicUser(user!), jobCount });
   });
 
+  route('GET', '/api/plan-requests', 'user', ({ res, user }) => {
+    const requests = store.planRequests
+      .filter((entry) => entry.userId === user!.id)
+      .sort((a, b) => b.createdAt - a.createdAt);
+    json(res, 200, { requests });
+  });
+
+  route('POST', '/api/plan-requests', 'user', async ({ req, res, user }) => {
+    const body = bodyObject(await readJson(req, 4096));
+    if (!isPaidPlan(body.plan)) throw new HttpError(400, 'elige Premium o Plus', 'E_PLAN');
+    if (user!.plan === body.plan || user!.plan === 'plus') {
+      throw new HttpError(409, 'tu cuenta ya tiene ese plan o uno superior', 'E_PLAN_ACTIVE');
+    }
+    const request = store.createPlanRequest({
+      id: randomUUID(),
+      userId: user!.id,
+      plan: body.plan,
+      status: 'pending',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    json(res, 201, { request });
+  });
+
   route('POST', '/api/jobs', 'user', async ({ req, res, user }) => {
     const settings = store.settings;
     const body = bodyObject(await readJson(req, settings.maxInputBytes * 2 + 4096));
@@ -358,6 +407,13 @@ export function createApp(opts: AppOptions): App {
     const profile = String(body.profile ?? 'basic') as ProfileName;
     if (!(VALID_PROFILES as readonly string[]).includes(profile)) throw new HttpError(400, 'plan no válido; usa Basic, Medium o Max', 'E_VALIDATION');
     if (!settings.enabledProfiles.includes(profile)) throw new HttpError(403, 'perfil deshabilitado por el administrador', 'E_DISABLED');
+    const accountPlan = ACCOUNT_PLANS[user!.plan];
+    if (!accountPlan.profiles.includes(profile)) {
+      throw new HttpError(403, `el plan ${accountPlan.name} no incluye el perfil ${profile.toUpperCase()}; consulta los planes disponibles`, 'E_PLAN_PROFILE');
+    }
+    if (accountPlan.limit !== null && user!.obfuscationsUsed >= accountPlan.limit) {
+      throw new HttpError(403, 'has utilizado tus 2 ofuscaciones gratuitas; solicita Premium o Plus para continuar', 'E_PLAN_LIMIT');
+    }
     // Semilla criptográficamente aleatoria si el cliente no fija una: cada build
     // produce una permutación distinta de opcodes sin romper reproducibilidad opt-in.
     const seed = Number.isInteger(body.seed) ? (body.seed as number) : randomInt(1, 0x7fffffff);
@@ -370,6 +426,7 @@ export function createApp(opts: AppOptions): App {
     } catch (e) {
       throw new HttpError(503, (e as Error).message, 'E_BUSY');
     }
+    store.recordObfuscation(user!.id);
     const entry: HistoryEntry = {
       id: rec.id,
       userId: user!.id,
@@ -394,7 +451,11 @@ export function createApp(opts: AppOptions): App {
       if (done.error) patch.error = done.error;
       store.updateHistory(rec.id, patch);
     });
-    json(res, 202, { id: rec.id, status: rec.status, profile });
+    json(res, 202, {
+      id: rec.id, status: rec.status, profile,
+      obfuscationsUsed: user!.obfuscationsUsed,
+      remaining: accountPlan.limit === null ? null : Math.max(0, accountPlan.limit - user!.obfuscationsUsed),
+    });
   });
 
   route('GET', '/api/jobs', 'user', ({ res, user }) => {
@@ -464,6 +525,30 @@ export function createApp(opts: AppOptions): App {
 
   route('GET', '/api/admin/jobs', 'admin', ({ res }) => {
     json(res, 200, { jobs: [...store.history].sort((a, b) => b.createdAt - a.createdAt) });
+  });
+
+  route('GET', '/api/admin/plan-requests', 'admin', ({ res }) => {
+    const requests = store.planRequests.slice().sort((a, b) => b.createdAt - a.createdAt).map((entry) => ({
+      ...entry,
+      discordUsername: store.users.find((u) => u.id === entry.userId)?.discordUsername ?? 'usuario desconocido',
+    }));
+    json(res, 200, { requests });
+  });
+
+  route('PUT', '/api/admin/plan-requests/:id', 'admin', async ({ req, res, params }) => {
+    const body = bodyObject(await readJson(req, 4096));
+    if (body.status !== 'approved' && body.status !== 'rejected') {
+      throw new HttpError(400, 'status debe ser approved o rejected', 'E_VALIDATION');
+    }
+    const existing = store.planRequests.find((entry) => entry.id === params.id);
+    if (!existing) throw new HttpError(404, 'solicitud no encontrada', 'E_NOT_FOUND');
+    if (existing.status !== 'pending') throw new HttpError(409, 'la solicitud ya fue resuelta', 'E_REQUEST_RESOLVED');
+    const updated = store.updatePlanRequest(params.id, body.status);
+    if (body.status === 'approved') {
+      const upgraded = store.setUserPlan(existing.userId, existing.plan);
+      if (!upgraded) throw new HttpError(404, 'cuenta asociada no encontrada', 'E_USER_NOT_FOUND');
+    }
+    json(res, 200, { request: updated });
   });
 
   route('GET', '/api/admin/errors', 'admin', ({ res }) => {

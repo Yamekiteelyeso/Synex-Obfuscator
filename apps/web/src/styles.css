@@ -404,3 +404,29 @@ input:focus,select:focus,textarea:focus { border-color:#aaa; box-shadow:0 0 0 3p
 @media (prefers-reduced-motion:reduce) {
   .discord-btn { transition:none; }
 }
+
+
+/* Planes de cuenta y flujo de upgrade */
+.plans-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; align-items:stretch; }
+.plan-card { display:flex; flex-direction:column; gap:14px; min-width:0; padding:22px; border:1px solid #26334b; border-radius:16px; background:linear-gradient(145deg,#121c30,#0c1220); }
+.plan-card.plan-featured { border-color:#647fd0; box-shadow:0 14px 38px rgba(72,107,205,.12); }
+.plan-card.plan-current { border-color:#50bfae; }
+.plan-card-top { display:flex; align-items:center; justify-content:space-between; gap:8px; color:#94a9e4; font-size:10px; font-weight:800; letter-spacing:1px; }
+.plan-card-top b { padding:4px 8px; color:#65d8c5; border:1px solid #28534f; border-radius:999px; }
+.plan-card h3 { margin:2px 0 0; font-size:24px; }
+.plan-price { font-size:21px; letter-spacing:-.4px; }
+.plan-card p { min-height:42px; margin:0; line-height:1.5; }
+.plan-card ul { display:grid; gap:11px; margin:0 0 12px; padding:0; list-style:none; color:#c5d0e3; font-size:13px; }
+.plan-card li:before { content:"✓"; margin-right:9px; color:#62d7c4; font-weight:900; }
+.plan-card .btn { margin-top:auto; min-height:42px; }
+.plan-usage { display:flex; align-items:center; justify-content:space-between; gap:18px; }
+.plan-usage p { margin:4px 0 0; }
+.plan-usage strong { font-size:18px; text-align:right; }
+.plan-payment-note { font-size:12px; line-height:1.5; }
+.plan-request-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.plan-request-list li { padding:9px 0 13px; }
+.account-plan-label { color:#9cb2f6 !important; font-weight:800; letter-spacing:.5px; }
+.discord-login-steps { display:grid; gap:9px; color:#9eacc3; font-size:12px; line-height:1.5; padding:14px; border:1px solid #273751; border-radius:10px; background:#0b1220; }
+.discord-login-steps span { display:block; }
+@media(max-width:900px) { .plans-grid { grid-template-columns:1fr; } .plan-card p { min-height:unset; } }
+@media(max-width:560px) { .plan-usage { align-items:flex-start; flex-direction:column; } .plan-usage strong { text-align:left; } }

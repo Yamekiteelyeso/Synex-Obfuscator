@@ -74,31 +74,61 @@ function protoKeys(seed: number): ProtoKeys {
   return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), blockmap: next(), blocks: next() };
 }
 
-function luaNumber(n: number): string {
-  if (Number.isNaN(n)) return '(0/0)';
-  if (n === Infinity) return '(1/0)';
-  if (n === -Infinity) return '(-1/0)';
-  return String(n);
-}
-
 function luaConst(v: unknown, seed: number, stringIndex: { value: number }): string {
   if (v === undefined || v === null) return 'nil';
   if (typeof v === 'string') {
-    // Cifrado polimórfico del pool de constantes: cada literal usa una clave
-    // distinta derivada de la semilla del build y se reconstruye en runtime.
+    // Cada literal largo se reparte en fragmentos con claves independientes.
+    // El runtime los reconstruye sólo cuando la constante se utiliza.
     const bytes = Buffer.from(v, 'utf8');
-    const index = ++stringIndex.value;
-    const key = ((seed >>> 0) + index * 73) % 251 + 1;
-    let state = key;
-    const encoded = Array.from(bytes, (b, i) => {
-      state = (state * 73 + 41) % 256;
-      return (b + state + (i + 1) * 17) % 256;
-    }).join(',');
-    return `function() return unstr({${encoded}},${key}) end`;
+    if (bytes.length === 0) return 'function() return "" end';
+    const parts: string[] = [];
+    for (let offset = 0; offset < bytes.length;) {
+      const index = ++stringIndex.value;
+      const chunkSize = Math.min(bytes.length - offset, bytes.length <= 12
+        ? bytes.length
+        : 5 + (((seed >>> 0) + index * 13 + offset * 7) % 8));
+      const key = ((seed >>> 0) + index * 73) % 251 + 1;
+      let state = key;
+      const rawChunk = Array.from(bytes.subarray(offset, offset + chunkSize));
+      const encodedBytes = rawChunk.map((byte, i) => {
+        state = (state * 73 + 41) % 256;
+        return (byte + state + (i + 1) * 17) % 256;
+      });
+      const encoded = encodedBytes.join(',');
+      const [sealA, sealB] = constantDataSeal(encodedBytes, seed, key);
+      parts.push(`(function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unstr(b,${key}) end)()`);
+      offset += chunkSize;
+    }
+    return `function() return ${parts.join('..')} end`;
   }
-  if (typeof v === 'number') return luaNumber(v);
+  if (typeof v === 'number') {
+    // IEEE-754 little-endian: el literal numérico no se emite directamente.
+    const raw = Buffer.alloc(8);
+    raw.writeDoubleLE(v, 0);
+    const index = ++stringIndex.value;
+    const key = ((seed >>> 0) + index * 97) % 251 + 1;
+    let state = key;
+    const encodedBytes = Array.from(raw, (byte, i) => {
+      state = (state * 73 + 41) % 256;
+      return (byte + state + (i + 1) * 29) % 256;
+    });
+    const encoded = encodedBytes.join(',');
+    const [sealA, sealB] = constantDataSeal(encodedBytes, seed, key);
+    return `function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unnum(b,${key}) end`;
+  }
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   throw new SynexError('constante no serializable en la VM', 1, 1, 'E_INTERNAL');
+}
+
+function constantDataSeal(bytes: number[], seed: number, key: number): [number, number] {
+  const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
+  let hashA = (normalizedSeed + key * 31 + bytes.length * 17) % OPERAND_MODULUS;
+  let hashB = (normalizedSeed * 65599 + key * 131 + bytes.length * 257) % OPERAND_MODULUS;
+  for (const value of bytes) {
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS;
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS;
+  }
+  return [hashA, hashB];
 }
 
 const OPERAND_MODULUS = 2147483647;
@@ -110,10 +140,33 @@ function encodeOperand(value: number, pc: number, field: number, seed: number, p
   return (normalized + mask) % OPERAND_MODULUS;
 }
 
-function protoSeal(code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean): number {
-  let hash = ((seed >>> 0) + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
-  for (const instruction of code) for (const value of instruction) hash = (hash * 33 + value) % OPERAND_MODULUS;
-  return hash;
+function protoSeal(
+  code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean,
+  blockMap: number[], blockDescriptors: number[][], constantCount: number, childCount: number, upvalues: number[][],
+): [number, number] {
+  const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
+  let hashA = (normalizedSeed + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
+  let hashB = (normalizedSeed * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg ? 17 : 0)) % OPERAND_MODULUS;
+  const mix = (value: number) => {
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS;
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS;
+  };
+  // Dos acumuladores con recorridos dependientes detectan más alteraciones
+  // accidentales que un checksum lineal simple; no son una firma criptográfica.
+  for (const instruction of code) for (const value of instruction) mix(value);
+  for (const block of blockMap) mix(block);
+  for (const descriptor of blockDescriptors) for (const value of descriptor) mix(value);
+  mix(constantCount); mix(childCount); mix(upvalues.length);
+  for (const upvalue of upvalues) for (const value of upvalue) mix(value);
+  return [hashA, hashB];
+}
+
+/** Codifica el número de línea con una transformación afín propia del prototipo. */
+function encodeLineNumber(line: number, seed: number, salt: number): number {
+  const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
+  const multiplier = 17 + ((normalizedSeed + salt * 131) % 31);
+  const offset = (normalizedSeed + salt * 65537) % 1000003;
+  return line * multiplier + offset;
 }
 
 /**
@@ -165,10 +218,19 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
     const target = logicalTarget ? physicalOf[logicalTarget] : 0;
     const nextLogical = originalPc < virtualCode.length ? originalPc + 1 : 0;
     const next = nextLogical ? physicalOf[nextLogical] : 0;
-    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, ins.line ?? 0, next];
-    return fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
+    const hiddenLine = encodeLineNumber(ins.line ?? 0, seed, protoSalt);
+    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, hiddenLine, next];
+    const encoded = fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
+    const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
+    let checkA = (normalizedSeed + protoSalt * 97 + pc * 31) % OPERAND_MODULUS;
+    let checkB = (normalizedSeed * 65599 + protoSalt * 131 + pc * 257) % OPERAND_MODULUS;
+    for (const value of encoded) {
+      checkA = (checkA * 33 + value) % OPERAND_MODULUS;
+      checkB = (checkB * 65599 + value * 17 + (checkA % 65521)) % OPERAND_MODULUS;
+    }
+    // Dos sellos por instrucción permiten comprobar cada despacho, no sólo al entrar al bloque.
+    return [...encoded, checkA, checkB];
   });
-  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg);
   // Bloques básicos: entrada, destinos de salto y sucesores de bifurcaciones.
   const leaders = new Set<number>([0]);
   virtualCode.forEach((ins, index) => {
@@ -189,19 +251,28 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
     blockMembers.set(id, members);
   });
   const blockMap = order.map((originalPc) => logicalBlock[originalPc - 1]);
-  const blockDescriptors = [...blockMembers.entries()].sort((a, b) => a[0] - b[0]).map(([id, pcs]) => {
-    let hash = ((seed >>> 0) + protoSalt * 97 + id * 31) % OPERAND_MODULUS;
+  const blockDescriptorValues = [...blockMembers.entries()].sort((a, b) => a[0] - b[0]).map(([id, pcs]) => {
+    const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
+    let hashA = (normalizedSeed + protoSalt * 97 + id * 31) % OPERAND_MODULUS;
+    let hashB = (normalizedSeed * 65599 + protoSalt * 131 + id * 257) % OPERAND_MODULUS;
+    const mixBlock = (value: number) => {
+      hashA = (hashA * 33 + value) % OPERAND_MODULUS;
+      hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS;
+    };
     for (const pc of pcs) {
-      hash = (hash * 33 + pc) % OPERAND_MODULUS;
-      for (const value of encodedCode[pc - 1]) hash = (hash * 33 + value) % OPERAND_MODULUS;
+      mixBlock(pc);
+      for (const value of encodedCode[pc - 1]) mixBlock(value);
     }
-    return '{' + [hash, ...pcs].join(',') + '}';
-  }).join(',');
+    return [hashA, hashB, ...pcs];
+  });
+  const blockDescriptors = blockDescriptorValues.map((values) => '{' + values.join(',') + '}').join(',');
+  const upvalueValues = p.upvals.map((d) => [d.fromLocal ? 1 : 0, d.index]);
+  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg, blockMap, blockDescriptorValues, p.consts.length, p.protos.length, upvalueValues);
   const code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
   const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
   const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter)).join(',');
-  return `{${keys.salt}=${protoSalt},${keys.seal}=${seal},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
+  return `{${keys.salt}=${protoSalt},${keys.seal}={${seal.join(',')}},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -210,7 +281,8 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
  * Luau y en Lua 5.4 (sin goto, continue, operadores de bits ni "//").
  */
 const TEMPLATE = String.raw`
-local strlib, tbl, floor = string, table, math.floor
+local strlib, tbl, floor, tointeger = string, table, math.floor, math.tointeger
+local constIntact
 local unpackfn = (tbl and tbl.unpack) or unpack
 local function unstr(bytes, key)
   local out = {}
@@ -219,7 +291,41 @@ local function unstr(bytes, key)
     state = (state * 73 + 41) % 256
     out[i] = strlib.char((bytes[i] - state - i * 17) % 256)
   end
-  return tbl.concat(out)
+  local value = tbl.concat(out)
+  for i = 1, #out do out[i] = nil end
+  return value
+end
+local function unnum(bytes, key)
+  local decoded = {}
+  local state = key
+  for i = 1, #bytes do
+    state = (state * 73 + 41) % 256
+    decoded[i] = (bytes[i] - state - i * 29) % 256
+  end
+  local sign = floor(decoded[8] / 128)
+  local exponent = (decoded[8] % 128) * 16 + floor(decoded[7] / 16)
+  local mantissa = (decoded[7] % 16) * 2^48 + decoded[6] * 2^40 + decoded[5] * 2^32
+    + decoded[4] * 2^24 + decoded[3] * 2^16 + decoded[2] * 2^8 + decoded[1]
+  if exponent == 2047 then
+    for i = 1, 8 do decoded[i] = nil end
+    if mantissa == 0 then return sign == 1 and (-1/0) or (1/0) end
+    return (0/0)
+  end
+  local value
+  if exponent == 0 then
+    value = (mantissa / 2^52) * 2^-1022
+  else
+    value = (1 + mantissa / 2^52) * 2^(exponent - 1023)
+  end
+  if sign == 1 then value = -value end
+  for i = 1, 8 do decoded[i] = nil end
+  -- Lua 5.4 distingue enteros y floats al convertir a texto; Luau puede no
+  -- exponer math.tointeger, en cuyo caso conserva el número double.
+  if tointeger and (value ~= 0 or sign == 0) then
+    local integer = tointeger(value)
+    if integer ~= nil then return integer end
+  end
+  return value
 end
 local typefn, select, setmt, getmt, errorfn, pcallfn = type, select, setmetatable, getmetatable, error, pcall
 local rawgetfn, rawsetfn = rawget, rawset
@@ -261,37 +367,105 @@ local STEP_LIMIT = __LIMIT__
 local VALID_OP = __VALID_OPS__
 local OPERAND_MODULUS, OPERAND_HALF = 2147483647, 1073741823
 local OPERAND_SEED = __OPERAND_SEED__
+constIntact = function(bytes, sealA, sealB, key)
+  if typefn(bytes) ~= "table" then return false end
+  local hashA = (OPERAND_SEED + key * 31 + #bytes * 17) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + key * 131 + #bytes * 257) % OPERAND_MODULUS
+  for i = 1, #bytes do
+    local value = bytes[i]
+    if typefn(value) ~= "number" or value ~= floor(value) or value < 0 or value > 255 then return false end
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
+  end
+  return hashA == sealA and hashB == sealB
+end
 local function protoIntact(P)
-  local h = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0)) % OPERAND_MODULUS
+  local hashA = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0)) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + P.__KEY_SALT__ * 131 + P.__KEY_NP__ * 257 + P.__KEY_NS__ * 911 + (P.__KEY_VA__ and 17 or 0)) % OPERAND_MODULUS
+  local function mix(value)
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
+  end
   local code = P.__KEY_CODE__
+  if typefn(code) ~= "table" then return false end
   for i = 1, #code do
     local ins = code[i]
-    if typefn(ins) ~= "table" or #ins ~= 7 then return false end
-    for j = 1, 7 do
-      local v = ins[j]
-      if typefn(v) ~= "number" or v ~= floor(v) then return false end
-      h = (h * 33 + v) % OPERAND_MODULUS
+    if typefn(ins) ~= "table" or #ins ~= 9 then return false end
+    for j = 1, 9 do
+      local value = ins[j]
+      if typefn(value) ~= "number" or value ~= floor(value) then return false end
+      mix(value)
     end
   end
-  return h == P.__KEY_SEAL__
+  local blockMap, blocks = P.__KEY_BLOCKMAP__, P.__KEY_BLOCKS__
+  local constants, children, upvalues = P.__KEY_CONST__, P.__KEY_CHILD__, P.__KEY_UP__
+  if typefn(blockMap) ~= "table" or typefn(blocks) ~= "table" or typefn(constants) ~= "table"
+    or typefn(children) ~= "table" or typefn(upvalues) ~= "table" then return false end
+  for i = 1, #blockMap do
+    local value = blockMap[i]
+    if typefn(value) ~= "number" or value ~= floor(value) then return false end
+    mix(value)
+  end
+  for i = 1, #blocks do
+    local descriptor = blocks[i]
+    if typefn(descriptor) ~= "table" then return false end
+    for j = 1, #descriptor do
+      local value = descriptor[j]
+      if typefn(value) ~= "number" or value ~= floor(value) then return false end
+      mix(value)
+    end
+  end
+  mix(#constants)
+  mix(#children)
+  mix(#upvalues)
+  for i = 1, #upvalues do
+    local descriptor = upvalues[i]
+    if typefn(descriptor) ~= "table" or #descriptor ~= 2 then return false end
+    for j = 1, 2 do
+      local value = descriptor[j]
+      if typefn(value) ~= "number" or value ~= floor(value) then return false end
+      mix(value)
+    end
+  end
+  local seal = P.__KEY_SEAL__
+  return typefn(seal) == "table" and #seal == 2 and hashA == seal[1] and hashB == seal[2]
+end
+local function instructionIntact(ins, pc, protoSalt)
+  if typefn(ins) ~= "table" or #ins ~= 9 then return false end
+  local hashA = (OPERAND_SEED + protoSalt * 97 + pc * 31) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + protoSalt * 131 + pc * 257) % OPERAND_MODULUS
+  for i = 1, 7 do
+    local value = ins[i]
+    if typefn(value) ~= "number" or value ~= floor(value) then return false end
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
+  end
+  return typefn(ins[8]) == "number" and typefn(ins[9]) == "number"
+    and ins[8] == floor(ins[8]) and ins[9] == floor(ins[9])
+    and hashA == ins[8] and hashB == ins[9]
 end
 local function blockIntact(P, blockId)
   local descriptor = P.__KEY_BLOCKS__[blockId]
-  if typefn(descriptor) ~= "table" or #descriptor < 2 then return false end
-  local h = (OPERAND_SEED + P.__KEY_SALT__ * 97 + blockId * 31) % OPERAND_MODULUS
-  for j = 2, #descriptor do
+  if typefn(descriptor) ~= "table" or #descriptor < 3 then return false end
+  local hashA = (OPERAND_SEED + P.__KEY_SALT__ * 97 + blockId * 31) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + P.__KEY_SALT__ * 131 + blockId * 257) % OPERAND_MODULUS
+  local function mixBlock(value)
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
+  end
+  for j = 3, #descriptor do
     local pc = descriptor[j]
     if typefn(pc) ~= "number" or pc < 1 or pc > #P.__KEY_CODE__ or P.__KEY_BLOCKMAP__[pc] ~= blockId then return false end
     local ins = P.__KEY_CODE__[pc]
-    if typefn(ins) ~= "table" or #ins ~= 7 then return false end
-    h = (h * 33 + pc) % OPERAND_MODULUS
-    for k = 1, 7 do
+    if typefn(ins) ~= "table" or #ins ~= 9 then return false end
+    mixBlock(pc)
+    for k = 1, 9 do
       local value = ins[k]
       if typefn(value) ~= "number" or value ~= floor(value) then return false end
-      h = (h * 33 + value) % OPERAND_MODULUS
+      mixBlock(value)
     end
   end
-  return h == descriptor[1]
+  return hashA == descriptor[1] and hashB == descriptor[2]
 end
 local function constant(P, index)
   local value = P.__KEY_CONST__[index]
@@ -391,8 +565,9 @@ run = function(P, U, args)
     if not ins then fail("bytecode truncado o alterado") end
     -- Comprueba la forma del registro antes de decodificarlo; evita que una
     -- salida truncada o manipulada termine en errores opacos de indexación.
-    if typefn(ins) ~= "table" or #ins ~= 7 then fail("instrucción corrupta") end
-    for field = 1, 7 do
+    if typefn(ins) ~= "table" or #ins ~= 9 then fail("instrucción corrupta") end
+    if not instructionIntact(ins, ip, protoSalt) then fail("integridad comprometida: instrucción alterada") end
+    for field = 1, 9 do
       local value = ins[field]
       if typefn(value) ~= "number" or value ~= floor(value) then fail("operando corrupto") end
     end
@@ -414,7 +589,10 @@ run = function(P, U, args)
       and (t < 1 or t > #code) then fail("salto fuera del prototipo") end
     steps = steps + 1
     if steps > STEP_LIMIT then fail("límite de ejecución superado") end
-    curLine = decodeOperand(ins[6], ip, 6, protoSalt)
+    local lineToken = decodeOperand(ins[6], ip, 6, protoSalt)
+    local lineMultiplier = 17 + ((OPERAND_SEED + protoSalt * 131) % 31)
+    local lineOffset = (OPERAND_SEED + protoSalt * 65537) % 1000003
+    curLine = floor((lineToken - lineOffset) / lineMultiplier)
     if op == OP_CONST then push(constant(P, a + 1))
     elseif op == OP_NIL then push(nil)
     elseif op == OP_TRUE then push(true)
@@ -559,6 +737,30 @@ end
 return main(...)
 `;
 
+/**
+ * Reordena los brazos reales del dispatcher para cada semilla, manteniendo
+ * intactos los cuerpos de operación y el fallback de opcode inválido.
+ */
+function shuffleDispatch(template: string, seed: number): string {
+  const start = template.indexOf('    if op == OP_CONST then');
+  const fallback = '\n    else\n      fail("operación desconocida " .. tostring(op))\n    end';
+  const end = template.indexOf(fallback, start);
+  if (start < 0 || end < 0) throw new Error('dispatcher VM incompleto');
+  const block = template.slice(start, end);
+  const markers = [...block.matchAll(/^    (?:if|elseif) op == OP_[A-Z]+ then/gm)];
+  if (markers.length !== ALL_OPS.length) throw new Error('cantidad inesperada de operaciones en dispatcher');
+  const arms = markers.map((marker, index) => block.slice(marker.index!, markers[index + 1]?.index ?? block.length));
+  const random = rng((seed ^ 0x2c1b3c6d) >>> 0);
+  for (let i = arms.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [arms[i], arms[j]] = [arms[j], arms[i]];
+  }
+  const reordered = arms.map((arm, index) =>
+    arm.replace(/^    (?:if|elseif) op/, `    ${index === 0 ? 'if' : 'elseif'} op`),
+  ).join('');
+  return template.slice(0, start) + reordered + template.slice(end);
+}
+
 /** Emite el script Luau que ejecuta el prototipo principal dentro de la VM. */
 export interface EmitOptions {
   /** Instrucciones máximas antes de abortar la ejecución. */
@@ -570,7 +772,7 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
   const limit = options.stepLimit ?? 5_000_000;
   if (!Number.isInteger(limit) || limit <= 0) throw new SynexError('límite de pasos inválido', 1, 1, 'E_OPTIONS');
   const ops = opcodeTable(seed);
-  let body = TEMPLATE.replace(/\bOP_([A-Z]+)\b/g, (_m, name: string) => {
+  let body = shuffleDispatch(TEMPLATE, seed).replace(/\bOP_([A-Z]+)\b/g, (_m, name: string) => {
     const code = ops[name as Op];
     if (code === undefined) throw new Error(`operación sin código: ${name}`);
     return String(code);

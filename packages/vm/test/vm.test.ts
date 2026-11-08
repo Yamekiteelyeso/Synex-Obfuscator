@@ -179,10 +179,13 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
   assert.match(code, /índice de bloques corrupto/);
   assert.match(code, /integridad comprometida: prototipo alterado/);
   assert.match(code, /local function constant/);
-  assert.match(code, /#ins ~= 7/);
+  assert.match(code, /#ins ~= 9/);
+  assert.match(code, /local function instructionIntact/);
+  assert.match(code, /integridad comprometida: instrucción alterada/);
   assert.match(code, /decodeOperand\(ins\[7\], ip, 7, protoSalt\)/);
   assert.match(code, /sucesora fuera del prototipo/);
-  assert.match(code, /function\(\) return unstr/);
+  assert.match(code, /function\(\) return/);
+  assert.match(code, /constIntact\(b,/);
   assert.ok(code.includes('decodeOperand(ins[6], ip, 6, protoSalt)'));
   assert.ok(!code.includes('P.k['));
   assert.ok(code.includes('unstr('));
@@ -237,8 +240,73 @@ test('emisor Luau: los operandos del bytecode cambian por instrucción y semilla
   assert.match(a, /límite de pila superado/);
 });
 
+test('emisor Luau: cifra de forma reversible el metadato de línea', () => {
+  const sourceLine = 12345;
+  const src = '\n'.repeat(sourceLine - 1) + "print('line marker')";
+  const emitted = compileToLuauVm(src, 1234567, { stepLimit: 1 });
+  assert.match(emitted, /local lineMultiplier = 17/);
+  assert.match(emitted, /local lineOffset = \(OPERAND_SEED \+ protoSalt \* 65537\) % 1000003/);
+  assert.match(emitted, /curLine = floor\(\(lineToken - lineOffset\) \/ lineMultiplier\)/);
+  assert.doesNotMatch(emitted, /,12345,/);
+  if (hasLua54) {
+    let stderr = '';
+    try {
+      execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 7000 });
+    } catch (error) {
+      stderr = String((error as NodeJS.ErrnoException & { stderr?: string }).stderr ?? '');
+    }
+    assert.match(stderr, /línea 12345: límite de ejecución superado/);
+  }
+});
+
+test('emisor Luau: oculta constantes numéricas con un decoder IEEE-754', () => {
+  const source = 'local a = 987654321\nlocal b = 123.125\nprint(a, b, -a)';
+  const emitted = compileToLuauVm(source, 778899);
+  assert.match(emitted, /local function unnum/);
+  assert.doesNotMatch(emitted, /987654321|123\.125/);
+  if (hasLua54) {
+    const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 7000 });
+    assert.equal(output.trim(), ['987654321', '123.125', '-987654321'].join(String.fromCharCode(9)));
+  }
+});
+
+test('emisor Luau: los sellos de prototipo y bloque usan doble acumulador', () => {
+  const emitted = compileToLuauVm('local x = 1\nprint(x)', 90817);
+  assert.match(emitted, /local hashA =/);
+  assert.match(emitted, /local hashB =/);
+  assert.match(emitted, /hashB == seal\[2\]/);
+  assert.match(emitted, /hashB == descriptor\[2\]/);
+});
+
 
 const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
+
+test('VM emitida: segmenta cadenas largas con claves distintas y las reconstruye correctamente', { skip: !hasLua54 }, () => {
+  const value = 'Synex::fragmented::Unicode::GLOBE::0123456789::protection';
+  const escapedValue = value;
+  const source = `local value = "${escapedValue}"\nprint(value)`;
+  const emitted = compileToLuauVm(source, 884422);
+  const chunks = (emitted.match(/local b=\{/g) ?? []).length;
+  assert.ok(chunks >= 5, `se esperaban varios fragmentos, se emitieron ${chunks}`);
+  assert.doesNotMatch(emitted, /Synex::fragmented::Unicode|0123456789/);
+  const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 7000 });
+  assert.equal(output.trim(), value);
+});
+
+test('VM emitida: detecta alteración de bytes de constantes antes de reconstruirlas', { skip: !hasLua54 }, () => {
+  const emitted = compileToLuauVm('print("Synex protected constant")', 556677);
+  const mainStart = emitted.indexOf('local MAIN = {');
+  const payload = /local b=\{(\d+)/.exec(emitted.slice(mainStart));
+  assert.ok(mainStart >= 0 && payload);
+  const numberStart = mainStart + payload.index + 'local b={'.length;
+  const tampered = emitted.slice(0, numberStart)
+    + String((Number(payload[1]) + 1) % 256)
+    + emitted.slice(numberStart + payload[1].length);
+  assert.throws(
+    () => execFileSync('lua5.4', ['-'], { input: tampered, encoding: 'utf8', timeout: 7000 }),
+    /integridad comprometida: constante alterada/,
+  );
+});
 
 test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => {
   const source = [

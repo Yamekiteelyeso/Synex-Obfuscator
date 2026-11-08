@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import type { User } from './auth.js';
+import type { AccountPlan, User } from './auth.js';
 
 export interface HistoryEntry {
   id: string;
@@ -23,6 +23,15 @@ export interface ErrorEntry {
   message: string;
 }
 
+export interface PlanRequest {
+  id: string;
+  userId: string;
+  plan: Exclude<AccountPlan, 'free'>;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Settings {
   maxInputBytes: number;
   enabledProfiles: string[];
@@ -32,6 +41,7 @@ interface Data {
   users: User[];
   history: HistoryEntry[];
   errors: ErrorEntry[];
+  planRequests: PlanRequest[];
   settings: Settings;
 }
 
@@ -42,61 +52,100 @@ const DEFAULT_SETTINGS: Settings = {
   enabledProfiles: ['basic', 'medium', 'max'],
 };
 
-/**
- * Almacén en un archivo JSON. Las escrituras son atómicas (archivo temporal + rename).
- * Si no se indica archivo, funciona solo en memoria (pruebas).
- */
+/** Almacén JSON con escrituras atómicas y migración de cuentas existentes. */
 export class Store {
   private data: Data;
 
   constructor(private readonly file: string | null) {
-    this.data = { users: [], history: [], errors: [], settings: { ...DEFAULT_SETTINGS } };
+    this.data = { users: [], history: [], errors: [], planRequests: [], settings: { ...DEFAULT_SETTINGS } };
     if (file && existsSync(file)) {
       const loaded = JSON.parse(readFileSync(file, 'utf8')) as Partial<Data>;
-      this.data = { ...this.data, ...loaded, settings: { ...DEFAULT_SETTINGS, ...loaded.settings, enabledProfiles: ['basic', 'medium', 'max'] } };
+      const history = Array.isArray(loaded.history) ? loaded.history : [];
+      const users = (Array.isArray(loaded.users) ? loaded.users : []).map((raw) => {
+        const plan: AccountPlan = raw.plan === 'premium' || raw.plan === 'plus' ? raw.plan : 'free';
+        const migratedUsage = history.filter((entry) => entry.userId === raw.id).length;
+        const obfuscationsUsed = Number.isSafeInteger(raw.obfuscationsUsed) && raw.obfuscationsUsed >= 0
+          ? raw.obfuscationsUsed
+          : migratedUsage;
+        return { ...raw, plan, obfuscationsUsed } as User;
+      });
+      this.data = {
+        users,
+        history,
+        errors: Array.isArray(loaded.errors) ? loaded.errors : [],
+        planRequests: Array.isArray(loaded.planRequests) ? loaded.planRequests : [],
+        settings: { ...DEFAULT_SETTINGS, ...loaded.settings, enabledProfiles: ['basic', 'medium', 'max'] },
+      };
     }
   }
 
-  get users(): User[] {
-    return this.data.users;
-  }
+  get users(): User[] { return this.data.users; }
+  get history(): HistoryEntry[] { return this.data.history; }
+  get errors(): ErrorEntry[] { return this.data.errors; }
+  get planRequests(): PlanRequest[] { return this.data.planRequests; }
+  get settings(): Settings { return this.data.settings; }
 
-  get history(): HistoryEntry[] {
-    return this.data.history;
-  }
-
-  get errors(): ErrorEntry[] {
-    return this.data.errors;
-  }
-
-  get settings(): Settings {
-    return this.data.settings;
-  }
-
-  addUser(u: User): void {
-    this.data.users.push(u);
+  addUser(user: User): void {
+    this.data.users.push(user);
     this.save();
   }
 
   updateUser(user: User): void {
-    const index = this.data.users.findIndex((u) => u.id === user.id);
-    if (index >= 0) { this.data.users[index] = user; this.save(); }
+    const index = this.data.users.findIndex((entry) => entry.id === user.id);
+    if (index >= 0) {
+      this.data.users[index] = user;
+      this.save();
+    }
   }
 
-  addHistory(h: HistoryEntry): void {
-    this.data.history.push(h);
+  recordObfuscation(userId: string): number {
+    const user = this.data.users.find((entry) => entry.id === userId);
+    if (!user) throw new Error('cuenta no encontrada al registrar el uso');
+    user.obfuscationsUsed += 1;
+    this.save();
+    return user.obfuscationsUsed;
+  }
+
+  setUserPlan(userId: string, plan: AccountPlan): User | null {
+    const user = this.data.users.find((entry) => entry.id === userId);
+    if (!user) return null;
+    user.plan = plan;
+    this.save();
+    return user;
+  }
+
+  createPlanRequest(request: PlanRequest): PlanRequest {
+    const existing = this.data.planRequests.find((entry) =>
+      entry.userId === request.userId && entry.plan === request.plan && entry.status === 'pending');
+    if (existing) return existing;
+    this.data.planRequests.push(request);
+    this.save();
+    return request;
+  }
+
+  updatePlanRequest(id: string, status: PlanRequest['status']): PlanRequest | null {
+    const request = this.data.planRequests.find((entry) => entry.id === id);
+    if (!request) return null;
+    request.status = status;
+    request.updatedAt = Date.now();
+    this.save();
+    return request;
+  }
+
+  addHistory(entry: HistoryEntry): void {
+    this.data.history.push(entry);
     this.save();
   }
 
   updateHistory(id: string, patch: Partial<HistoryEntry>): void {
-    const h = this.data.history.find((x) => x.id === id);
-    if (!h) return;
-    Object.assign(h, patch);
+    const entry = this.data.history.find((item) => item.id === id);
+    if (!entry) return;
+    Object.assign(entry, patch);
     this.save();
   }
 
-  logError(e: ErrorEntry): void {
-    this.data.errors.push(e);
+  logError(entry: ErrorEntry): void {
+    this.data.errors.push(entry);
     if (this.data.errors.length > MAX_ERRORS) this.data.errors.splice(0, this.data.errors.length - MAX_ERRORS);
     this.save();
   }
