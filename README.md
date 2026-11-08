@@ -98,7 +98,7 @@ Los niveles aplican configuraciones predefinidas del motor. Basic es el nivel es
 ## Limitaciones de la ofuscación actual
 
 - La equivalencia se verifica con Lua 5.4 real, no con Luau: este entorno no tiene `luau`. Se compila el ejecutor con `tools/lua54/build.sh` (requiere `liblua5.4-0` y `gcc`). Las pruebas que dependen de él se omiten si falta. Luau y Lua 5.4 difieren en sintaxis (`continue`, `+=`) y en biblioteca, así que el aplanado con `continue` se verifica sólo con el intérprete de referencia.
-- Pendiente: ejecutar las pruebas en Luau real. La suite actual ejecuta la salida generada con Lua 5.4 real y verifica el intérprete/VM TypeScript; no equivale a una prueba de Roblox Luau.
+- CI instala Luau CLI oficial (versión fijada y checksum SHA-256 verificado) y ejecuta una prueba de la VM emitida en Luau real, además de las pruebas existentes en Lua 5.4. Esto verifica una ruta representativa, pero no sustituye pruebas de todos los perfiles ni de Roblox Studio/executors.
 - La protección de cadenas codifica bytes UTF-8 con una clave por literal y una máscara dependiente de posición; se descifra bajo demanda sin mantener una caché persistente de texto plano. El valor reconstruido existe durante su uso y puede observarse en memoria o interceptando el runtime. Sigue siendo ofuscación reversible, no cifrado ni almacenamiento seguro de secretos.
 - Las posiciones de los parámetros en el análisis semántico son aproximadas.
 
