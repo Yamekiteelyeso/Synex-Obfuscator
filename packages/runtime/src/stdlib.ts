@@ -701,7 +701,7 @@ export function installStdlib(interp: LuaEnvironment): void {
     const high = view.getUint32(0, false);
     const exponentBits = (high >>> 20) & 0x7ff;
     if (exponentBits === 0) {
-      const [fraction, exponent] = frexp(value * 0x1p54);
+      const [fraction, exponent] = frexp(value * (2 ** 54));
       return [fraction, exponent - 54];
     }
     view.setUint32(0, (high & 0x800fffff) | (1022 << 20), false);
