@@ -23,35 +23,39 @@ export function AuthView({ onAuth }: { onAuth: (token: string, user: SessionUser
 
   return (
     <main className="auth-screen">
+      <div className="auth-grid-lines" aria-hidden="true" />
       <div className="auth-layout">
         <section className="auth-intro">
-          <div className="brand-mark"><span className="brand-symbol">S</span> SYNEX</div>
-          <p className="eyebrow">LUA / LUAU CODE PROTECTION</p>
-          <h1>Tu código.<br /><span>Fuera de la vista.</span></h1>
-          <p className="auth-lead">Ofuscación de scripts con transformaciones por niveles y una VM diseñada para Luau.</p>
-          <div className="plan-preview">
-            <article><span>01 / BASIC</span><strong>Esencial</strong><small>Renombrado y protección de cadenas.</small></article>
-            <article><span>02 / MEDIUM</span><strong>Reforzado</strong><small>Más transformaciones y flujo de control.</small></article>
-            <article><span>03 / MAX</span><strong>Máximo</strong><small>VM y técnicas avanzadas combinadas.</small></article>
+          <div className="brand-mark"><span className="brand-symbol">S</span><span>Synex Obfuscador</span></div>
+          <div className="hero-copy">
+            <p className="eyebrow"><span className="eyebrow-line" /> PROTECCIÓN DE CÓDIGO LUA / LUAU</p>
+            <h1>Synex<br /><span>Obfuscador.</span></h1>
+            <p className="auth-lead">Transforma tus scripts con capas de ofuscación, protección de cadenas y una máquina virtual diseñada para trabajar con Luau.</p>
           </div>
+          <div className="plan-preview">
+            <article><span>01</span><strong>Basic</strong><small>Ofuscación esencial y ligera.</small><i>01 / 03</i></article>
+            <article><span>02</span><strong>Medium</strong><small>Transformaciones adicionales.</small><i>02 / 03</i></article>
+            <article><span>03</span><strong>Max</strong><small>VM y protección avanzada.</small><i>03 / 03</i></article>
+          </div>
+          <div className="auth-feature-line"><span>CADENA</span><i /><span>FLUJO DE CONTROL</span><i /><span>VM LUAU</span></div>
         </section>
         <form className="auth-card" onSubmit={submit}>
-          <div className="auth-card-top"><span className="eyebrow">SYNEX OBFUSCADOR</span><span className="status-dot">● SISTEMA EN LÍNEA</span></div>
-          <h2>{mode === 'login' ? 'Bienvenido de vuelta' : 'Crea tu cuenta'}</h2>
-          <p className="muted">{mode === 'login' ? 'Accede a tu espacio de ofuscación.' : 'Regístrate para comenzar a proteger tus scripts.'}</p>
+          <div className="auth-card-top"><span className="eyebrow">ACCESO A SYNEX</span><span className="status-dot"><b /> MOTOR DISPONIBLE</span></div>
+          <h2>{mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}</h2>
+          <p className="muted">{mode === 'login' ? 'Entra para continuar protegiendo tu código.' : 'Crea tu cuenta para empezar a ofuscar.'}</p>
           <label>Correo electrónico<input type="email" autoComplete="email" required value={email} onChange={(e: any) => setEmail(e.target.value)} /></label>
           <label>Contraseña<input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required minLength={8} value={password} onChange={(e: any) => setPassword(e.target.value)} /></label>
           {error && <p className="error-text" role="alert">{error}</p>}
-          <button className="btn primary auth-submit" disabled={busy}>{busy ? 'Procesando…' : mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'} <span>↗</span></button>
-          <div className="auth-divider"><span>o continúa con</span></div>
-          <a className="btn discord-btn" href="/api/auth/discord"><span className="discord-glyph">◈</span> Conectar con Discord</a>
-          <small className="auth-foot">Instala el bot y ejecuta <b>/synex-login</b>. Te enviará un enlace privado de un solo uso.</small>
+          <button className="btn primary auth-submit" disabled={busy}>{busy ? 'Procesando…' : mode === 'login' ? 'Entrar a Synex' : 'Crear cuenta'} <span>↗</span></button>
+          <div className="auth-divider"><span>O CONTINÚA CON</span></div>
+          <a className="btn discord-btn" href="/api/auth/discord"><span className="discord-glyph">◈</span> Discord</a>
+          <small className="auth-foot">Instala el bot y ejecuta <b>/synex-login</b> para recibir un enlace privado de acceso.</small>
           <button type="button" className="auth-switch" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}>
-            {mode === 'login' ? '¿No tienes cuenta? Crear una' : '¿Ya tienes cuenta? Inicia sesión'}
+            {mode === 'login' ? '¿No tienes cuenta? Crear una' : '¿Ya tienes cuenta? Iniciar sesión'}
           </button>
-          <small className="auth-foot">Usa Synex de forma responsable y respeta los derechos de terceros.</small>
         </form>
       </div>
+      <div className="auth-bottom"><span>SYNEX OBFUSCADOR</span><span>LUA / LUAU · BASIC / MEDIUM / MAX</span></div>
     </main>
   );
 }
