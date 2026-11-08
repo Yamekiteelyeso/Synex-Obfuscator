@@ -460,10 +460,10 @@ local function decodeEncryptedPrototype(P)
   if typefn(code) ~= "table" or #code == 0 then return end
   local first = code[1]
   if typefn(first) ~= "table" or typefn(first.nonce) ~= "string" then return end
-  if typefn(Crypto) ~= "table" or typefn(Integrity) ~= "table" then fail("runtime criptográfico no disponible") end
+  if typefn(Crypto) ~= "table" or typefn(Integrity) ~= "table" then errorfn("runtime criptográfico no disponible", 0) end
   local masterEncryptionKey = hexBytes(MASTER_ENCRYPTION_KEY_HEX)
   local masterIntegrityKey = hexBytes(MASTER_INTEGRITY_KEY_HEX)
-  if not masterEncryptionKey or #masterEncryptionKey ~= 32 or not masterIntegrityKey or #masterIntegrityKey ~= 32 then fail("claves de bytecode inválidas") end
+  if not masterEncryptionKey or #masterEncryptionKey ~= 32 or not masterIntegrityKey or #masterIntegrityKey ~= 32 then errorfn("claves de bytecode inválidas", 0) end
   local salt = P.__KEY_SALT__
   local context = tostring(floor(salt))
   local encryptionKey = Crypto.hmacSha256(masterEncryptionKey, "Synex/prototype-encryption/v1:" .. context)
@@ -471,16 +471,16 @@ local function decodeEncryptedPrototype(P)
   local chain = Integrity.start(integrityKey, salt)
   for index = 1, #code do
     local record = code[index]
-    if typefn(record) ~= "table" then fail("registro cifrado corrupto") end
+    if typefn(record) ~= "table" then errorfn("registro cifrado corrupto", 0) end
     local nonce, ciphertext = hexBytes(record.nonce), hexBytes(record.ciphertext)
     local tag, chainTag, aad = hexBytes(record.tag), hexBytes(record.chainTag), hexBytes(record.aad)
-    if not nonce or #nonce ~= 24 or not ciphertext or #ciphertext ~= 36 or not tag or #tag ~= 16 or not chainTag or #chainTag ~= 32 or not aad then fail("registro cifrado truncado") end
+    if not nonce or #nonce ~= 24 or not ciphertext or #ciphertext ~= 36 or not tag or #tag ~= 16 or not chainTag or #chainTag ~= 32 or not aad then errorfn("registro cifrado truncado", 0) end
     local valid, nextChain = Integrity.verifyRecord(integrityKey, chainTag, chain, index, nonce, ciphertext, tag, aad)
-    if not valid then fail("cadena de integridad comprometida") end
+    if not valid then errorfn("cadena de integridad comprometida", 0) end
     local plain = Crypto.openPoly1305(encryptionKey, nonce, ciphertext, tag, aad)
-    if not plain or #plain ~= 36 then fail("autenticación de bytecode fallida") end
+    if not plain or #plain ~= 36 then errorfn("autenticación de bytecode fallida", 0) end
     local fields = {}
-    for field = 1, 9 do fields[field] = readU32LE(plain, (field - 1) * 4 + 1); if fields[field] == nil then fail("instrucción cifrada inválida") end end
+    for field = 1, 9 do fields[field] = readU32LE(plain, (field - 1) * 4 + 1); if fields[field] == nil then errorfn("instrucción cifrada inválida", 0) end end
     code[index] = fields
     chain = nextChain
     plain = nil
