@@ -18,7 +18,7 @@ import { validateProto } from './validate.js';
 /** Todas las operaciones del IR. El tipo obliga a listarlas todas. */
 const ALL_OPS = [
   'CONST', 'NIL', 'TRUE', 'FALSE', 'POP',
-  'GETL', 'SETL', 'NEWBOX', 'GETBOX', 'SETBOX', 'BOXSLOT',
+  'GETL', 'SETL', 'MOVE', 'NEWBOX', 'GETBOX', 'SETBOX', 'BOXSLOT',
   'GETUP', 'SETUP', 'GETG', 'SETG',
   'GETI', 'SETI', 'SELF',
   'ADD', 'SUB', 'MUL', 'DIV', 'IDIV', 'MOD', 'POW', 'CONCAT',
