@@ -218,7 +218,7 @@ local function poly1305(message, oneTimeKey)
 	local h = {0,0,0,0,0,0,0,0,0,0}
 	for offset=1,#message,16 do
 		local block = string.sub(message,offset,offset+15)
-		local m = polyLimbs(block.."\\1",10)
+		local m = polyLimbs(block.."\1",10)
 		for i=1,10 do h[i]=h[i]+m[i] end
 		local d = {0,0,0,0,0,0,0,0,0,0}
 		for i=0,9 do
