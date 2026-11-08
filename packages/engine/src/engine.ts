@@ -91,7 +91,7 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
 
   // El comentario se agrega al final de todas las transformaciones para que
   // siempre quede en la primera línea, también en salidas virtualizadas.
-  const brand = `-- [Synex Obf] | profile: ${options.profile} | vm: ${vmEnabled ? 'on' : 'off'}\\n`;
+  const brand = `-- [Synex Obf] | profile: ${options.profile} | vm: ${vmEnabled ? 'on' : 'off'}\n`;
   code = brand + code;
 
   onStage('integrity');
