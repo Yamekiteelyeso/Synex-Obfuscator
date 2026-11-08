@@ -10,13 +10,13 @@ export interface AdminData {
 
 export function Admin({ data, onToggleProfile }: { data: AdminData | null; onToggleProfile: (p: string, on: boolean) => void }) {
   if (!data) return <p className="muted">Cargando panel de administración…</p>;
-  const all = ['normal', 'medium', 'max', 'basic', 'advanced', 'professional', 'custom'];
+  const all = ['basic', 'medium', 'max'];
   return (
     <section className="view">
       <h2>Administración</h2>
       <div className="two-col">
         <div className="card">
-          <h3>Perfiles habilitados</h3>
+          <h3>Planes disponibles</h3>
           {all.map((p) => (
             <label key={p} className="check">
               <input type="checkbox" checked={data.settings.enabledProfiles.includes(p)} onChange={(e: any) => onToggleProfile(p, e.target.checked)} />
