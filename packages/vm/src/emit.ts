@@ -857,8 +857,11 @@ export interface EmitOptions {
 
 export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): string {
   validateProto(main);
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffff_ffff) {
+    throw new SynexError('semilla inválida (usa un entero de 0 a 4294967295)', 1, 1, 'E_OPTIONS');
+  }
   const limit = options.stepLimit ?? 5_000_000;
-  if (!Number.isInteger(limit) || limit <= 0) throw new SynexError('límite de pasos inválido', 1, 1, 'E_OPTIONS');
+  if (!Number.isSafeInteger(limit) || limit <= 0) throw new SynexError('límite de pasos inválido', 1, 1, 'E_OPTIONS');
   const watermark = options.watermark;
   if (watermark !== undefined && (typeof watermark !== 'string'
     || watermark.length < 1 || watermark.length > 64
