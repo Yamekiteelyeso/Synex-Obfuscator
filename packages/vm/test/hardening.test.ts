@@ -118,7 +118,7 @@ describe('polimorfismo del pool de constantes', () => {
       'local beta = "BETA_MARKER"',
       'local gamma = "GAMMA_MARKER"',
       'print(alpha, beta, gamma)',
-    ].join('\\n');
+    ].join('\n');
     const a = compileToLuauVm(source, 123456);
     const same = compileToLuauVm(source, 123456);
     const other = compileToLuauVm(source, 123457);
@@ -133,7 +133,7 @@ describe('polimorfismo del pool de constantes', () => {
       'local gamma = "GAMMA_MARKER"',
       'local function join(a, b) return a .. b end',
       'print(join(alpha, beta), gamma, math.floor(9.8))',
-    ].join('\\n');
+    ].join('\n');
     const original = runLua54(source);
     const emitted = runLua54(compileToLuauVm(source, 884422));
     assert.ok(emitted.ok, emitted.error);
