@@ -1,6 +1,6 @@
 import { analyze } from '@synex/semantic';
 import { parse } from '@synex/parser';
-import { compile, type Instr, type Op, type Proto } from '@synex/ir';
+import { compile, type Op, type Proto } from '@synex/ir';
 import { SynexError } from '@synex/shared';
 import { validateProto } from './validate.js';
 
