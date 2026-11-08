@@ -114,7 +114,7 @@ test('table.insert valida posiciones y conserva el orden', () => {
 
 test('string.sub y string.byte soportan índices negativos y rangos', () => {
   assert.deepEqual(out('print(string.sub("abcdef", 2, 4), string.sub("abcdef", -2), string.sub("abc", 8, 9), string.sub("abc", 0), string.sub("abc", 1, -99))'), ['bcd\tef\t\tabc\t']);
-  assert.deepEqual(out('print(string.byte("abcd", 2, 3)); print(string.byte("abcd", -1)); print(string.byte("abcd", 2, 99)); print(string.byte("abcd", -99, 1)); print(string.byte("abcd", 0, 1)); print(string.byte("abcd", -99))'), ['98\t99', '100', '98\t99\t100', '97', '97', 'nil']);
+  assert.deepEqual(out('print(string.byte("abcd", 2, 3)); print(string.byte("abcd", -1)); print(string.byte("abcd", 2, 99)); print(string.byte("abcd", -99, 1)); print(string.byte("abcd", 0, 1)); print(string.byte("abcd", -99))'), ['98\t99', '100', '98\t99\t100', '97', '97', '']);
 });
 
 test('table.move maneja solapamiento y destino distinto', () => {
