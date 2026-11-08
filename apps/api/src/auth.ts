@@ -53,12 +53,17 @@ export interface SessionPersistence {
 /** Sesiones opacas con caducidad y persistencia opcional en el almacén de cuentas. */
 export class Sessions {
   private readonly sessions: Map<string, SessionRecord>;
+  private lastPrunedAt = 0;
 
   constructor(
     private readonly ttlMs = 12 * 60 * 60 * 1000,
     private readonly now = () => Date.now(),
     private readonly persistence?: SessionPersistence,
+    private readonly maxSessions = 10_000,
   ) {
+    if (!Number.isSafeInteger(maxSessions) || maxSessions < 1) {
+      throw new RangeError('maxSessions must be a positive safe integer');
+    }
     this.sessions = new Map((persistence?.readSessions() ?? []).map((entry) => [entry.token, entry]));
     this.prune();
   }
@@ -69,6 +74,7 @@ export class Sessions {
 
   private prune(): void {
     const now = this.now();
+    this.lastPrunedAt = now;
     let changed = false;
     for (const [token, session] of this.sessions) {
       if (session.expiresAt <= now) {
@@ -76,11 +82,22 @@ export class Sessions {
         changed = true;
       }
     }
+    while (this.sessions.size > this.maxSessions) {
+      const oldest = this.sessions.keys().next().value;
+      if (oldest === undefined) break;
+      this.sessions.delete(oldest);
+      changed = true;
+    }
     if (changed) this.persist();
   }
 
   create(userId: string): string {
     this.prune();
+    while (this.sessions.size >= this.maxSessions) {
+      const oldest = this.sessions.keys().next().value;
+      if (oldest === undefined) break;
+      this.sessions.delete(oldest);
+    }
     const token = randomBytes(32).toString('hex');
     this.sessions.set(token, { token, userId, expiresAt: this.now() + this.ttlMs });
     this.persist();
@@ -88,6 +105,7 @@ export class Sessions {
   }
 
   userIdFor(token: string): string | null {
+    if (this.now() - this.lastPrunedAt >= 60_000) this.prune();
     const session = this.sessions.get(token);
     if (!session) return null;
     if (session.expiresAt <= this.now()) {
