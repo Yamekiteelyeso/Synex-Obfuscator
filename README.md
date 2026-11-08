@@ -138,7 +138,7 @@ El motor acepta scripts Luau y mantiene los globals y llamadas del entorno hués
 ## Uso de la VM desde TypeScript
 
 El paquete `@synex/vm` exporta `compileToLuauVm`, `emitLuauVm`, `runInVm` y `VM`.
-La emisión acepta una semilla uint32 para hacer reproducible un build y opciones opcionales:
+La emisión acepta una semilla uint32 para hacer reproducible un build y opciones opcionales: El motor valida el mismo rango para todos los perfiles; la API rechaza semillas inválidas antes de aceptar el trabajo y genera semillas automáticas en todo el rango uint32.
 
 ```ts
 import { compileToLuauVm } from '@synex/vm';
