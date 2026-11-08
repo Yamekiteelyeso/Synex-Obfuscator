@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import type { AccountPlan, User } from './auth.js';
+import type { AccountPlan, SessionRecord, User } from './auth.js';
 
 export interface HistoryEntry {
   id: string;
@@ -43,6 +43,7 @@ interface Data {
   errors: ErrorEntry[];
   planRequests: PlanRequest[];
   settings: Settings;
+  sessions: SessionRecord[];
 }
 
 const MAX_ERRORS = 200;
@@ -57,7 +58,7 @@ export class Store {
   private data: Data;
 
   constructor(private readonly file: string | null) {
-    this.data = { users: [], history: [], errors: [], planRequests: [], settings: { ...DEFAULT_SETTINGS } };
+    this.data = { users: [], history: [], errors: [], planRequests: [], settings: { ...DEFAULT_SETTINGS }, sessions: [] };
     if (file && existsSync(file)) {
       const loaded = JSON.parse(readFileSync(file, 'utf8')) as Partial<Data>;
       const history = Array.isArray(loaded.history) ? loaded.history : [];
@@ -75,6 +76,9 @@ export class Store {
         errors: Array.isArray(loaded.errors) ? loaded.errors : [],
         planRequests: Array.isArray(loaded.planRequests) ? loaded.planRequests : [],
         settings: { ...DEFAULT_SETTINGS, ...loaded.settings, enabledProfiles: ['basic', 'medium', 'max'] },
+        sessions: Array.isArray(loaded.sessions) ? loaded.sessions.filter((entry) =>
+          entry && typeof entry.token === 'string' && typeof entry.userId === 'string'
+          && Number.isFinite(entry.expiresAt) && entry.expiresAt > Date.now()) : [],
       };
     }
   }
@@ -84,6 +88,13 @@ export class Store {
   get errors(): ErrorEntry[] { return this.data.errors; }
   get planRequests(): PlanRequest[] { return this.data.planRequests; }
   get settings(): Settings { return this.data.settings; }
+
+  readSessions(): SessionRecord[] { return this.data.sessions.slice(); }
+
+  writeSessions(sessions: SessionRecord[]): void {
+    this.data.sessions = sessions;
+    this.save();
+  }
 
   addUser(user: User): void {
     this.data.users.push(user);

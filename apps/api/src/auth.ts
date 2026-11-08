@@ -39,35 +39,67 @@ export function verifyPassword(password: string, stored: string): boolean {
   return timingSafeEqual(expected, actual);
 }
 
-interface Session {
+export interface SessionRecord {
+  token: string;
   userId: string;
   expiresAt: number;
 }
 
-/** Sesiones con token opaco aleatorio y caducidad. Viven en memoria. */
-export class Sessions {
-  private readonly sessions = new Map<string, Session>();
+export interface SessionPersistence {
+  readSessions(): SessionRecord[];
+  writeSessions(sessions: SessionRecord[]): void;
+}
 
-  constructor(private readonly ttlMs = 12 * 60 * 60 * 1000, private readonly now = () => Date.now()) {}
+/** Sesiones opacas con caducidad y persistencia opcional en el almacén de cuentas. */
+export class Sessions {
+  private readonly sessions: Map<string, SessionRecord>;
+
+  constructor(
+    private readonly ttlMs = 12 * 60 * 60 * 1000,
+    private readonly now = () => Date.now(),
+    private readonly persistence?: SessionPersistence,
+  ) {
+    this.sessions = new Map((persistence?.readSessions() ?? []).map((entry) => [entry.token, entry]));
+    this.prune();
+  }
+
+  private persist(): void {
+    this.persistence?.writeSessions([...this.sessions.values()]);
+  }
+
+  private prune(): void {
+    const now = this.now();
+    let changed = false;
+    for (const [token, session] of this.sessions) {
+      if (session.expiresAt <= now) {
+        this.sessions.delete(token);
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
 
   create(userId: string): string {
+    this.prune();
     const token = randomBytes(32).toString('hex');
-    this.sessions.set(token, { userId, expiresAt: this.now() + this.ttlMs });
+    this.sessions.set(token, { token, userId, expiresAt: this.now() + this.ttlMs });
+    this.persist();
     return token;
   }
 
   userIdFor(token: string): string | null {
-    const s = this.sessions.get(token);
-    if (!s) return null;
-    if (s.expiresAt < this.now()) {
+    const session = this.sessions.get(token);
+    if (!session) return null;
+    if (session.expiresAt <= this.now()) {
       this.sessions.delete(token);
+      this.persist();
       return null;
     }
-    return s.userId;
+    return session.userId;
   }
 
   revoke(token: string): void {
-    this.sessions.delete(token);
+    if (this.sessions.delete(token)) this.persist();
   }
 }
 
