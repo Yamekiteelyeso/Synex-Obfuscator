@@ -85,7 +85,9 @@ function byteCodec(seed: number, index: number): { multiplier: number; increment
 }
 
 function luaConst(v: unknown, seed: number, stringIndex: { value: number }): string {
-  if (v === undefined || v === null) return 'nil';
+  // nil y boolean también se representan como constantes lazy para que el runtime
+  // pueda aplicar la misma política de caché y no dejar literales mutables en el pool.
+  if (v === undefined || v === null) return 'function() return nil end';
   if (typeof v === 'string') {
     // Cada literal largo se reparte en fragmentos con claves independientes.
     // El runtime los reconstruye sólo cuando la constante se utiliza.
@@ -129,7 +131,7 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
     const [sealA, sealB] = constantDataSeal(encodedBytes, seed, key);
     return `function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unnum(b,${key},${codec.multiplier},${codec.increment},${codec.step}) end`;
   }
-  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (typeof v === 'boolean') return v ? 'function() return true end' : 'function() return false end';
   throw new SynexError('constante no serializable en la VM', 1, 1, 'E_INTERNAL');
 }
 
