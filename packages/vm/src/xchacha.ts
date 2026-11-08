@@ -1,7 +1,6 @@
 import { createCipheriv, createDecipheriv } from 'node:crypto';
 
 const SIGMA = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574] as const;
-const MASK32 = 0xffff_ffff;
 
 function readU32LE(bytes: Uint8Array, offset: number): number {
   return (
