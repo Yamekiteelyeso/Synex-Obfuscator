@@ -151,10 +151,19 @@ test('biblioteca math cubre operaciones numéricas y clamp de Luau', () => {
   assert.throws(() => out('math.clamp(1, 4, 2)'), /min must be <= max/);
 });
 
+test('math ofrece pow, frexp, ldexp, lerp, map, isnan y sign Luau', () => {
+  assert.deepEqual(out('local s, e = math.frexp(12); local n, ne = math.frexp(-0.5); print(math.pow(2, 10), s, e, math.ldexp(s, e), n, ne, math.ldexp(-0.5, 0))'), ['1024\t0.75\t4\t12\t-0.5\t0\t-0.5']);
+  assert.deepEqual(out('print(math.lerp(10, 20, 0.25), math.lerp(2, 9, 1), math.map(5, 0, 10, 0, 100), math.isnan(0/0), math.isnan(1), math.sign(0/0), math.sign(-0.0))'), ['12.5\t9\t50\ttrue\tfalse\t0\t0']);
+  assert.deepEqual(out('print(math.ldexp(1, 9007199254740991) == math.huge, math.ldexp(1, -9007199254740991) == 0)'), ['true\ttrue']);
+  assert.throws(() => out('math.ldexp(1, 1.5)'), /integer exponent expected/);
+});
+
 test('math.randomseed hace reproducible math.random y valida intervalos', () => {
   const src = 'math.randomseed(123); local a = math.random(1, 10); local b = math.random(); math.randomseed(123); print(a, math.random(1, 10), b == math.random())';
   assert.deepEqual(out(src), ['' + (Number(out('math.randomseed(123); print(math.random(1, 10))')[0])) + '\t' + (Number(out('math.randomseed(123); print(math.random(1, 10))')[0])) + '\ttrue']);
   assert.throws(() => out('math.random(4, 2)'), /interval is empty/);
+  assert.deepEqual(out('math.randomseed(7); local a = math.random(1.9, 3.9); local b = math.random(3.9); print(a >= 1 and a <= 3, b >= 1 and b <= 3)'), ['true\ttrue']);
+  assert.throws(() => out('math.random(1, 2, 3)'), /too many arguments/);
 });
 
 test('string.char valida bytes y string.split conserva campos vacíos', () => {
