@@ -105,6 +105,14 @@ describe('VM emitida: límites y diagnóstico', { skip: !lua54Available && 'falt
     assert.equal(got.stdout, orig.stdout);
   });
 
+  test('la semilla maestra de 128 bits produce variantes estables y separadas', () => {
+    const a = compileToLuauVm('local x = 7 print(x)', '00112233445566778899aabbccddeeff');
+    const b = compileToLuauVm('local x = 7 print(x)', '00112233445566778899aabbccddeeff');
+    const c = compileToLuauVm('local x = 7 print(x)', 'ffeeddccbbaa99887766554433221100');
+    assert.equal(a, b, 'la misma clave debe ser reproducible');
+    assert.notEqual(a, c, 'claves maestras distintas deben cambiar la variante');
+  });
+
   test('un límite de pasos no válido se rechaza', () => {
     assert.throws(() => compileToLuauVm('print(1)', 1, { stepLimit: 0 }), /límite de pasos inválido/);
   });
