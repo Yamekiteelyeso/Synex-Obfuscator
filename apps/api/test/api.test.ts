@@ -336,6 +336,7 @@ test('Store persiste cuentas, plan, uso y solicitudes; migra uso del historial a
       createdAt: 100, plan: 'free', obfuscationsUsed: 0,
     });
     first.recordObfuscation('persisted-user');
+    first.updateSettings({ maxInputBytes: 2 * 1024 * 1024, enabledProfiles: ['basic', 'medium'] });
     first.createPlanRequest({
       id: 'request-persisted', userId: 'persisted-user', plan: 'premium',
       status: 'pending', createdAt: 200, updatedAt: 200,
@@ -344,6 +345,8 @@ test('Store persiste cuentas, plan, uso y solicitudes; migra uso del historial a
     assert.equal(second.users[0].obfuscationsUsed, 1);
     assert.equal(second.users[0].discordId, 'discord-persisted');
     assert.equal(second.planRequests[0].status, 'pending');
+    assert.equal(second.settings.maxInputBytes, 2 * 1024 * 1024);
+    assert.deepEqual(second.settings.enabledProfiles, ['basic', 'medium']);
 
     const legacyFile = join(dir, 'legacy.json');
     writeFileSync(legacyFile, JSON.stringify({
@@ -357,4 +360,22 @@ test('Store persiste cuentas, plan, uso y solicitudes; migra uso del historial a
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+
+test('Store limita el historial retenido a 10.000 entradas', () => {
+  const store = new Store(null);
+  for (let index = 0; index < 10_050; index++) {
+    store.addHistory({
+      id: 'job-' + index,
+      userId: 'user',
+      fileName: 'script.lua',
+      profile: 'basic',
+      status: 'done',
+      createdAt: index,
+    });
+  }
+  assert.equal(store.history.length, 10_000);
+  assert.equal(store.history[0].id, 'job-50');
+  assert.equal(store.history.at(-1)?.id, 'job-10049');
 });
