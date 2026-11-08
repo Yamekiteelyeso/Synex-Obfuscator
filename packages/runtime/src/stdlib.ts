@@ -450,7 +450,11 @@ export function installStdlib(interp: LuaEnvironment): void {
       }
       return byte;
     });
-    return [String.fromCharCode(...bytes)];
+    let result = '';
+    for (let offset = 0; offset < bytes.length; offset += 8192) {
+      result += String.fromCharCode(...bytes.slice(offset, offset + 8192));
+    }
+    return [result];
   }));
   stringLib.set('gmatch', fn('gmatch', (args) => {
     const source = String(args[0]);
@@ -690,10 +694,10 @@ export function installStdlib(interp: LuaEnvironment): void {
     const count = toNumber(args[1], at);
     const sep = args[2] === undefined ? '' : String(args[2]);
     if (!Number.isInteger(count) || count < 0) throw new LuaError('bad argument to string.rep (invalid count)');
-    if (count === 0) return [''];
+    if (count === 0 || (s === '' && sep === '')) return [''];
     const resultLength = s.length * count + sep.length * (count - 1);
     if (!Number.isSafeInteger(resultLength) || resultLength > 10_000_000) throw new LuaError('string.rep result too large');
-    return [Array(count).fill(s).join(sep)];
+    return [(s + sep).repeat(count - 1) + s];
   }));
   g.set('string', stringLib);
 
@@ -753,11 +757,21 @@ export function installStdlib(interp: LuaEnvironment): void {
   mathLib.set('fmod', fn('fmod', (args) => [toNumber(args[0], at) % toNumber(args[1], at)]));
   mathLib.set('max', fn('max', (args) => {
     if (args.length === 0) throw new LuaError('bad argument to math.max (value expected)');
-    return [Math.max(...args.map((value) => toNumber(value, at)))];
+    let result = toNumber(args[0], at);
+    for (let index = 1; index < args.length; index++) {
+      const value = toNumber(args[index], at);
+      if (value > result) result = value;
+    }
+    return [result];
   }));
   mathLib.set('min', fn('min', (args) => {
     if (args.length === 0) throw new LuaError('bad argument to math.min (value expected)');
-    return [Math.min(...args.map((value) => toNumber(value, at)))];
+    let result = toNumber(args[0], at);
+    for (let index = 1; index < args.length; index++) {
+      const value = toNumber(args[index], at);
+      if (value < result) result = value;
+    }
+    return [result];
   }));
   mathLib.set('clamp', fn('clamp', (args) => {
     const value = toNumber(args[0], at);
