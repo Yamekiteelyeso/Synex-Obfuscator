@@ -116,6 +116,11 @@ const PROGRAMS: Record<string, string> = {
     local removed = table.remove(values, 2)
     print(packed.n, first, middle, last, removed, #values, values[2])
   `,
+  tableCreateAndStringSplit: `
+    local values = table.create(3, "x")
+    local parts = string.split("a,,b,", ",")
+    print(#values, values[1], #parts, parts[2], parts[4])
+  `,
   tableFind: `
     local values = {"a", "b", "a"}
     print(table.find(values, "a"), table.find(values, "a", 2), table.find(values, "z"))
