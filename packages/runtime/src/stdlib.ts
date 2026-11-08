@@ -34,6 +34,7 @@ function luaPatternToRegExp(pattern: string): RegExp {
     return code === key ? value : '^' + value;
   };
   const escape = (ch: string) => /[\\^$.*+?()[\]{}|]/.test(ch) ? '\\' + ch : ch;
+  const escapeLuaLiteral = (ch: string) => /[\\\]{}|]/.test(ch) ? '\\' + ch : ch;
   let output = '';
   let inClass = false;
   for (let i = 0; i < pattern.length; i++) {
@@ -52,7 +53,7 @@ function luaPatternToRegExp(pattern: string): RegExp {
     if (ch === ']' && inClass) { inClass = false; output += ']'; continue; }
     if (ch === '-' && !inClass) { output += '*?'; continue; }
     if (ch === '(' && pattern[i + 1] === ')') throw new LuaError('Lua position captures () are not supported yet');
-    output += inClass ? ch : escape(ch);
+    output += inClass ? ch : '.^$*+?()'.includes(ch) ? ch : escapeLuaLiteral(ch);
   }
   if (inClass) throw new LuaError('malformed Lua pattern (missing ])');
   try { return new RegExp(output, 'g'); }
@@ -351,11 +352,16 @@ export function installStdlib(interp: LuaEnvironment): void {
     const init = args[2] === undefined ? 1 : toNumber(args[2], at);
     const plain = args[3] === true;
     if (!Number.isSafeInteger(init)) throw new LuaError('bad argument to string.find (integer index expected)');
-    if (!plain) throw new LuaError('string.find: Lua pattern matching is not implemented; pass true for plain search');
     const start = init < 0 ? source.length + init + 1 : init;
     if (start < 1 || start > source.length + 1) return [undefined];
-    const index = source.indexOf(pattern, start - 1);
-    return index < 0 ? [undefined] : [index + 1, index + pattern.length];
+    if (plain) {
+      const index = source.indexOf(pattern, start - 1);
+      return index < 0 ? [undefined] : [index + 1, index + pattern.length];
+    }
+    const regex = luaPatternToRegExp(pattern);
+    regex.lastIndex = start - 1;
+    const match = regex.exec(source);
+    return match ? [match.index + 1, match.index + match[0].length, ...match.slice(1)] : [undefined];
   }));
   stringLib.set('format', fn('format', (args) => {
     const template = String(args[0]);
