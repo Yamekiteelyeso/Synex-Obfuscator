@@ -154,12 +154,35 @@ export function installStdlib(interp: LuaEnvironment): void {
     }
     return [];
   }));
+  tableLib.set('sort', fn('sort', (args) => {
+    const t = args[0];
+    if (!(t instanceof LuaTable)) throw new LuaError('bad argument to table.sort (table expected)');
+    const length = t.length();
+    const values: Value[] = [];
+    for (let i = 1; i <= length; i++) values.push(t.get(i));
+    const comparator = args[1];
+    values.sort((a, b) => {
+      if (comparator !== undefined) {
+        const result = call(comparator, [a, b])[0];
+        return result ? -1 : 1;
+      }
+      if (typeof a === 'number' && typeof b === 'number') return a < b ? -1 : a > b ? 1 : 0;
+      if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
+      throw new LuaError('attempt to compare ' + typeName(a) + ' with ' + typeName(b));
+    });
+    for (let i = 0; i < values.length; i++) t.set(i + 1, values[i]);
+    return [];
+  }));
   g.set('table', tableLib);
 
   const stringLib = new LuaTable();
   stringLib.set('char', fn('char', (args) =>
     [String.fromCharCode(...args.map((a) => toNumber(a, at) & 0xff))]));
   stringLib.set('len', fn('len', (args) => [String(args[0]).length]));
+  stringLib.set('lower', fn('lower', (args) => [String(args[0]).toLowerCase()]));
+  stringLib.set('upper', fn('upper', (args) => [String(args[0]).toUpperCase()]));
+  stringLib.set('reverse', fn('reverse', (args) => [String(args[0]).split('').reverse().join('')]));
+
   stringLib.set('byte', fn('byte', (args) => {
     const s = String(args[0]);
     const length = s.length;
