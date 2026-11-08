@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parse } from '@synex/parser';
 import { analyze } from '@synex/semantic';
 import { compile, type Proto } from '@synex/ir';
-import { compileToLuauVm, validateProto } from '../src/index.js';
+import { compileToLuauVm, validateProto, VM } from '../src/index.js';
 import { lua54Available, runLua54 } from '../../../tools/lua54/lua54.js';
 
 function protoOf(src: string): Proto {
@@ -62,7 +62,6 @@ describe('validación del bytecode', () => {
   test('la VM pública rechaza bytecode manipulado antes de ejecutarlo', () => {
     const p = protoOf('print(1)');
     p.code[0].op = 'UNKNOWN' as any;
-    const { VM } = requireVmForTest();
     assert.throws(() => new VM().execute(p), /operación desconocida/);
   });
 
