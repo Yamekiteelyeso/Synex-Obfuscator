@@ -171,6 +171,7 @@ test('string.find soporta patrones Lua, capturas, índices negativos y modo plai
   assert.deepEqual(out('print(string.find("abc123", "%d+"))'), ['4\t6']);
   assert.deepEqual(out('local a, b = string.find("a.b", "a.b"); local c, d = string.find("a.b", "a%.b"); print(a, b, c, d)'), ['1\t3\t1\t3']);
   assert.deepEqual(out('print(string.find("a123b", "a.-b"))'), ['1\t5']);
+  assert.deepEqual(out('print(string.find("a\\nb", "a.b")); print(string.find("a^b", "a^b")); print(string.find("abc", "^b", 2)); print(string.find("abc", "^a")); print(string.find("abc\\n", "abc$")); print(string.find("abc", "abc$"))'), ['1\t3', '1\t3', 'nil', '1\t1', 'nil', '1\t3']);
   assert.throws(() => out('string.find("abc", "%")'), /ends with/);
   assert.throws(() => out('string.find("abc", "()")'), /position captures/);
   assert.throws(() => out('string.find("aaaaaaaaaaaaaaaa!", "(a+)+!")'), /unsafe Lua pattern/);
