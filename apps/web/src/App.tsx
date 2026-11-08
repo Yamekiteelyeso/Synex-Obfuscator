@@ -12,6 +12,10 @@ const NAV: { id: View; label: string; adminOnly?: boolean }[] = [
   { id: 'admin', label: 'Administración', adminOnly: true },
 ];
 
+function hasDiscordTicket(): boolean {
+  return new URLSearchParams(window.location.search).has('discord_ticket');
+}
+
 function readToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
@@ -23,7 +27,9 @@ function discordErrorMessage(reason: string): string {
 }
 
 export function App() {
-  const [token, setToken] = useState<string | null>(readToken);
+  // Durante el retorno OAuth no validar un token antiguo: esa petición podría
+  // responder 401 después del intercambio y borrar la sesión recién creada.
+  const [token, setToken] = useState<string | null>(() => hasDiscordTicket() ? null : readToken());
   const [user, setUser] = useState<SessionUser | null>(null);
   const [view, setView] = useState<View>('editor');
   const [health, setHealth] = useState<any>(null);
@@ -36,7 +42,7 @@ export function App() {
     return reason ? discordErrorMessage(reason) : null;
   });
   const ticketExchangeStarted = useRef(false);
-  const [discordPending, setDiscordPending] = useState(() => new URLSearchParams(window.location.search).has('discord_ticket'));
+  const [discordPending, setDiscordPending] = useState(hasDiscordTicket);
 
   const logout = useCallback(() => {
     if (token) api('POST', '/api/auth/logout', undefined, token).catch(() => undefined);
@@ -85,6 +91,7 @@ export function App() {
       setToken(r.token);
       setUser(r.user);
     }).catch((error) => {
+      try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignorar */ }
       setToken(null);
       setUser(null);
       setAuthError(error instanceof ApiError
