@@ -3,8 +3,12 @@ local VM = require("../vm")
 local encryptionKey, integrityKey = string.rep("E", 32), string.rep("I", 32)
 local nonce, aad = string.rep("\1", 24), "proto:1;record:1"
 local instruction = {opcode=7, a=41, b=0, c=0, nextPC=0}
-local chain0 = Integrity.start(integrityKey, 12)
-local record = VM.sealRecord(encryptionKey, integrityKey, nonce, instruction, chain0, 1, aad)
+local _, prototypeIntegrityKey = VM.deriveKeys(encryptionKey, integrityKey, 12)
+local chain0 = Integrity.start(prototypeIntegrityKey, 12)
+local record = VM.sealRecord(encryptionKey, integrityKey, nonce, instruction, chain0, 1, 12, aad)
+local otherEncryptionKey = VM.deriveKeys(encryptionKey, integrityKey, 13)
+local thisEncryptionKey = VM.deriveKeys(encryptionKey, integrityKey, 12)
+assert(otherEncryptionKey ~= thisEncryptionKey, "prototype encryption keys were reused")
 local vm = VM.new({records={record}, encryptionKey=encryptionKey, integrityKey=integrityKey,
 	prototypeSalt=12, maxSteps=10, maxStack=8})
 local handlers = {[7] = function(machine, ins) VM.push(machine, ins.a) end}
