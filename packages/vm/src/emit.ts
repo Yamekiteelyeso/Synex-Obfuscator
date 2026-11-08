@@ -96,7 +96,19 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
     }).join(',');
     return `function() return unstr({${encoded}},${key}) end`;
   }
-  if (typeof v === 'number') return luaNumber(v);
+  if (typeof v === 'number') {
+    // IEEE-754 little-endian: el literal numérico no se emite directamente.
+    const raw = Buffer.alloc(8);
+    raw.writeDoubleLE(v, 0);
+    const index = ++stringIndex.value;
+    const key = ((seed >>> 0) + index * 97) % 251 + 1;
+    let state = key;
+    const encoded = Array.from(raw, (byte, i) => {
+      state = (state * 73 + 41) % 256;
+      return (byte + state + (i + 1) * 29) % 256;
+    }).join(',');
+    return `function() return unnum({${encoded}},${key}) end`;
+  }
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   throw new SynexError('constante no serializable en la VM', 1, 1, 'E_INTERNAL');
 }
@@ -261,6 +273,29 @@ local function unstr(bytes, key)
     out[i] = strlib.char((bytes[i] - state - i * 17) % 256)
   end
   return tbl.concat(out)
+end
+local function unnum(bytes, key)
+  local decoded = {}
+  local state = key
+  for i = 1, #bytes do
+    state = (state * 73 + 41) % 256
+    decoded[i] = (bytes[i] - state - i * 29) % 256
+  end
+  local sign = floor(decoded[8] / 128)
+  local exponent = (floor(decoded[8] / 16) % 8) * 256 + floor(decoded[7] / 16)
+  local mantissa = (decoded[7] % 16) * 2^48 + decoded[6] * 2^40 + decoded[5] * 2^32
+    + decoded[4] * 2^24 + decoded[3] * 2^16 + decoded[2] * 2^8 + decoded[1]
+  if exponent == 2047 then
+    if mantissa == 0 then return sign == 1 and (-1/0) or (1/0) end
+    return (0/0)
+  end
+  local value
+  if exponent == 0 then
+    value = (mantissa / 2^52) * 2^-1022
+  else
+    value = (1 + mantissa / 2^52) * 2^(exponent - 1023)
+  end
+  return sign == 1 and -value or value
 end
 local typefn, select, setmt, getmt, errorfn, pcallfn = type, select, setmetatable, getmetatable, error, pcall
 local rawgetfn, rawsetfn = rawget, rawset
