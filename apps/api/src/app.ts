@@ -160,6 +160,20 @@ export function createApp(opts: AppOptions): App {
   const discordTickets = new Map<string, { userId: string; expiresAt: number }>();
   const ipWindow = new Map<string, { count: number; reset: number }>();
   const rateLimit = opts.rateLimitPerMinute ?? 300;
+  // Bound transient maps so random state values and rotating client IPs cannot
+  // grow process memory indefinitely under sustained traffic.
+  const maxOAuthEntries = 10_000;
+  const maxRateLimitEntries = 20_000;
+  const pruneExpired = <T extends { expiresAt: number }>(entries: Map<string, T>, now: number): void => {
+    for (const [key, value] of entries) if (value.expiresAt <= now) entries.delete(key);
+  };
+  const trimOldest = <T>(entries: Map<string, T>, maxEntries: number): void => {
+    while (entries.size > maxEntries) {
+      const oldest = entries.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      entries.delete(oldest);
+    }
+  };
 
   const publicUser = (u: User) => ({
     id: u.id,
@@ -274,11 +288,11 @@ export function createApp(opts: AppOptions): App {
       throw new HttpError(503, 'DISCORD_REDIRECT_URI debe usar HTTPS', 'E_DISCORD_CONFIG');
     }
 
-    for (const [oldState, expiresAt] of discordStates) {
-      if (expiresAt <= Date.now()) discordStates.delete(oldState);
-    }
+    const now = Date.now();
+    for (const [oldState, expiresAt] of discordStates) if (expiresAt <= now) discordStates.delete(oldState);
+    trimOldest(discordStates, maxOAuthEntries - 1);
     const state = randomBytes(32).toString('hex');
-    discordStates.set(state, Date.now() + 5 * 60_000);
+    discordStates.set(state, now + 5 * 60_000);
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri.toString(),
@@ -424,6 +438,8 @@ export function createApp(opts: AppOptions): App {
     }
 
     // El ticket es opaco y de un solo uso; el token de sesión nunca va en la URL.
+    pruneExpired(discordTickets, Date.now());
+    trimOldest(discordTickets, maxOAuthEntries - 1);
     const ticket = randomUUID();
     discordTickets.set(ticket, { userId: user.id, expiresAt: Date.now() + 90_000 });
     const home = new URL('/', redirectUri);
@@ -434,8 +450,9 @@ export function createApp(opts: AppOptions): App {
 
   route('POST', '/api/auth/discord/exchange', 'none', async ({ req, res }) => {
     const body = bodyObject(await readJson(req, 4096)); const ticket = String(body.ticket ?? '');
+    pruneExpired(discordTickets, Date.now());
     const entry = discordTickets.get(ticket); discordTickets.delete(ticket);
-    if (!entry || entry.expiresAt < Date.now()) throw new HttpError(401, 'el enlace de Discord expiró; inténtalo de nuevo', 'E_DISCORD_TICKET');
+    if (!entry || entry.expiresAt <= Date.now()) throw new HttpError(401, 'el enlace de Discord expiró; inténtalo de nuevo', 'E_DISCORD_TICKET');
     const user = store.users.find((u) => u.id === entry.userId);
     if (!user) throw new HttpError(401, 'cuenta de Discord no encontrada', 'E_DISCORD_USER');
     json(res, 200, { token: sessions.create(user.id), user: publicUser(user) });
@@ -632,8 +649,13 @@ export function createApp(opts: AppOptions): App {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const ip = req.socket.remoteAddress ?? 'unknown';
     const now = Date.now();
+    // Expire old windows opportunistically and cap distinct IP keys.
+    if (ipWindow.size >= maxRateLimitEntries && !ipWindow.has(ip)) {
+      for (const [key, window] of ipWindow) if (window.reset <= now) ipWindow.delete(key);
+      trimOldest(ipWindow, maxRateLimitEntries - 1);
+    }
     const w = ipWindow.get(ip);
-    if (!w || w.reset < now) ipWindow.set(ip, { count: 1, reset: now + 60_000 });
+    if (!w || w.reset <= now) ipWindow.set(ip, { count: 1, reset: now + 60_000 });
     else if (++w.count > rateLimit) return json(res, 429, { error: { code: 'E_RATE', message: 'demasiadas peticiones' } });
 
     if (opts.webDir && req.method === 'GET' && !url.pathname.startsWith('/api/')) {
