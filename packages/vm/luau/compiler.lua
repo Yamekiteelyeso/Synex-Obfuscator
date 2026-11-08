@@ -13,7 +13,9 @@ function M.compile(instructions, options)
 	assert(type(options.nonces) == "table" and #options.nonces == #instructions,
 		"one unique nonce is required per instruction")
 	local prototypeSalt = math.floor(options.prototypeSalt or 0)
-	local chain = Integrity.start(options.integrityKey, prototypeSalt)
+	local _, prototypeIntegrityKey = VM.deriveKeys(
+		options.encryptionKey, options.integrityKey, prototypeSalt)
+	local chain = Integrity.start(prototypeIntegrityKey, prototypeSalt)
 	local records = {}
 	local nonceSet = {}
 	for index, instruction in ipairs(instructions) do
@@ -23,7 +25,7 @@ function M.compile(instructions, options)
 		nonceSet[nonce] = true
 		local aad = (options.aadPrefix or "synex:v1") .. ":" .. tostring(prototypeSalt) .. ":" .. tostring(index)
 		local record = VM.sealRecord(options.encryptionKey, options.integrityKey,
-			nonce, instruction, chain, index, aad)
+			nonce, instruction, chain, index, prototypeSalt, aad)
 		records[index] = record
 		chain = record.chainTag
 	end
