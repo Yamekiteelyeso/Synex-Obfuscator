@@ -441,3 +441,16 @@ test('VM e intérprete coinciden en math.noise y constantes numéricas Luau', ()
   same(source);
   assert.deepEqual(runInVm(source).output, ['true\t0\ttrue', 'true\tfalse\ttrue']);
 });
+
+
+test('VM e intérprete coinciden con la secuencia PCG32 de math.randomseed', () => {
+  const source = [
+    'math.randomseed(123)',
+    'local a = math.random()',
+    'local b = math.random(10)',
+    'local c = math.random(2, 10)',
+    'print(math.abs(a - 0.5576342002772471) < 1e-15, b, c)',
+  ].join(String.fromCharCode(10));
+  same(source);
+  assert.deepEqual(runInVm(source).output, ['true\t1\t7']);
+});
