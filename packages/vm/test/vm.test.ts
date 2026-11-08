@@ -116,6 +116,14 @@ const PROGRAMS: Record<string, string> = {
     local removed = table.remove(values, 2)
     print(packed.n, first, middle, last, removed, #values, values[2])
   `,
+  tableSortAndStringCase: `
+    local values = {4, 1, 3, 2}
+    table.sort(values)
+    local words = {"a", "ccc", "bb"}
+    table.sort(words, function(a, b) return #a < #b end)
+    print(table.concat(values, ","), table.concat(words, ","))
+    print(string.lower("HeLLo"), string.upper("Synex"), string.reverse("abc"))
+  `,
   tableAndStringRanges: `
     local t = {"a", "b", "c", "d"}
     table.insert(t, 2, "x")
