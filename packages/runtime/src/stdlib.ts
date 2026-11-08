@@ -25,7 +25,7 @@ function luaPatternToRegExp(pattern: string): RegExp {
   const classFor = (code: string): string | undefined => {
     const lower: Record<string, string> = {
       a: 'A-Za-z', c: '\\x00-\\x1F\\x7F', d: '0-9', g: '!-~',
-      l: 'a-z', p: '\\x21-\\x2F\\x3A-\\x40\\x5B-\\x60\\x7B-\\x7E', s: '\\s', u: 'A-Z',
+      l: 'a-z', p: '\\x21-\\x2F\\x3A-\\x40\\x5B-\\x60\\x7B-\\x7E', s: '\\x09-\\x0D\\x20', u: 'A-Z',
       w: 'A-Za-z0-9', x: 'A-Fa-f0-9', z: '\\x00',
     };
     const key = code.toLowerCase();
@@ -327,13 +327,19 @@ export function installStdlib(interp: LuaEnvironment): void {
       if (count >= limit) return match;
       count++;
       if (typeof replacement === 'string') {
-        return replacement.replace(/%%|%[0-9]/g, (token) => {
-          if (token === '%%') return '%';
-          const index = Number(token[1]);
-          if (index === 0) return match;
-          const capture = captures[index - 1];
-          return capture === undefined ? '' : capture;
-        });
+        let rendered = '';
+        for (let index = 0; index < replacement.length; index++) {
+          if (replacement[index] !== '%') { rendered += replacement[index]; continue; }
+          const token = replacement[++index];
+          if (token === '%') rendered += '%';
+          else if (token >= '0' && token <= '9') {
+            const captureIndex = Number(token);
+            if (captureIndex === 0) rendered += match;
+            else if (captureIndex > captures.length) throw new LuaError('invalid capture index in string.gsub replacement');
+            else rendered += captures[captureIndex - 1] ?? '';
+          } else throw new LuaError("invalid use of '%' in string.gsub replacement");
+        }
+        return rendered;
       }
       if (replacement instanceof LuaTable) {
         const key = captures.length ? captures[0] : match;
