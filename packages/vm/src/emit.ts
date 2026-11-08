@@ -238,12 +238,21 @@ run = function(P, U, args)
     local ip = pc
     local ins = code[ip]
     if not ins then fail("bytecode truncado o alterado") end
+    -- Comprueba la forma del registro antes de decodificarlo; evita que una
+    -- salida truncada o manipulada termine en errores opacos de indexación.
+    if typefn(ins) ~= "table" or #ins ~= 6 then fail("instrucción corrupta") end
+    for field = 1, 6 do
+      local value = ins[field]
+      if typefn(value) ~= "number" or value ~= floor(value) then fail("operando corrupto") end
+    end
     pc = ip + 1
     local op = decodeOperand(ins[1], ip, 1, protoSalt)
     local a = decodeOperand(ins[2], ip, 2, protoSalt)
     local b = decodeOperand(ins[3], ip, 3, protoSalt)
     local t = decodeOperand(ins[4], ip, 4, protoSalt)
     local c = decodeOperand(ins[5], ip, 5, protoSalt) == 1
+    if (op == OP_JMP or op == OP_JF or op == OP_JFK or op == OP_JTK or op == OP_FORTEST or op == OP_GENCALL)
+      and (t < 1 or t > #code) then fail("salto fuera del prototipo") end
     steps = steps + 1
     if steps > STEP_LIMIT then fail("límite de ejecución superado") end
     curLine = decodeOperand(ins[6], ip, 6, protoSalt)
