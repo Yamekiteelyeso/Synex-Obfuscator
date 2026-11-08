@@ -74,6 +74,16 @@ function protoKeys(seed: number): ProtoKeys {
   return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), blockmap: next(), blocks: next() };
 }
 
+/** Codec reversible por constante: parámetros coprimos/modulares propios de cada build. */
+function byteCodec(seed: number, index: number): { multiplier: number; increment: number; step: number } {
+  const random = rng(((seed >>> 0) ^ Math.imul(index, 0x9e3779b1) ^ 0x6a09e667) >>> 0);
+  return {
+    multiplier: 1 + 2 * Math.floor(random() * 128),
+    increment: Math.floor(random() * 256),
+    step: 1 + Math.floor(random() * 255),
+  };
+}
+
 function luaConst(v: unknown, seed: number, stringIndex: { value: number }): string {
   if (v === undefined || v === null) return 'nil';
   if (typeof v === 'string') {
@@ -88,15 +98,16 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
         ? bytes.length
         : 5 + (((seed >>> 0) + index * 13 + offset * 7) % 8));
       const key = ((seed >>> 0) + index * 73) % 251 + 1;
+      const codec = byteCodec(seed, index);
       let state = key;
       const rawChunk = Array.from(bytes.subarray(offset, offset + chunkSize));
       const encodedBytes = rawChunk.map((byte, i) => {
-        state = (state * 73 + 41) % 256;
-        return (byte + state + (i + 1) * 17) % 256;
+        state = (state * codec.multiplier + codec.increment) % 256;
+        return (byte + state + (i + 1) * codec.step) % 256;
       });
       const encoded = encodedBytes.join(',');
       const [sealA, sealB] = constantDataSeal(encodedBytes, seed, key);
-      parts.push(`(function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unstr(b,${key}) end)()`);
+      parts.push(`(function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unstr(b,${key},${codec.multiplier},${codec.increment},${codec.step}) end)()`);
       offset += chunkSize;
     }
     return `function() return ${parts.join('..')} end`;
@@ -107,14 +118,15 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
     raw.writeDoubleLE(v, 0);
     const index = ++stringIndex.value;
     const key = ((seed >>> 0) + index * 97) % 251 + 1;
+    const codec = byteCodec(seed, index);
     let state = key;
     const encodedBytes = Array.from(raw, (byte, i) => {
-      state = (state * 73 + 41) % 256;
-      return (byte + state + (i + 1) * 29) % 256;
+      state = (state * codec.multiplier + codec.increment) % 256;
+      return (byte + state + (i + 1) * codec.step) % 256;
     });
     const encoded = encodedBytes.join(',');
     const [sealA, sealB] = constantDataSeal(encodedBytes, seed, key);
-    return `function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unnum(b,${key}) end`;
+    return `function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unnum(b,${key},${codec.multiplier},${codec.increment},${codec.step}) end`;
   }
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   throw new SynexError('constante no serializable en la VM', 1, 1, 'E_INTERNAL');
@@ -315,23 +327,23 @@ const TEMPLATE = String.raw`
 local strlib, tbl, floor, tointeger = string, table, math.floor, math.tointeger
 local constIntact
 local unpackfn = (tbl and tbl.unpack) or unpack
-local function unstr(bytes, key)
+local function unstr(bytes, key, multiplier, increment, step)
   local out = {}
   local state = key
   for i = 1, #bytes do
-    state = (state * 73 + 41) % 256
-    out[i] = strlib.char((bytes[i] - state - i * 17) % 256)
+    state = (state * multiplier + increment) % 256
+    out[i] = strlib.char((bytes[i] - state - i * step) % 256)
   end
   local value = tbl.concat(out)
   for i = 1, #out do out[i] = nil end
   return value
 end
-local function unnum(bytes, key)
+local function unnum(bytes, key, multiplier, increment, step)
   local decoded = {}
   local state = key
   for i = 1, #bytes do
-    state = (state * 73 + 41) % 256
-    decoded[i] = (bytes[i] - state - i * 29) % 256
+    state = (state * multiplier + increment) % 256
+    decoded[i] = (bytes[i] - state - i * step) % 256
   end
   local sign = floor(decoded[8] / 128)
   local exponent = (decoded[8] % 128) * 16 + floor(decoded[7] / 16)
