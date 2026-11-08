@@ -920,6 +920,102 @@ function shuffleDispatch(template: string, seed: number): string {
   return template.slice(0, start) + reordered + template.slice(end);
 }
 
+/**
+ * Renombra símbolos internos del runtime emitido y elimina comentarios de
+ * implementación. El escáner respeta strings, escapes y comentarios largos de
+ * Lua/Luau; no toca nombres de propiedades ni claves de tablas.
+ */
+function obfuscateRuntimeSource(source: string, seed: number): string {
+  const internalNames = [
+    'strlib', 'tbl', 'floor', 'tointeger', 'constIntact', 'unpackfn', 'unstr', 'unnum',
+    'typefn', 'select', 'setmt', 'getmt', 'errorfn', 'pcallfn', 'rawgetfn', 'rawsetfn',
+    'getenv', 'getgenvfn', 'baseEnv', 'executorEnv', 'BLOCKED_ENV', 'ENV', 'STEP_LIMIT',
+    'VALID_OP', 'OPERAND_MODULUS', 'OPERAND_HALF', 'OPERAND_SEED', 'MASTER_ENCRYPTION_KEY_HEX',
+    'MASTER_INTEGRITY_KEY_HEX', 'HEX_NIBBLE', 'hexBytes', 'MASTER_ENCRYPTION_KEY',
+    'MASTER_INTEGRITY_KEY', 'readU32LE', 'decodeEncryptedPrototype', 'protoIntact',
+    'instructionIntact', 'blockIntact', 'constant', 'CONST_CACHE', 'NIL_CONST',
+    'decodeOperand', 'MULTI', 'multi', 'isMulti', 'pack', 'fail', 'index', 'callv',
+    'makeClosure', 'push', 'pop', 'popN', 'popMulti', 'join', 'run', 'MAIN', 'main',
+    'Crypto', 'Integrity',
+  ];
+  const random = rng((seed ^ 0x6d2b79f5 ^ 0x243f6a88) >>> 0);
+  const aliases = new Map<string, string>();
+  const used = new Set(internalNames);
+  for (const name of internalNames) {
+    let alias = '';
+    do { alias = '_' + Math.floor(random() * 0x7fffffff).toString(36); } while (used.has(alias));
+    used.add(alias);
+    aliases.set(name, alias);
+  }
+
+  let output = '';
+  let previous = '';
+  for (let i = 0; i < source.length;) {
+    const ch = source[i]!;
+    const next = source[i + 1];
+
+    // Line and long comments are removed, while newlines remain for safe token separation.
+    if (ch === '-' && next === '-') {
+      const longOpen = source.slice(i + 2).match(/^\[(=*)\[/);
+      if (longOpen) {
+        const close = ']' + longOpen[1] + ']';
+        const end = source.indexOf(close, i + 2 + longOpen[0].length);
+        i = end < 0 ? source.length : end + close.length;
+      } else {
+        const end = source.indexOf('\n', i + 2);
+        i = end < 0 ? source.length : end;
+      }
+      continue;
+    }
+
+    // Quoted strings are copied byte-for-byte, including escaped quotes.
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      const start = i++;
+      while (i < source.length) {
+        if (source[i] === '\\') { i += 2; continue; }
+        if (source[i] === quote) { i++; break; }
+        i++;
+      }
+      output += source.slice(start, i);
+      previous = 'string';
+      continue;
+    }
+
+    // Lua long-bracket strings.
+    if (ch === '[') {
+      const open = source.slice(i).match(/^\[(=*)\[/);
+      if (open) {
+        const close = ']' + open[1] + ']';
+        const end = source.indexOf(close, i + open[0].length);
+        const stop = end < 0 ? source.length : end + close.length;
+        output += source.slice(i, stop);
+        i = stop;
+        previous = 'string';
+        continue;
+      }
+    }
+
+    if (/[A-Za-z_]/.test(ch)) {
+      const start = i++;
+      while (i < source.length && /[A-Za-z0-9_]/.test(source[i]!)) i++;
+      const identifier = source.slice(start, i);
+      let lookahead = i;
+      while (lookahead < source.length && /\s/.test(source[lookahead]!)) lookahead++;
+      const tableKey = source[lookahead] === '=' && (previous === '{' || previous === ',');
+      const property = previous === '.' || previous === ':';
+      output += !tableKey && !property ? (aliases.get(identifier) ?? identifier) : identifier;
+      previous = 'identifier';
+      continue;
+    }
+
+    output += ch;
+    if (!/\s/.test(ch)) previous = ch;
+    i++;
+  }
+  return output;
+}
+
 /** Emite el script Luau que ejecuta el prototipo principal dentro de la VM. */
 export interface EmitOptions {
   /** Instrucciones máximas antes de abortar la ejecución. */
@@ -969,7 +1065,7 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
   body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }, 0, 0, encryptedContext));
   const marker = watermark === undefined ? '' : `-- Synex provenance: ${watermark}\n`;
-  return marker + body.trimStart();
+  body = obfuscateRuntimeSource(body, seed);\n  return marker + body.trimStart();
 }
 
 /** Compila un script Luau al IR y lo emite como programa de VM. */
