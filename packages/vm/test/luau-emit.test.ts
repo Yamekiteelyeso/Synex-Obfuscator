@@ -134,6 +134,7 @@ describe('VM Luau emitida: propiedades', () => {
     assert.doesNotMatch(out, /local (?:BLOCKED_ENV|OPERAND_SEED|MASTER_ENCRYPTION_KEY_HEX|Crypto|Integrity)\b/);
     assert.match(out, /return _[a-z0-9]+\(/ );
     assert.doesNotMatch(out, /-- Blindaje de introspección|-- Weak keys|-- Bloques básicos/);
+    assert.doesNotMatch(out, /integridad comprometida|instrucción corrupta|operación desconocida|autenticación de bytecode/i);
   });
 
   test('cada build asigna códigos distintos', () => {
