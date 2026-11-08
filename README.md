@@ -14,8 +14,8 @@ Ofuscador profesional de scripts Luau. Monorepo TypeScript.
 | `packages/vm` | VM de pila que ejecuta el IR (referencia en TypeScript) y emisor de la transformación mediante VM: compila el programa al IR y lo sustituye por un intérprete en Luau con códigos de operación aleatorios por build. Pruebas: 18 programas ejecutados en Lua 5.4 original y emitido, con salida idéntica (19 pruebas) |
 | `packages/runtime` | Intérprete de referencia de Luau sobre el AST, con biblioteca mínima (print, pairs, ipairs, table.concat/insert, string.char, bit32). Oráculo para pruebas de equivalencia (18 pruebas) |
 | `packages/engine` | Motor de orquestación: planes públicos (Basic, Medium, Max), etapas con tiempos, digest SHA-256, comprobación de equivalencia, VM configurable y sistema de trabajos en worker_threads con límites de cola, tamaño y tiempo. Incluye pruebas del perfil completo en Lua 5.4 real (13 pruebas) |
-| `apps/api` | API HTTP sin dependencias: registro y login con scrypt y sesiones con caducidad, bloqueo tras 5 fallos, límite de peticiones por IP, endpoints de trabajos (enviar, consultar, descargar, historial), estadísticas de usuario y panel de administración (usuarios, trabajos, errores y configuración). Persistencia en JSON (11 pruebas de integración) |
-| `apps/web` | Implementado: acceso, panel, editor (resaltado, números de línea, importar/exportar, validación tamaño, planes Basic, Medium y Max), progreso por etapa, historial, administración. 9 pruebas de lógica y render. Pendiente: pruebas end-to-end en navegador y verificación de tipos JSX con `@types/react` (ahora con declaraciones mínimas en `src/types/shims.d.ts`; no se pudo instalar sin acceso al registro npm). |
+| `apps/api` | API HTTP sin dependencias: autenticación exclusiva por Discord, cuentas y planes persistidos en JSON, cuota Free por cuenta, solicitudes y aprobación administrativa de upgrades, límite de peticiones por IP y endpoints de trabajos. |
+| `apps/web` | Acceso solo por Discord, editor con perfiles Basic/Medium/Max según plan, sección Free/Premium/Plus, estado de cuota y administración de solicitudes de upgrade. |
 
 ## Estado del lexer
 
@@ -30,29 +30,28 @@ UTF-8 fuera del rango ASCII tratados de forma especial.
 
 ## API
 
-```
-SYNEX_ADMIN_EMAIL=admin@ejemplo.com SYNEX_ADMIN_PASSWORD=... PORT=8080 node apps/api/dist/server.js
-```
+La autenticación de usuarios es exclusivamente por Discord mediante el comando privado `/synex-login`. El backend valida la firma Ed25519, emite un ticket de un solo uso y vincula la cuenta al ID inmutable de Discord. Las rutas antiguas de correo y contraseña devuelven `410 E_DISCORD_ONLY`.
 
 | Método | Ruta | Acceso |
 |---|---|---|
-| POST | /api/auth/register | público |
-| POST | /api/auth/login | público (bloqueo tras 5 fallos) |
-| GET | /api/auth/discord, /api/auth/discord/callback | público (OAuth2) |
+| GET | /api/auth/discord | público (instalación del bot) |
 | POST | /api/discord/interactions | público (firma Ed25519 de Discord) |
-| POST | /api/auth/discord/exchange | público (ticket OAuth de un solo uso) |
+| POST | /api/auth/discord/exchange | público (ticket de un solo uso) |
+| POST | /api/auth/register, /api/auth/login | desactivado (410) |
 | POST | /api/auth/logout | usuario |
-| GET | /api/me | usuario |
-| POST | /api/jobs | usuario (`source`, `profile`, `seed`, `checkEquivalence`, `name`) |
+| GET | /api/me | usuario (identidad, plan y cuota) |
+| GET | /api/plans | público |
+| GET/POST | /api/plan-requests | usuario |
+| POST | /api/jobs | usuario (cuota y perfiles comprobados en servidor) |
 | GET | /api/jobs | usuario (historial propio) |
 | GET | /api/jobs/:id | dueño |
 | GET | /api/jobs/:id/code | dueño (descarga `.obf.luau`) |
 | GET | /api/stats | usuario |
 | GET | /api/profiles, /api/health | público |
-| GET | /api/admin/users, /jobs, /errors, /settings | admin |
-| PUT | /api/admin/settings | admin (tamaño máximo, perfiles habilitados) |
+| GET | /api/admin/users, /jobs, /errors, /settings, /plan-requests | admin |
+| PUT | /api/admin/settings, /api/admin/plan-requests/:id | admin |
 
-Limitaciones: el código generado vive en memoria del proceso (se pierde al reiniciar); el historial sí persiste. Sin HTTPS, sin recuperación de contraseña y sin verificación de correo.
+Las cuentas, el plan, el contador de usos, el historial y las solicitudes se guardan en el archivo configurado en `SYNEX_DATA_FILE`. Para conservarlos en Railway, monta un Volume en `/data`. Los tokens de sesión y los resultados de código siguen residiendo en memoria del proceso.
 
 ## Planes de ofuscación
 
@@ -119,7 +118,7 @@ Requiere `tsx` (ejecutor TypeScript). `npm install` no se ha podido completar en
 
 El repositorio incluye `railway.json`. Railway debe usar Node.js 22 o superior, ejecutar `npm run build` como comando de compilación y `npm start` para iniciar la API. El build compila primero todos los paquetes transitivos del motor y la API, y después genera `apps/web/dist`; la API sirve la web y expone `GET /api/health` como healthcheck.
 
-Configura `SYNEX_ADMIN_EMAIL` y `SYNEX_ADMIN_PASSWORD` como variables de entorno. Para conservar usuarios e historial entre despliegues, monta un Volume en `/data` y define `SYNEX_DATA_FILE=/data/synex-data.json`. Sin un Volume, el almacenamiento JSON local puede perderse al reemplazar el contenedor.
+Configura `SYNEX_ADMIN_DISCORD_IDS` con los IDs de Discord autorizados para administrar (separados por comas). Configura `DISCORD_CLIENT_ID`, `DISCORD_REDIRECT_URI` y `DISCORD_BOT_TOKEN`. Para conservar cuentas, planes, cuotas e historial entre despliegues, monta un Volume en `/data` y define `SYNEX_DATA_FILE=/data/synex-data.json`. Sin un Volume, el almacenamiento JSON local puede perderse al reemplazar el contenedor.
 
 ## Compatibilidad Roblox / Luau
 
@@ -138,7 +137,7 @@ La aplicación ofrece únicamente tres niveles de ofuscación:
 - **Medium:** más transformación de constantes, expresiones, código muerto y aplanado de flujo de control.
 - **Max:** transformaciones intensivas, comprobación de integridad y virtualización mediante la VM Luau con bytecode protegido.
 
-El registro e inicio de sesión por correo sigue disponible. También se puede registrar e iniciar sesión mediante el **bot de Discord**, sin OAuth ni client secret. El usuario instala el bot, ejecuta `/synex-login` y recibe una respuesta privada con un enlace de un solo uso y 90 segundos de vigencia. Al abrirlo, la web intercambia el ticket y crea/inicia su sesión.
+El registro y el inicio de sesión son **exclusivamente mediante Discord**. El usuario instala el bot, ejecuta `/synex-login` y recibe una respuesta privada con un enlace de un solo uso y 90 segundos de vigencia. La cuenta se crea automáticamente una sola vez por ID de Discord y se reutiliza en próximos accesos.
 
 ### Solo tres variables de Discord
 
@@ -170,3 +169,20 @@ La VM usa un proxy privado para resolver globals y filtra APIs de introspección
 Estas medidas reducen exposición accidental y dificultan algunas formas simples de inspección, pero **no son una garantía anti-logger**: un executor que controla el proceso puede parchear funciones, instrumentar llamadas, leer memoria o capturar argumentos ya descifrados. No guardes credenciales, tokens ni secretos dentro de scripts ofuscados.
 
 La interfaz principal abre directamente el Ofuscador; Panel e Historial ya no aparecen en la navegación del usuario. La autenticación por Discord utiliza un botón azul con el logotipo oficial.
+
+
+## Planes de cuenta Free / Premium / Plus
+
+Los planes de cuenta son independientes de los perfiles de ofuscación:
+
+| Plan de cuenta | Cuota | Perfiles |
+|---|---:|---|
+| **Free** | 2 trabajos aceptados por cuenta de Discord, en total | Basic |
+| **Premium** | Ilimitada | Basic y Medium |
+| **Plus** | Ilimitada | Basic, Medium y Max |
+
+Cada petición de trabajo aceptada consume un uso Free, incluso si luego el script falla al procesarse. El contador vive en el registro persistente de la cuenta y las cuentas antiguas migran su contador desde el historial existente. El servidor aplica la cuota y los perfiles permitidos; la interfaz no es la única barrera.
+
+La sección **Planes** registra solicitudes de Premium o Plus. Un administrador revisa la solicitud y, después de confirmar el pago por el canal de venta externo, puede aprobarla desde Administración. Esta implementación no procesa tarjetas ni pagos automáticamente y los precios deben definirse antes de anunciar una tarifa.
+
+Para asignar administradores configura `SYNEX_ADMIN_DISCORD_IDS` con uno o varios IDs de usuario de Discord separados por comas. No hay acceso administrativo por correo o contraseña.

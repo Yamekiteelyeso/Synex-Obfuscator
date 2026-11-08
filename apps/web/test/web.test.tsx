@@ -97,6 +97,7 @@ test('AuthView muestra el formulario de acceso', () => {
   assert.match(html, /Iniciar sesión/);
   assert.match(html, /Continuar con Discord/);
   assert.match(html, /discord-logo/);
+  assert.doesNotMatch(html, /type="email"|type="password"|Crear cuenta/);
   assert.match(html, /href=\"\/api\/auth\/discord\"/);
 });
 

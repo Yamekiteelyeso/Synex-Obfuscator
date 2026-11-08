@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp, type App } from '../src/index.js';
@@ -255,7 +255,6 @@ test('Store persiste cuentas, plan, uso y solicitudes; migra uso del historial a
     assert.equal(second.planRequests[0].status, 'pending');
 
     const legacyFile = join(dir, 'legacy.json');
-    const { writeFileSync } = require('node:fs');
     writeFileSync(legacyFile, JSON.stringify({
       users: [{ id: 'legacy-user', email: 'legacy@users.synex.invalid', role: 'user', passwordHash: '', createdAt: 1, discordId: 'legacy' }],
       history: [{ id: 'old-job-1', userId: 'legacy-user', fileName: 'a.lua', profile: 'basic', status: 'done', createdAt: 2 }],
