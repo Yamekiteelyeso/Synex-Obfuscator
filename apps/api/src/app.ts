@@ -116,10 +116,6 @@ const ACCOUNT_PLANS: Record<AccountPlan, {
   },
 };
 
-function isPaidPlan(value: unknown): value is Exclude<AccountPlan, 'free'> {
-  return value === 'premium' || value === 'plus';
-}
-
 export function createApp(opts: AppOptions): App {
   const store = new Store(opts.dataFile ?? null);
   const sessions = new Sessions(12 * 60 * 60 * 1000, Date.now, store);
@@ -370,8 +366,8 @@ export function createApp(opts: AppOptions): App {
       return;
     }
 
-    // El ID de Discord es la clave estable: el primer acceso crea una cuenta Free;
-    // los siguientes reutilizan la misma cuenta y conservan plan, uso e historial.
+    // El ID de Discord es la clave estable. El administrador recibe Plus automáticamente;
+    // las demás cuentas conservan su plan, uso e historial.
     let user = store.users.find((u) => u.discordId === String(discordUser.id));
     if (!user) {
       user = {
@@ -382,13 +378,14 @@ export function createApp(opts: AppOptions): App {
         discordId: String(discordUser.id),
         discordUsername: String(discordUser.global_name || discordUser.username),
         createdAt: Date.now(),
-        plan: 'free',
+        plan: (opts.adminDiscordIds ?? []).includes(String(discordUser.id)) ? 'plus' : 'free',
         obfuscationsUsed: 0,
       };
       store.addUser(user);
     } else {
       user.discordUsername = String(discordUser.global_name || discordUser.username);
       user.role = (opts.adminDiscordIds ?? []).includes(String(discordUser.id)) ? 'admin' : 'user';
+      if (user.role === 'admin') user.plan = 'plus';
       store.updateUser(user);
     }
 
@@ -428,30 +425,6 @@ export function createApp(opts: AppOptions): App {
   route('GET', '/api/me', 'user', ({ res, user }) => {
     const jobCount = store.history.filter((h) => h.userId === user!.id).length;
     json(res, 200, { user: publicUser(user!), jobCount });
-  });
-
-  route('GET', '/api/plan-requests', 'user', ({ res, user }) => {
-    const requests = store.planRequests
-      .filter((entry) => entry.userId === user!.id)
-      .sort((a, b) => b.createdAt - a.createdAt);
-    json(res, 200, { requests });
-  });
-
-  route('POST', '/api/plan-requests', 'user', async ({ req, res, user }) => {
-    const body = bodyObject(await readJson(req, 4096));
-    if (!isPaidPlan(body.plan)) throw new HttpError(400, 'elige Premium o Plus', 'E_PLAN');
-    if (user!.plan === body.plan || user!.plan === 'plus') {
-      throw new HttpError(409, 'tu cuenta ya tiene ese plan o uno superior', 'E_PLAN_ACTIVE');
-    }
-    const request = store.createPlanRequest({
-      id: randomUUID(),
-      userId: user!.id,
-      plan: body.plan,
-      status: 'pending',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    json(res, 201, { request });
   });
 
   route('POST', '/api/jobs', 'user', async ({ req, res, user }) => {
@@ -581,28 +554,14 @@ export function createApp(opts: AppOptions): App {
     json(res, 200, { jobs: [...store.history].sort((a, b) => b.createdAt - a.createdAt) });
   });
 
-  route('GET', '/api/admin/plan-requests', 'admin', ({ res }) => {
-    const requests = store.planRequests.slice().sort((a, b) => b.createdAt - a.createdAt).map((entry) => ({
-      ...entry,
-      discordUsername: store.users.find((u) => u.id === entry.userId)?.discordUsername ?? 'usuario desconocido',
-    }));
-    json(res, 200, { requests });
-  });
-
-  route('PUT', '/api/admin/plan-requests/:id', 'admin', async ({ req, res, params }) => {
+  route('PUT', '/api/admin/users/:id/plan', 'admin', async ({ req, res, params }) => {
     const body = bodyObject(await readJson(req, 4096));
-    if (body.status !== 'approved' && body.status !== 'rejected') {
-      throw new HttpError(400, 'status debe ser approved o rejected', 'E_VALIDATION');
+    if (body.plan !== 'free' && body.plan !== 'premium' && body.plan !== 'plus') {
+      throw new HttpError(400, 'el plan debe ser free, premium o plus', 'E_VALIDATION');
     }
-    const existing = store.planRequests.find((entry) => entry.id === params.id);
-    if (!existing) throw new HttpError(404, 'solicitud no encontrada', 'E_NOT_FOUND');
-    if (existing.status !== 'pending') throw new HttpError(409, 'la solicitud ya fue resuelta', 'E_REQUEST_RESOLVED');
-    const updated = store.updatePlanRequest(params.id, body.status);
-    if (body.status === 'approved') {
-      const upgraded = store.setUserPlan(existing.userId, existing.plan);
-      if (!upgraded) throw new HttpError(404, 'cuenta asociada no encontrada', 'E_USER_NOT_FOUND');
-    }
-    json(res, 200, { request: updated });
+    const updated = store.setUserPlan(params.id, body.plan);
+    if (!updated) throw new HttpError(404, 'cuenta no encontrada', 'E_USER_NOT_FOUND');
+    json(res, 200, { user: publicUser(updated) });
   });
 
   route('GET', '/api/admin/errors', 'admin', ({ res }) => {
