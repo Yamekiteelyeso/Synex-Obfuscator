@@ -24,6 +24,8 @@ jobs:
           find /tmp/luau-cli -type f -name luau -exec install -m 0755 {} /usr/local/bin/luau \;
           test -x /usr/local/bin/luau
 
+      - name: Test Luau cryptography modules
+        run: luau packages/vm/luau/tests/crypto.test.lua
       - run: npm install --no-audit --no-fund
       - run: npm run build
       - name: Test engine and API
