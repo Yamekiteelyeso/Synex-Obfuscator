@@ -1,7 +1,8 @@
 Luau Perlin noise adaptation notice
 
-The PERLIN_HASH table, PERLIN_GRADIENTS table, and Perlin interpolation algorithm in
-packages/runtime/src/stdlib.ts are adapted from luau-lang/luau, VM/src/lmathlib.cpp:
+The PERLIN_HASH table, PERLIN_GRADIENTS table, Perlin interpolation algorithm, and
+PCG32 state transition/seeding procedure in packages/runtime/src/stdlib.ts are adapted
+from luau-lang/luau, VM/src/lmathlib.cpp:
 https://github.com/luau-lang/luau/blob/master/VM/src/lmathlib.cpp
 
 Copyright (c) 2019-2026 Roblox Corporation
