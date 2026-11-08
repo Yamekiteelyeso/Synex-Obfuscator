@@ -166,6 +166,10 @@ test('math.noise reproduce Perlin 3D Luau, defaults, period and integer lattice'
   assert.throws(() => out('math.noise(1, 2, 3, 4)'), /one to three coordinates/);
 });
 
+test('math.max y math.min ignoran NaN en argumentos posteriores como Luau', () => {
+  assert.deepEqual(out('print(math.isnan(math.max(1, 0/0)), math.isnan(math.min(1, 0/0)), math.isnan(math.max(0/0, 1)))'), ['false\tfalse\ttrue']);
+});
+
 test('math expone constantes Luau y predicados de finitud', () => {
   assert.deepEqual(out('print(math.isinf(math.huge), math.isinf(-math.huge), math.isinf(math.nan), math.isfinite(1), math.isfinite(math.huge), math.isfinite(math.nan), math.nan ~= math.nan)'), ['true\ttrue\tfalse\ttrue\tfalse\tfalse\ttrue']);
   assert.deepEqual(out('print(math.abs(math.e - 2.718281828459045) < 1e-15, math.abs(math.phi - 1.618033988749895) < 1e-15, math.sqrt2 == math.sqrt(2), math.tau == 2 * math.pi)'), ['true\ttrue\ttrue\ttrue']);
@@ -185,6 +189,10 @@ test('math.randomseed reproduce la secuencia PCG32 de Luau', () => {
   assert.throws(() => out('math.randomseed(1.5)'), /integer expected/);
   assert.throws(() => out('math.randomseed(2147483648)'), /integer expected/);
 });
+test('string.char construye cadenas grandes en bloques acotados', () => {
+  assert.deepEqual(out('local bytes = table.create(9000, 65); local text = string.char(table.unpack(bytes)); print(#text)'), ['9000']);
+});
+
 test('string.char valida bytes y string.split conserva campos vacíos', () => {
   assert.deepEqual(out('local t = string.split("a,,b,", ","); print(#t, t[1], t[2], t[3], t[4])'), ['4\ta\t\tb\t']);
   assert.throws(() => out('string.char(256)'), /out of range/);
@@ -251,6 +259,10 @@ test('string.lower y upper conservan bytes no ASCII', () => {
 
 test('string.lower, upper y reverse', () => {
   assert.deepEqual(out('print(string.lower("HeLLo"), string.upper("Synex"), string.reverse("abc"))'), ['hello\tSYNEX\tcba']);
+});
+
+test('string.rep evita reservar memoria para repeticiones vacías', () => {
+  assert.deepEqual(out('print(string.rep("", 1000000000) == "", string.rep("", 3, ",") == ",,")'), ['true\ttrue']);
 });
 
 test('string.rep repite con separador y valida límites', () => {
