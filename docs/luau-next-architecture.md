@@ -17,7 +17,7 @@ Synex compila actualmente mediante TypeScript y emite un intérprete Luau desde 
 
 ## Criptografía disponible en esta fase
 
-`crypto.lua` ofrece SHA-256, HMAC-SHA-256, HChaCha20, ChaCha20 y XChaCha20. La API `seal/open` usa XChaCha20 con Encrypt-then-MAC y una clave HMAC-SHA-256 derivada por separación de dominios. Esto **NO es XChaCha20-Poly1305**. No se debe anunciar como tal.
+`crypto.lua` ofrece SHA-256, HMAC-SHA-256, HChaCha20, ChaCha20, XChaCha20 y Poly1305. La API heredada `seal/open` usa XChaCha20 con Encrypt-then-MAC HMAC-SHA-256 (tag de 32 bytes). Las nuevas APIs `sealPoly1305/openPoly1305` implementan XChaCha20-Poly1305 (tag de 16 bytes), con Poly1305 de diez limbs de 13 bits para mantener productos enteros exactos en Luau. La implementación se valida con el vector RFC de Poly1305 y pruebas de round-trip/manipulación. Los módulos de compilación todavía usan la API heredada hasta completar pruebas de interoperabilidad y migración del formato.
 
 El llamador proporciona una clave de 32 bytes y un nonce de 24 bytes. Un nonce no debe repetirse para una misma clave. `compiler.lua` exige nonces suministrados externamente y rechaza duplicados dentro de un prototipo. `entropy.lua` y `build.lua` producen variación/diseño determinista, no secretos criptográficos. Para claves y nonces de producción se requiere un servicio de build confiable o un CSPRNG de plataforma.
 
