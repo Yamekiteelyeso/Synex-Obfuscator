@@ -69,7 +69,7 @@ export function createStringEncoder(
     decodeReference(index: number): string {
       const e = entries[index - 1];
       if (!e) throw new RangeError('índice de cadena fuera de rango');
-      const decoded = e.bytes.map((byte, i) => (byte - e.key - (i + 1) * 31 + 512) % 256);
+      const decoded = e.bytes.map((byte, i) => ((byte - e.key - (i + 1) * 31) % 256 + 256) % 256);
       return textDecoder.decode(Uint8Array.from(decoded));
     },
     checksum(): number {
