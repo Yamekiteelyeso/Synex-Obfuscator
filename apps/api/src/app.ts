@@ -477,7 +477,11 @@ export function createApp(opts: AppOptions): App {
     }
     // Semilla criptográficamente aleatoria si el cliente no fija una: cada build
     // produce una permutación distinta de opcodes sin romper reproducibilidad opt-in.
-    const seed = Number.isInteger(body.seed) ? (body.seed as number) : randomInt(1, 0x7fffffff);
+    if (body.seed !== undefined && (typeof body.seed !== 'number'
+      || !Number.isSafeInteger(body.seed) || body.seed < 0 || body.seed > 0xffff_ffff)) {
+      throw new HttpError(400, 'seed debe ser un entero entre 0 y 4294967295', 'E_VALIDATION');
+    }
+    const seed = body.seed === undefined ? randomInt(0, 0x1_0000_0000) : body.seed as number;
     const custom = body.custom && typeof body.custom === 'object' ? (body.custom as Partial<TechniqueSettings>) : undefined;
     const fileName = typeof body.name === 'string' && body.name.length <= 120 ? body.name : 'script.lua';
 
