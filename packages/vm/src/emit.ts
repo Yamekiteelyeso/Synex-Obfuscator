@@ -127,6 +127,7 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
  */
 const TEMPLATE = String.raw`
 local strlib, tbl, floor = string, table, math.floor
+local unpackfn = (tbl and tbl.unpack) or unpack
 local function unstr(bytes, key)
   local out = {}
   for i = 1, #bytes do
@@ -134,9 +135,27 @@ local function unstr(bytes, key)
   end
   return tbl.concat(out)
 end
-local typefn, select, setmt, getmt, errorfn = type, select, setmetatable, getmetatable, error
+local typefn, select, setmt, getmt, errorfn, pcallfn = type, select, setmetatable, getmetatable, error, pcall
 local getenv, getgenvfn = getfenv, getgenv
-local ENV = (getgenvfn and getgenvfn()) or (getenv and getenv(0)) or _G
+local baseEnv = (getenv and getenv(0)) or _G
+local executorEnv = baseEnv
+if getgenvfn then
+  local ok, candidate = pcallfn(getgenvfn)
+  if ok and typefn(candidate) == "table" then executorEnv = candidate end
+end
+-- Lookup primero en el entorno del executor y después en el entorno Roblox.
+-- El proxy evita perder globals nativos cuando getgenv() es una tabla separada.
+local ENV = baseEnv
+if executorEnv ~= baseEnv then
+  ENV = setmt({}, {
+    __index = function(_, key)
+      local value = executorEnv[key]
+      if value ~= nil then return value end
+      return baseEnv[key]
+    end,
+    __newindex = function(_, key, value) executorEnv[key] = value end,
+  })
+end
 local STEP_LIMIT = __LIMIT__
 local OPERAND_MODULUS, OPERAND_HALF = 2147483647, 1073741823
 local OPERAND_SEED = __OPERAND_SEED__
@@ -162,17 +181,19 @@ end
 local run
 local function callv(f, args)
   -- La llamada directa conserva __call para tablas/objetos invocables de Luau.
-  return pack(f(tbl.unpack(args, 1, args.n)))
+  return pack(f(unpackfn(args, 1, args.n)))
 end
 local function makeClosure(child, cells)
   return function(...)
     local res = run(child, cells, pack(...))
-    return tbl.unpack(res, 1, res.n)
+    return unpackfn(res, 1, res.n)
   end
 end
 run = function(P, U, args)
   depth = depth + 1
   if depth > 200 then depth = depth - 1; fail("stack overflow") end
+  -- Asegura que depth se restaure incluso si el script captura un error con pcall.
+  local ok, result = pcallfn(function()
   local slots = {}
   local np = P.__KEY_NP__
   for i = 1, np do slots[i] = args[i] end
@@ -322,8 +343,7 @@ run = function(P, U, args)
       else
         out = popN(a)
       end
-      depth = depth - 1
-      do return out end
+      return out
     elseif op == OP_VARARG then
       if c then
         for k = 1, nva do push(va[k]) end
@@ -357,11 +377,15 @@ run = function(P, U, args)
       fail("operación desconocida " .. tostring(op))
     end
   end
+  end)
+  depth = depth - 1
+  if not ok then errorfn(result, 0) end
+  return result
 end
 local MAIN = __MAIN__
 local function main(...)
   local res = run(MAIN, {}, pack(...))
-  return tbl.unpack(res, 1, res.n)
+  return unpackfn(res, 1, res.n)
 end
 return main(...)
 `;
