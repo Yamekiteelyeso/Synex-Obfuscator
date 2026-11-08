@@ -28,6 +28,10 @@ jobs:
         run: luau packages/vm/luau/tests/crypto.test.lua
       - name: Test authenticated Luau VM substrate
         run: luau packages/vm/luau/tests/vm.test.lua
+      - name: Test Luau compiler serialization
+        run: luau packages/vm/luau/tests/compiler.test.lua
+      - name: Test deterministic Luau build planner
+        run: luau packages/vm/luau/tests/build.test.lua
       - run: npm install --no-audit --no-fund
       - run: npm run build
       - name: Test engine and API
