@@ -40,8 +40,8 @@ export function transformNumbers(chunk: A.Chunk, rand: () => number): void {
     const add: A.BinaryExpr = { kind: 'Binary', op: '+', left: num(value), right: num(k), line: n.line, column: n.column };
     const mul: A.BinaryExpr = { kind: 'Binary', op: '*', left: add, right: num(m), line: n.line, column: n.column };
     const correction: A.BinaryExpr = { kind: 'Binary', op: '-', left: mul, right: num(k * m), line: n.line, column: n.column };
-    const div: A.BinaryExpr = { kind: 'Binary', op: '/', left: correction, right: num(m), line: n.line, column: n.column };
-    return { kind: 'Paren', expr: div, line: n.line, column: n.column } satisfies A.ParenExpr;
+    // No se divide: conserva el tipo entero y evita convertir un entero en float (p. ej. 22 -> 22.0).
+    return { kind: 'Paren', expr: correction, line: n.line, column: n.column } satisfies A.ParenExpr;
   });
 }
 
