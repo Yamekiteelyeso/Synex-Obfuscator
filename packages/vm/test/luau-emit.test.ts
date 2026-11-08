@@ -1,4 +1,8 @@
 import { test, describe } from 'node:test';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { parse } from '@synex/parser';
 import { compileToLuauVm, opcodeTable } from '../src/index.js';
