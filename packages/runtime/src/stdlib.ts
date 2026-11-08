@@ -262,7 +262,7 @@ export function installStdlib(interp: LuaEnvironment): void {
     const plain = args[3] === true;
     if (!Number.isSafeInteger(init)) throw new LuaError('bad argument to string.find (integer index expected)');
     if (!plain) throw new LuaError('string.find: Lua pattern matching is not implemented; pass true for plain search');
-    const start = init < 0 ? Math.max(source.length + init + 1, 1) : init;
+    const start = init < 0 ? source.length + init + 1 : init;
     if (start < 1 || start > source.length + 1) return [undefined];
     const index = source.indexOf(pattern, start - 1);
     return index < 0 ? [undefined] : [index + 1, index + pattern.length];
