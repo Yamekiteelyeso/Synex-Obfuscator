@@ -332,3 +332,58 @@ tbody tr:hover { background:#171717; }
   .editor-heading { align-items:flex-start; flex-direction:column; }
   .toolbar { gap:7px; }
 }
+
+
+/* Synex Obfuscador v2 — monochrome instrument-panel system */
+:root {
+  --black:#070707; --ink:#0b0b0b; --panel:#101010; --panel-2:#171717;
+  --line:#292929; --gray:#858585; --light:#d8d8d8; --white:#f5f5f5;
+  --accent:#e8e8e8; --accent-2:#9b9b9b; --bad:#ff7777; --radius:12px;
+}
+html,body { background:#070707; color:#f5f5f5; }
+body { background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px); background-size:42px 42px; }
+.btn.primary,.sidebar nav button.active { color:#080808; background:linear-gradient(135deg,#fff,#bdbdbd); border:1px solid #fff; box-shadow:0 8px 30px rgba(255,255,255,.08); }
+.btn.primary:hover:not(:disabled),.sidebar nav button.active:hover { background:#fff; filter:none; }
+.card,.kpi,.auth-card,.plan-preview article { background:linear-gradient(145deg,rgba(22,22,22,.97),rgba(10,10,10,.98)); border-color:#303030; box-shadow:0 16px 45px rgba(0,0,0,.2); }
+.sidebar { background:rgba(8,8,8,.96); border-color:#252525; backdrop-filter:blur(18px); }
+.brand-symbol,.brand-symbol.small { color:#080808; background:linear-gradient(145deg,#fff,#888); box-shadow:0 8px 24px rgba(255,255,255,.1); }
+.sidebar nav button.active { color:#080808; }
+.auth-screen { background:radial-gradient(ellipse at 18% 12%,rgba(255,255,255,.09),transparent 38%),radial-gradient(ellipse at 90% 88%,rgba(180,180,180,.06),transparent 34%),#070707; }
+.auth-grid-lines { position:absolute; inset:0; pointer-events:none; opacity:.35; background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px); background-size:56px 56px; mask-image:linear-gradient(to bottom,black,transparent 88%); }
+.auth-layout { position:relative; z-index:1; }
+.eyebrow,.auth-intro .eyebrow { color:#aaa; }
+.auth-intro h1 span { color:#f4f4f4; text-shadow:0 0 34px rgba(255,255,255,.12); }
+.auth-lead,.muted { color:#999; }
+.plan-preview article { border-color:#303030; background:linear-gradient(145deg,#171717,#0d0d0d); transition:transform .2s,border-color .2s; }
+.plan-preview article:hover { transform:translateY(-4px); border-color:#777; }
+.plan-preview article span,.plan-preview article i,.status-dot,.auth-switch { color:#bbb; }
+.auth-card { border-color:#383838; box-shadow:0 28px 100px rgba(0,0,0,.55); }
+.auth-card input,.editor,.result,.code-wrap textarea { background:#090909; border-color:#333; }
+.discord-btn { background:#151515; border-color:#393939; }
+.discord-glyph { color:#eee; }
+.progress-track i { background:linear-gradient(90deg,#777,#fff); }
+.editor-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; }
+.editor-tag { border:1px solid #333; border-radius:999px; padding:7px 11px; color:#cfcfcf; font-size:10px; letter-spacing:1.2px; white-space:nowrap; background:#111; }
+.toolbar select { min-width:150px; background:#101010; border-color:#333; }
+.editor { box-shadow:inset 0 1px rgba(255,255,255,.025),0 18px 50px rgba(0,0,0,.22); }
+.gutter { background:#080808; color:#555; }
+.tk-keyword { color:#fff; }
+.tk-string { color:#aaa; }
+.tk-number { color:#e4e4e4; }
+.tk-comment { color:#686868; }
+.kpi:hover { border-color:#666; }
+.badge.done { background:#eee; color:#080808; border-color:#eee; }
+input:focus,select:focus,textarea:focus { border-color:#aaa; box-shadow:0 0 0 3px rgba(255,255,255,.07); }
+@media(max-width:860px) {
+  .auth-layout { grid-template-columns:1fr; max-width:560px; }
+  .auth-intro h1 { font-size:clamp(38px,11vw,58px); }
+  .plan-preview { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .auth-feature-line { flex-wrap:wrap; }
+  .editor-heading { flex-direction:column; }
+}
+@media(max-width:480px) {
+  .plan-preview { grid-template-columns:1fr; }
+  .plan-preview article { min-height:unset; }
+  .auth-screen { padding:22px 16px 54px; }
+  .auth-card { padding:22px; }
+}
