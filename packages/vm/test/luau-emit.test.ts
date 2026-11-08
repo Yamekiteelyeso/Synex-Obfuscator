@@ -76,6 +76,12 @@ const PROGRAMS: Record<string, string> = {
       return fib(n - 1) + fib(n - 2)
     end
     print(fib(15))`,
+  pcall_closure_error: `
+    local function failOnce() error("expected") end
+    local ok = pcall(failOnce)
+    local function afterError() return 42 end
+    print(ok, afterError())
+  `,
   string_lib: 'print(string.upper("abc"), string.char(72, 105), string.byte("A"), ("%d"):format(42))',
   if_chain: `
     local function grade(n)
@@ -119,4 +125,24 @@ describe('VM Luau emitida: propiedades', () => {
   test('la misma semilla produce la misma salida', () => {
     assert.equal(compileToLuauVm(PROGRAMS.loops, 5), compileToLuauVm(PROGRAMS.loops, 5));
   });
+
+  test('usa unpack compatible con table.unpack y unpack global', () => {
+    const out = compileToLuauVm(PROGRAMS.varargs, 9);
+    assert.match(out, /local unpackfn = \(tbl and tbl\.unpack\) or unpack/);
+    assert.doesNotMatch(out, /tbl\.unpack\(/);
+  });
+
+  test('restaura profundidad al capturar errores de closures con pcall', () => {
+    const out = compileToLuauVm(PROGRAMS.pcall_closure_error, 9);
+    assert.match(out, /local ok, result = pcallfn\(function\(\)/);
+    assert.match(out, /if not ok then errorfn\(result, 0\) end/);
+  });
+
+  test('valida la estructura de instrucciones y los destinos de salto en runtime', () => {
+    const out = compileToLuauVm(PROGRAMS.loops, 11);
+    assert.match(out, /if typefn\(ins\) ~= "table" or #ins ~= 6 then fail\("instrucción corrupta"\) end/);
+    assert.match(out, /if typefn\(value\) ~= "number" or value ~= floor\(value\) then fail\("operando corrupto"\) end/);
+    assert.match(out, /salto fuera del prototipo/);
+  });
+
 });

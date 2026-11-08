@@ -181,7 +181,8 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
   assert.doesNotMatch(code, /Workspace/);
   assert.match(code, /local ENV/);
   assert.match(code, /return o\[k\]/);
-  assert.match(code, /f\(tbl\.unpack/);
+  assert.match(code, /f\(unpackfn/);
+  assert.match(code, /local unpackfn = \(tbl and tbl\.unpack\) or unpack/);
   assert.doesNotMatch(code, /typefn\(o\) ~= "table"/);
 });
 
