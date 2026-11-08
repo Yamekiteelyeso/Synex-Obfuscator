@@ -295,6 +295,22 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
     const end = sortedLeaders[blockIndex + 1] ?? virtualCode.length;
     for (let i = start; i < end; i++) logicalBlock[i] = blockIndex + 1;
   });
+  // IDs de bloques independientes del orden lógico: cada prototipo y build
+  // obtiene una permutación propia, sin alterar los destinos ni la ejecución.
+  const blockIds = Array.from({ length: sortedLeaders.length }, (_, index) => index + 1);
+  const blockRandom = rng((seed ^ Math.imul(protoSalt, 0x7f4a7c15) ^ 0x94d049bb) >>> 0);
+  for (let i = blockIds.length - 1; i > 0; i--) {
+    const j = Math.floor(blockRandom() * (i + 1));
+    [blockIds[i], blockIds[j]] = [blockIds[j]!, blockIds[i]!];
+  }
+  const remappedBlockId = new Array<number>(sortedLeaders.length + 1);
+  sortedLeaders.forEach((_leader, index) => {
+    remappedBlockId[index + 1] = blockIds[index]!;
+  });
+  for (let i = 0; i < logicalBlock.length; i++) {
+    logicalBlock[i] = remappedBlockId[logicalBlock[i]!]!;
+  }
+
   const blockMembers = new Map<number, number[]>();
   order.forEach((originalPc, physicalIndex) => {
     const id = logicalBlock[originalPc - 1];
