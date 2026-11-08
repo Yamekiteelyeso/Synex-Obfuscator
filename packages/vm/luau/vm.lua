@@ -10,12 +10,17 @@ local function readU32LE(bytes, offset)
 	if d == nil then return nil end
 	return a + b * 256 + c * 65536 + d * 16777216
 end
-local function decodeRecord(plain)
-	if type(plain) ~= "string" or #plain ~= 20 then return nil end
+local function decodeRecord(plain, version)
+	local count = version == 3 and 9 or 5
+	if type(plain) ~= "string" or #plain ~= count * 4 then return nil end
 	local values = {}
-	for i = 1, 5 do
+	for i = 1, count do
 		values[i] = readU32LE(plain, (i - 1) * 4 + 1)
 		if values[i] == nil then return nil end
+	end
+	if version == 3 then
+		return {opcode=values[1], a=values[2], b=values[3], target=values[4],
+			c=values[5], line=values[6], nextPC=values[7], checkA=values[8], checkB=values[9]}
 	end
 	return {opcode=values[1], a=values[2], b=values[3], c=values[4], nextPC=values[5]}
 end
@@ -43,7 +48,7 @@ function M.new(options)
 	assert(type(options.integrityKey) == "string" and #options.integrityKey >= 16,
 		"integrity key must be at least 16 bytes")
 	local version = options.version or 1
-	assert(version == 1 or version == 2, "unsupported bytecode version")
+	assert(version == 1 or version == 2 or version == 3, "unsupported bytecode version")
 	local count = #options.records
 	assert(count > 0, "VM requires at least one instruction")
 	local encryptionKey, integrityKey = M.deriveKeys(
@@ -87,10 +92,10 @@ function M.readInstruction(vm)
 	local valid, nextChain = Integrity.verifyRecord(vm.integrityKey, record.chainTag,
 		vm.chain, vm.pc, record.nonce, record.ciphertext, record.tag, record.aad or "")
 	if not valid then error("attempt to concatenate a nil value", 2) end
-	local openRecord = vm.version == 2 and Crypto.openPoly1305 or Crypto.open
+	local openRecord = (vm.version == 2 or vm.version == 3) and Crypto.openPoly1305 or Crypto.open
 	local plain = openRecord(vm.encryptionKey, record.nonce, record.ciphertext, record.tag, record.aad or "")
 	if plain == nil then error("attempt to concatenate a nil value", 2) end
-	local instruction = decodeRecord(plain)
+	local instruction = decodeRecord(plain, vm.version)
 	plain = nil
 	if instruction == nil then error("attempt to concatenate a nil value", 2) end
 
@@ -133,12 +138,31 @@ function M.encodeRecord(opcode, a, b, c, nextPC)
 	return table.concat(out)
 end
 
+function M.encodeRecordV3(instruction)
+	local values = {instruction.opcode, instruction.a, instruction.b, instruction.target,
+		instruction.c, instruction.line, instruction.nextPC, instruction.checkA, instruction.checkB}
+	local out = {}
+	for i = 1, 9 do
+		local value = values[i]
+		assert(type(value) == "number" and value == math.floor(value) and value >= 0 and value <= MAX_U32,
+			"instruction fields must be unsigned 32-bit integers")
+		out[i] = string.char(value % 256, math.floor(value / 256) % 256,
+			math.floor(value / 65536) % 256, math.floor(value / 16777216) % 256)
+	end
+	return table.concat(out)
+end
+
 function M.sealRecord(masterEncryptionKey, masterIntegrityKey, nonce, instruction, previousChain, pc, prototypeSalt, aad, version)
 	assert(type(nonce) == "string" and #nonce == 24, "nonce must be 24 bytes")
 	local encryptionKey, integrityKey = M.deriveKeys(masterEncryptionKey, masterIntegrityKey, prototypeSalt or 0)
-	local plain = M.encodeRecord(instruction.opcode, instruction.a, instruction.b,
-		instruction.c, instruction.nextPC)
-	local sealRecord = version == 2 and Crypto.sealPoly1305 or Crypto.seal
+	local plain
+	if version == 3 then
+		plain = M.encodeRecordV3(instruction)
+	else
+		plain = M.encodeRecord(instruction.opcode, instruction.a, instruction.b,
+			instruction.c, instruction.nextPC)
+	end
+	local sealRecord = (version == 2 or version == 3) and Crypto.sealPoly1305 or Crypto.seal
 	local ciphertext, tag = sealRecord(encryptionKey, nonce, plain, aad or "")
 	local chainTag = Integrity.advanceRecord(integrityKey, previousChain, pc, nonce, ciphertext, tag, aad or "")
 	return {nonce=nonce, ciphertext=ciphertext, tag=tag, chainTag=chainTag, aad=aad or ""}

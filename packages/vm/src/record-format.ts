@@ -176,3 +176,86 @@ export function verifyLuauRecordsV2(artifact: ArtifactV2, options: Pick<
   return chain.equals(artifact.finalChain);
 }
 
+
+/** Full production-emitter record: opcode, a, b, target, c, encoded line,
+ * nextPC, and the two per-instruction integrity seals (nine u32 values). */
+export interface LuauInstructionV3 {
+  opcode: number;
+  a: number;
+  b: number;
+  target: number;
+  c: number;
+  line: number;
+  nextPC: number;
+  checkA: number;
+  checkB: number;
+}
+
+export interface ArtifactV3 {
+  version: 3;
+  prototypeSalt: number;
+  records: RecordV2[];
+  finalChain: Buffer;
+}
+
+export interface CompileRecordV3Options extends CompileRecordV2Options {}
+
+function encodeInstructionV3(instruction: LuauInstructionV3): Buffer {
+  return Buffer.concat([
+    u32le(instruction.opcode), u32le(instruction.a), u32le(instruction.b),
+    u32le(instruction.target), u32le(instruction.c), u32le(instruction.line),
+    u32le(instruction.nextPC), u32le(instruction.checkA), u32le(instruction.checkB),
+  ]);
+}
+
+/**
+ * Encrypts all nine fields emitted by production emit.ts. This is a modular
+ * record container; it deliberately does not claim to alter emit.ts output.
+ */
+export function compileLuauRecordsV3(
+  instructions: readonly LuauInstructionV3[],
+  options: CompileRecordV3Options,
+): ArtifactV3 {
+  if (instructions.length === 0) throw new RangeError('at least one instruction is required');
+  if (options.nonces.length !== instructions.length) throw new RangeError('one nonce is required per instruction');
+  const salt = options.prototypeSalt;
+  const { encryptionKey, integrityKey } = deriveKeys(options.masterEncryptionKey, options.masterIntegrityKey, salt);
+  const seenNonces = new Set<string>();
+  let chain = startChain(integrityKey, salt);
+  const records: RecordV2[] = [];
+  instructions.forEach((instruction, index) => {
+    const nonce = Buffer.from(options.nonces[index]!);
+    if (nonce.length !== 24) throw new RangeError('each nonce must be 24 bytes');
+    const nonceKey = nonce.toString('hex');
+    if (seenNonces.has(nonceKey)) throw new Error('nonce reuse within a prototype is forbidden');
+    seenNonces.add(nonceKey);
+    const aad = Buffer.from(`${options.aadPrefix ?? 'synex:v1'}:${Math.floor(salt)}:${index + 1}:v3`);
+    const sealed = sealXChaCha20Poly1305(encryptionKey, nonce, encodeInstructionV3(instruction), aad);
+    const chainTag = advanceChain(integrityKey, chain, index + 1, nonce, aad, sealed.ciphertext, sealed.tag);
+    records.push({ nonce, ciphertext: sealed.ciphertext, tag: sealed.tag, chainTag, aad });
+    chain = chainTag;
+  });
+  return { version: 3, prototypeSalt: salt, records, finalChain: chain };
+}
+
+export function verifyLuauRecordsV3(artifact: ArtifactV3, options: Pick<CompileRecordV3Options, 'masterIntegrityKey'>): boolean {
+  if (artifact.version !== 3 || artifact.records.length === 0) return false;
+  try {
+    if (options.masterIntegrityKey.byteLength < 16) return false;
+    const integrityKey = hmac(options.masterIntegrityKey, Buffer.concat([
+      Buffer.from('Synex/prototype-integrity/v1:'),
+      Buffer.from(String(Math.floor(artifact.prototypeSalt))),
+    ]));
+    let chain = startChain(integrityKey, artifact.prototypeSalt);
+    for (let index = 0; index < artifact.records.length; index++) {
+      const record = artifact.records[index]!;
+      const expected = advanceChain(integrityKey, chain, index + 1, record.nonce, record.aad,
+        record.ciphertext, record.tag);
+      if (!expected.equals(record.chainTag)) return false;
+      chain = expected;
+    }
+    return chain.equals(artifact.finalChain);
+  } catch {
+    return false;
+  }
+}
