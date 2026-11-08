@@ -146,3 +146,16 @@ test('todas las salidas empiezan con la marca Synex y declaran si usan VM', () =
   assert.ok(basic.code.startsWith('-- [Synex Obf] | profile: basic | vm: off\n'));
   assert.ok(roblox.code.startsWith('-- [Synex Obf] | profile: roblox | vm: on\n'));
 });
+
+
+test('Max aplica la configuración más intensa y emite bytecode VM protegido', () => {
+  const settings = resolveSettings('max');
+  assert.ok(settings.techniques.includes('vm'));
+  assert.ok(settings.techniques.includes('integrity'));
+  assert.ok(settings.deadCodeDensity >= 0.6);
+  assert.ok(settings.controlFlowProbability >= 0.8);
+  const result = runProfile(SAMPLE, { profile: 'max', seed: 424242 });
+  assert.ok(result.code.startsWith('-- [Synex Obf] | profile: max | vm: on\\n'));
+  assert.match(result.code, /decodeOperand/);
+  assert.doesNotMatch(result.code, /P\\.k\\[/);
+});
