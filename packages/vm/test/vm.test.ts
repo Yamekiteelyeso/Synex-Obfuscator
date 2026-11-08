@@ -454,3 +454,10 @@ test('VM e intérprete coinciden con la secuencia PCG32 de math.randomseed', () 
   same(source);
   assert.deepEqual(runInVm(source).output, ['true\t1\t7']);
 });
+
+
+test('VM e intérprete comparten backreferences numéricas en patrones Lua', () => {
+  const source = 'local word = string.match("go go", "(%a+)%s+%1"); local text, count = string.gsub("a a b b", "(%a)%s+%1", "%1!"); print(word, text, count)';
+  same(source);
+  assert.deepEqual(runInVm(source).output, ['go\ta! b!\t2']);
+});
