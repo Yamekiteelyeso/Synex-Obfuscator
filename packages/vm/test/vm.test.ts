@@ -239,8 +239,8 @@ test('emisor Luau: los operandos del bytecode cambian por instrucción y semilla
 
 test('emisor Luau: cifra de forma reversible el metadato de línea', () => {
   const sourceLine = 12345;
-  const src = '\n'.repeat(sourceLine - 1) + "error('line marker')";
-  const emitted = compileToLuauVm(src, 1234567);
+  const src = '\n'.repeat(sourceLine - 1) + "print('line marker')";
+  const emitted = compileToLuauVm(src, 1234567, { stepLimit: 1 });
   assert.match(emitted, /local lineMultiplier = 17/);
   assert.match(emitted, /local lineOffset = \(OPERAND_SEED \+ protoSalt \* 65537\) % 1000003/);
   assert.match(emitted, /curLine = floor\(\(lineToken - lineOffset\) \/ lineMultiplier\)/);
@@ -252,12 +252,12 @@ test('emisor Luau: cifra de forma reversible el metadato de línea', () => {
     } catch (error) {
       stderr = String((error as NodeJS.ErrnoException & { stderr?: string }).stderr ?? '');
     }
-    assert.match(stderr, /línea 12345: line marker/);
+    assert.match(stderr, /línea 12345: límite de ejecución superado/);
   }
 });
 
 test('emisor Luau: los sellos de prototipo y bloque usan doble acumulador', () => {
-  const emitted = compileToLuauVm('local x = 1\\nprint(x)', 90817);
+  const emitted = compileToLuauVm('local x = 1\nprint(x)', 90817);
   assert.match(emitted, /local hashA =/);
   assert.match(emitted, /local hashB =/);
   assert.match(emitted, /hashB == seal\[2\]/);
