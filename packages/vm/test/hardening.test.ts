@@ -120,6 +120,22 @@ describe('VM emitida: límites y diagnóstico', { skip: !lua54Available && 'falt
 });
 
 
+describe('watermark de procedencia', () => {
+  test('incluye el identificador solicitado sin alterar la ejecución', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+    const source = 'print("watermark-ok")';
+    const emitted = compileToLuauVm(source, 222, { watermark: 'synex.release:2026-11' });
+    assert.ok(emitted.startsWith('-- Synex provenance: synex.release:2026-11\\n'));
+    const result = runLua54(emitted);
+    assert.ok(result.ok, result.error);
+    assert.equal(result.stdout.trim(), 'watermark-ok');
+  });
+
+  test('rechaza identificadores de procedencia con caracteres de control', () => {
+    assert.throws(() => compileToLuauVm('print(1)', 1, { watermark: 'release\\nprint(2)' }), /watermark inválido/);
+    assert.throws(() => compileToLuauVm('print(1)', 1, { watermark: 'x'.repeat(65) }), /watermark inválido/);
+  });
+});
+
 describe('polimorfismo del pool de constantes', () => {
   test('la permutación es determinista para una semilla y varía entre builds', () => {
     const source = [
