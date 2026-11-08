@@ -143,6 +143,6 @@ test('JobManager procesa varios trabajos y los lista', async () => {
 test('todas las salidas empiezan con la marca Synex y declaran si usan VM', () => {
   const basic = runProfile('print("hola")', { profile: 'basic', seed: 8 });
   const roblox = runProfile('print("hola")', { profile: 'roblox', seed: 8 });
-  assert.match(basic.code, /^-- \\[Synex Obf\\] \\| profile: basic \\| vm: off\\n/);
-  assert.match(roblox.code, /^-- \\[Synex Obf\\] \\| profile: roblox \\| vm: on\\n/);
+  assert.ok(basic.code.startsWith('-- [Synex Obf] | profile: basic | vm: off\n'));
+  assert.ok(roblox.code.startsWith('-- [Synex Obf] | profile: roblox | vm: on\n'));
 });
