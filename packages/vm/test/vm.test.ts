@@ -236,7 +236,7 @@ test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => 
   assert.equal(output.trim(), ['Synex VM', '42'].join(String.fromCharCode(9)));
   const mainMarker = emitted.indexOf('local MAIN = {');
   assert.ok(mainMarker >= 0);
-  const numeric = /\\d+/.exec(emitted.slice(mainMarker + 'local MAIN = {'.length));
+  const numeric = /\d+/.exec(emitted.slice(mainMarker + 'local MAIN = {'.length));
   assert.ok(numeric);
   const tamperAt = mainMarker + 'local MAIN = {'.length + numeric.index;
   const tampered = emitted.slice(0, tamperAt) + String(Number(numeric[0]) + 1) + emitted.slice(tamperAt + numeric[0].length);
