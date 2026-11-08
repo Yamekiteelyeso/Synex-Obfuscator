@@ -255,6 +255,91 @@ export function installStdlib(interp: LuaEnvironment): void {
     });
     return [String.fromCharCode(...bytes)];
   }));
+  stringLib.set('find', fn('find', (args) => {
+    const source = String(args[0]);
+    const pattern = String(args[1]);
+    const init = args[2] === undefined ? 1 : toNumber(args[2], at);
+    const plain = args[3] === true;
+    if (!Number.isSafeInteger(init)) throw new LuaError('bad argument to string.find (integer index expected)');
+    if (!plain) throw new LuaError('string.find: Lua pattern matching is not implemented; pass true for plain search');
+    const start = init < 0 ? Math.max(source.length + init + 1, 1) : init;
+    if (start < 1 || start > source.length + 1) return [undefined];
+    const index = source.indexOf(pattern, start - 1);
+    return index < 0 ? [undefined] : [index + 1, index + pattern.length];
+  }));
+  stringLib.set('format', fn('format', (args) => {
+    const template = String(args[0]);
+    let argument = 1;
+    let output = '';
+    const quote = (value: string) => '"' + value.replace(/[\\"\\x00-\\x1f\\x7f]/g, (ch) => {
+      const code = ch.charCodeAt(0);
+      if (ch === '"') return '\\"';
+      if (ch === '\\\\') return '\\\\\\\\';
+      if (ch === '\\n') return '\\\\n';
+      if (ch === '\\r') return '\\\\r';
+      if (ch === '\\t') return '\\\\t';
+      return '\\\\' + String(code).padStart(3, '0');
+    }) + '"';
+    for (let index = 0; index < template.length; index++) {
+      if (template[index] !== '%') { output += template[index]; continue; }
+      if (template[index + 1] === '%') { output += '%'; index++; continue; }
+      const match = /^%([-+ #0]*)(\\d*)(?:\\.(\\d+))?([cdiuoxXfFeEgGqs])/.exec(template.slice(index));
+      if (!match) throw new LuaError('invalid format specifier near ' + template.slice(index, index + 8));
+      const [, flags, widthText, precisionText, spec] = match;
+      const width = widthText ? Number(widthText) : 0;
+      const precision = precisionText === undefined ? undefined : Number(precisionText);
+      if (width > 100_000 || (precision ?? 0) > 1000) throw new LuaError('string.format field width or precision too large');
+      const value = args[argument++];
+      if (value === undefined) throw new LuaError('bad argument to string.format (no value)');
+      let rendered: string;
+      if (spec === 's') {
+        if (typeof value !== 'string') throw new LuaError('bad argument to string.format (%s expected)');
+        rendered = precision === undefined ? value : value.slice(0, precision);
+      } else if (spec === 'q') {
+        rendered = quote(tostring(value));
+      } else if (spec === 'c') {
+        const byte = toNumber(value, at);
+        if (!Number.isInteger(byte) || byte < 0 || byte > 255) throw new LuaError('bad argument to string.format (%c value out of range)');
+        rendered = String.fromCharCode(byte);
+      } else {
+        const number = toNumber(value, at);
+        if (!Number.isFinite(number) && 'diuoxX'.includes(spec)) throw new LuaError('bad argument to string.format (integer expected)');
+        if ('diuoxX'.includes(spec)) {
+          if (!Number.isSafeInteger(number)) throw new LuaError('bad argument to string.format (integer expected)');
+          const integer = spec === 'u' ? number >>> 0 : number;
+          const radix = spec === 'o' ? 8 : spec === 'x' || spec === 'X' ? 16 : 10;
+          rendered = Math.abs(integer).toString(radix);
+          if (spec === 'X') rendered = rendered.toUpperCase();
+          if (integer < 0 && spec !== 'u') rendered = '-' + rendered;
+          else if (flags.includes('+')) rendered = '+' + rendered;
+          else if (flags.includes(' ') && integer >= 0) rendered = ' ' + rendered;
+          if (flags.includes('#') && radix !== 10) rendered = (radix === 8 ? '0' : spec === 'X' ? '0X' : '0x') + rendered;
+        } else {
+          const digits = precision ?? 6;
+          if (spec === 'f' || spec === 'F') rendered = number.toFixed(digits);
+          else if (spec === 'e' || spec === 'E') rendered = number.toExponential(digits);
+          else {
+            rendered = digits === 0 ? number.toPrecision(1) : number.toPrecision(digits);
+            if (!flags.includes('#') && rendered.includes('.')) rendered = rendered.replace(/(?:\\.0+|(?:(\\.\\d*?)0+))([eE]|$)/, '$1$2').replace(/\\.([eE]|$)/, '$1');
+          }
+          if (spec === 'E' || spec === 'G') rendered = rendered.toUpperCase();
+          if (number >= 0 && flags.includes('+')) rendered = '+' + rendered;
+          else if (number >= 0 && flags.includes(' ')) rendered = ' ' + rendered;
+        }
+      }
+      const left = flags.includes('-');
+      if (rendered.length < width) {
+        const pad = (flags.includes('0') && !left ? '0' : ' ').repeat(width - rendered.length);
+        if (left) rendered += pad;
+        else if (pad[0] === '0' && /^[+-]/.test(rendered)) rendered = rendered[0] + pad + rendered.slice(1);
+        else rendered = pad + rendered;
+      }
+      output += rendered;
+      index += match[0].length - 1;
+    }
+    if (argument < args.length) throw new LuaError('string.format: too many arguments');
+    return [output];
+  }));
   stringLib.set('len', fn('len', (args) => [String(args[0]).length]));
   stringLib.set('lower', fn('lower', (args) => [String(args[0]).replace(/[A-Z]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 32))]));
   stringLib.set('upper', fn('upper', (args) => [String(args[0]).replace(/[a-z]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 32))]));
