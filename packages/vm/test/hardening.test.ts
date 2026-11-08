@@ -31,6 +31,41 @@ describe('validación del bytecode', () => {
     assert.throws(() => validateProto(p), /constante fuera de rango/);
   });
 
+
+  test('rechaza operandos ausentes o no enteros en todas las familias', () => {
+    const p = protoOf('local x = 1 print(x)');
+    const local = p.code.find((i) => i.op === 'GETL')!;
+    local.a = 0.5;
+    assert.throws(() => validateProto(p), /operando a no es un entero seguro|ranura fuera de rango/);
+  });
+
+  test('rechaza nombres globales que no sean constantes de cadena', () => {
+    const p = protoOf('print(1)');
+    const global = p.code.find((i) => i.op === 'GETG')!;
+    p.consts[global.a!] = 123;
+    assert.throws(() => validateProto(p), /nombre global\/método no es una cadena/);
+  });
+
+  test('rechaza banderas y descriptores CALL inconsistentes', () => {
+    const p = protoOf('print(1)');
+    const call = p.code.find((i) => i.op === 'CALL')!;
+    call.b = -2;
+    assert.throws(() => validateProto(p), /descriptor CALL inválido/);
+  });
+
+  test('rechaza prototipos cíclicos', () => {
+    const p = protoOf('local function f() return 1 end');
+    p.protos.push(p);
+    assert.throws(() => validateProto(p), /ciclo en árbol de prototipos/);
+  });
+
+  test('la VM pública rechaza bytecode manipulado antes de ejecutarlo', () => {
+    const p = protoOf('print(1)');
+    p.code[0].op = 'UNKNOWN' as any;
+    const { VM } = requireVmForTest();
+    assert.throws(() => new VM().execute(p), /operación desconocida/);
+  });
+
   test('rechaza una operación desconocida', () => {
     const p = protoOf('print(1)');
     p.code[0].op = 'NOPE' as any;
