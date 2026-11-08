@@ -94,7 +94,7 @@ export function createApp(opts: AppOptions): App {
     maxQueue: 200,
   });
   const codes = new Map<string, string>();
-  const discordStates = new Map<string, number>();
+  let discordVerifyKeyCache: { key: string; expiresAt: number } | null = null;
   const discordTickets = new Map<string, { userId: string; expiresAt: number }>();
   const ipWindow = new Map<string, { count: number; reset: number }>();
   const rateLimit = opts.rateLimitPerMinute ?? 300;
@@ -195,46 +195,13 @@ export function createApp(opts: AppOptions): App {
     });
   });
 
+  // El botón invita al usuario a instalar el bot; la identidad se verifica con /synex-login.
   route('GET', '/api/auth/discord', 'none', ({ res }) => {
     const clientId = process.env.DISCORD_CLIENT_ID;
     if (!clientId) throw new HttpError(503, 'Discord aún no está configurado', 'E_DISCORD_CONFIG');
-    const state = randomUUID();
-    discordStates.set(state, Date.now() + 10 * 60_000);
-    res.setHeader('Set-Cookie', `synex_discord_state=${state}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/discord/callback; Max-Age=600`);
-    const origin = process.env.DISCORD_REDIRECT_URI;
-    if (!origin) throw new HttpError(503, 'configura DISCORD_REDIRECT_URI para habilitar Discord', 'E_DISCORD_CONFIG');
-    const params = new URLSearchParams({ client_id: clientId, redirect_uri: origin, response_type: 'code', scope: 'identify email', state });
-    res.writeHead(302, { Location: `https://discord.com/oauth2/authorize?${params}` }); res.end();
-  });
-
-  route('GET', '/api/auth/discord/callback', 'none', async ({ req, res, url }) => {
-    const code = url.searchParams.get('code'); const state = url.searchParams.get('state');
-    const expiry = state ? discordStates.get(state) : undefined;
-    const cookieState = (req.headers.cookie ?? '').split(';').map((part) => part.trim()).find((part) => part.startsWith('synex_discord_state='))?.slice('synex_discord_state='.length);
-    if (!code || !state || cookieState !== state || !expiry || expiry < Date.now()) throw new HttpError(400, 'sesión de Discord inválida o expirada', 'E_DISCORD_STATE');
-    discordStates.delete(state);
-    res.setHeader('Set-Cookie', 'synex_discord_state=; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/discord/callback; Max-Age=0');
-    const clientId = process.env.DISCORD_CLIENT_ID; const clientSecret = process.env.DISCORD_CLIENT_SECRET;
-    if (!clientId || !clientSecret) throw new HttpError(503, 'Discord aún no está configurado', 'E_DISCORD_CONFIG');
-    const redirectUri = process.env.DISCORD_REDIRECT_URI;
-    if (!redirectUri) throw new HttpError(503, 'configura DISCORD_REDIRECT_URI para habilitar Discord', 'E_DISCORD_CONFIG');
-    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: 'authorization_code', code, redirect_uri: redirectUri }) });
-    if (!tokenResponse.ok) throw new HttpError(401, 'Discord no pudo validar el acceso', 'E_DISCORD_AUTH');
-    const tokenData = await tokenResponse.json() as { access_token?: string };
-    if (!tokenData.access_token) throw new HttpError(401, 'Discord no devolvió un token válido', 'E_DISCORD_AUTH');
-    const profileResponse = await fetch('https://discord.com/api/users/@me', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
-    if (!profileResponse.ok) throw new HttpError(401, 'no se pudo obtener el perfil de Discord', 'E_DISCORD_PROFILE');
-    const profile = await profileResponse.json() as { id: string; username: string; email?: string; verified?: boolean };
-    let user = store.users.find((u) => u.discordId === profile.id);
-    if (!user) {
-      const email = profile.verified && profile.email ? profile.email.toLowerCase() : `discord-${profile.id}@users.synex.invalid`;
-      user = store.users.find((u) => u.email === email);
-      if (user && user.discordId && user.discordId !== profile.id) throw new HttpError(409, 'ese correo ya está vinculado a otra cuenta de Discord', 'E_DISCORD_LINK');
-      if (user) { user.discordId = profile.id; user.discordUsername = profile.username; store.updateUser(user); }
-      else { user = { id: randomUUID(), email, role: 'user', passwordHash: '', discordId: profile.id, discordUsername: profile.username, createdAt: Date.now() }; store.addUser(user); }
-    } else { user.discordUsername = profile.username; store.updateUser(user); }
-    const ticket = randomUUID(); discordTickets.set(ticket, { userId: user.id, expiresAt: Date.now() + 60_000 });
-    res.writeHead(302, { Location: `/?discord_ticket=${encodeURIComponent(ticket)}` }); res.end();
+    const params = new URLSearchParams({ client_id: clientId, scope: 'bot applications.commands', permissions: '0' });
+    res.writeHead(302, { Location: `https://discord.com/oauth2/authorize?${params}` });
+    res.end();
   });
 
   route('POST', '/api/auth/discord/exchange', 'none', async ({ req, res }) => {
@@ -246,22 +213,42 @@ export function createApp(opts: AppOptions): App {
     json(res, 200, { token: sessions.create(user.id), user: publicUser(user) });
   });
 
-  // Endpoint de interacciones: el bot funciona con Discord Interactions (sin Gateway).
+  // Discord firma cada interacción. La clave pública se obtiene usando el propio bot token.
   route('POST', '/api/discord/interactions', 'none', async ({ req, res }) => {
     const raw = await readRaw(req, 64 * 1024);
     const signature = req.headers['x-signature-ed25519'];
     const timestamp = req.headers['x-signature-timestamp'];
-    const publicKeyHex = process.env.DISCORD_PUBLIC_KEY;
-    if (typeof signature !== 'string' || typeof timestamp !== 'string' || !publicKeyHex) {
-      throw new HttpError(401, 'firma de Discord ausente o bot no configurado', 'E_DISCORD_SIGNATURE');
+    const botToken = process.env.DISCORD_BOT_TOKEN;
+    const clientId = process.env.DISCORD_CLIENT_ID;
+    const redirectBase = process.env.DISCORD_REDIRECT_URI;
+    if (!botToken || !clientId || !redirectBase) {
+      throw new HttpError(503, 'configura DISCORD_CLIENT_ID, DISCORD_REDIRECT_URI y DISCORD_BOT_TOKEN', 'E_DISCORD_CONFIG');
+    }
+    if (typeof signature !== 'string' || typeof timestamp !== 'string') {
+      throw new HttpError(401, 'firma de Discord ausente', 'E_DISCORD_SIGNATURE');
     }
     const timestampMs = Number(timestamp) * 1000;
     if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60_000) {
       throw new HttpError(401, 'interacción de Discord expirada', 'E_DISCORD_SIGNATURE');
     }
+    if (!discordVerifyKeyCache || discordVerifyKeyCache.expiresAt < Date.now()) {
+      const appResponse = await fetch('https://discord.com/api/v10/oauth2/applications/@me', {
+        headers: { Authorization: `Bot ${botToken}` },
+      });
+      if (!appResponse.ok) throw new HttpError(503, 'no se pudo verificar la configuración del bot de Discord', 'E_DISCORD_CONFIG');
+      const application = await appResponse.json() as { id?: string; verify_key?: string };
+      if (application.id !== clientId || !application.verify_key) {
+        throw new HttpError(503, 'el ID de Discord no coincide con el token del bot', 'E_DISCORD_CONFIG');
+      }
+      discordVerifyKeyCache = { key: application.verify_key, expiresAt: Date.now() + 10 * 60_000 };
+    }
     try {
       const derPrefix = Buffer.from('302a300506032b6570032100', 'hex');
-      const publicKey = createPublicKey({ key: Buffer.concat([derPrefix, Buffer.from(publicKeyHex, 'hex')]), format: 'der', type: 'spki' });
+      const publicKey = createPublicKey({
+        key: Buffer.concat([derPrefix, Buffer.from(discordVerifyKeyCache.key, 'hex')]),
+        format: 'der',
+        type: 'spki',
+      });
       const valid = verifySignature(null, Buffer.concat([Buffer.from(timestamp), raw]), publicKey, Buffer.from(signature, 'hex'));
       if (!valid) throw new Error('invalid signature');
     } catch {
@@ -274,12 +261,42 @@ export function createApp(opts: AppOptions): App {
     if (interaction.type !== 2 || interaction.data?.name !== 'synex-login') {
       return json(res, 200, { type: 4, data: { content: 'Comando no reconocido.', flags: 64 } });
     }
-    const redirectUri = process.env.DISCORD_REDIRECT_URI;
-    if (!process.env.DISCORD_CLIENT_ID || !redirectUri) {
-      return json(res, 200, { type: 4, data: { content: 'El inicio de sesión de Synex aún no está configurado.', flags: 64 } });
+    const discordUser = interaction.member?.user ?? interaction.user;
+    if (!discordUser?.id || !discordUser?.username) {
+      return json(res, 200, { type: 4, data: { content: 'No se pudo verificar tu cuenta de Discord.', flags: 64 } });
     }
-    const loginUrl = new URL('/api/auth/discord', new URL(redirectUri).origin).toString();
-    return json(res, 200, { type: 4, data: { content: 'Inicia sesión o crea tu cuenta de Synex Obfuscador desde aquí: ' + loginUrl, flags: 64 } });
+    let user = store.users.find((u) => u.discordId === String(discordUser.id));
+    if (!user) {
+      user = {
+        id: randomUUID(),
+        email: `discord-${discordUser.id}@users.synex.invalid`,
+        role: 'user',
+        passwordHash: '',
+        discordId: String(discordUser.id),
+        discordUsername: String(discordUser.global_name || discordUser.username),
+        createdAt: Date.now(),
+      };
+      store.addUser(user);
+    } else {
+      user.discordUsername = String(discordUser.global_name || discordUser.username);
+      store.updateUser(user);
+    }
+    const ticket = randomUUID();
+    discordTickets.set(ticket, { userId: user.id, expiresAt: Date.now() + 90_000 });
+    let loginUrl: URL;
+    try { loginUrl = new URL(redirectBase); }
+    catch { throw new HttpError(503, 'DISCORD_REDIRECT_URI debe ser una URL válida', 'E_DISCORD_CONFIG'); }
+    if (loginUrl.protocol !== 'https:' && loginUrl.hostname !== 'localhost') {
+      throw new HttpError(503, 'DISCORD_REDIRECT_URI debe usar HTTPS', 'E_DISCORD_CONFIG');
+    }
+    loginUrl.searchParams.set('discord_ticket', ticket);
+    return json(res, 200, {
+      type: 4,
+      data: {
+        content: 'Acceso seguro a Synex Obfuscador. Este enlace es privado y caduca en 90 segundos: ' + loginUrl.toString(),
+        flags: 64,
+      },
+    });
   });
 
   route('POST', '/api/auth/register', 'none', async ({ req, res }) => {
