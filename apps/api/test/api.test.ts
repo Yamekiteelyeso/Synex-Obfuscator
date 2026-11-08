@@ -77,7 +77,7 @@ test('rutas protegidas exigen token', async () => {
 test('flujo completo: enviar, esperar, descargar y consultar historial', async () => {
   await call('POST', '/api/auth/register', { email: 'flujo@synex.test', password: 'clave-segura-2' });
   const token = await login('flujo@synex.test', 'clave-segura-2');
-  const sent = await call('POST', '/api/jobs', { name: 'mi_script.lua', source: SCRIPT, profile: 'advanced', seed: 3, checkEquivalence: true }, token);
+  const sent = await call('POST', '/api/jobs', { name: 'mi_script.lua', source: SCRIPT, profile: 'medium', seed: 3, checkEquivalence: true }, token);
   assert.equal(sent.status, 202);
   const job = await waitJob(sent.json.id, token);
   assert.equal(job.status, 'done');
@@ -91,12 +91,12 @@ test('flujo completo: enviar, esperar, descargar y consultar historial', async (
 
   const list = await call('GET', '/api/jobs', undefined, token);
   assert.equal(list.json.jobs.length, 1);
-  assert.equal(list.json.jobs[0].profile, 'advanced');
+  assert.equal(list.json.jobs[0].profile, 'medium');
 
   const stats = await call('GET', '/api/stats', undefined, token);
   assert.equal(stats.json.totalJobs, 1);
   assert.equal(stats.json.byStatus.done, 1);
-  assert.equal(stats.json.perProfile.advanced, 1);
+  assert.equal(stats.json.perProfile.medium, 1);
 });
 
 test('un usuario no puede ver los trabajos de otro', async () => {
@@ -152,15 +152,18 @@ test('admin: solo administradores acceden; puede cambiar la configuración', asy
   assert.ok(users.json.users.some((u: any) => u.email === 'flujo@synex.test'));
   assert.equal((await call('PUT', '/api/admin/settings', { maxInputBytes: 100 }, adminToken)).status, 400);
   assert.equal((await call('PUT', '/api/admin/settings', { enabledProfiles: ['basic'] }, adminToken)).status, 200);
-  assert.equal((await call('POST', '/api/jobs', { source: SCRIPT, profile: 'advanced' }, userToken)).status, 403);
-  await call('PUT', '/api/admin/settings', { enabledProfiles: ['basic', 'advanced', 'professional', 'custom'] }, adminToken);
+  assert.equal((await call('POST', '/api/jobs', { source: SCRIPT, profile: 'max' }, userToken)).status, 403);
+  await call('PUT', '/api/admin/settings', { enabledProfiles: ['basic', 'medium', 'max'] }, adminToken);
 });
 
-test('perfiles y salud son públicos y no quedan técnicas pendientes', async () => {
+test('solo expone Basic, Medium y Max y mantiene salud pública', async () => {
   const p = await call('GET', '/api/profiles');
   assert.equal(p.status, 200);
-  assert.equal(p.json.profiles.length, 7);
-  assert.ok(['normal', 'medium', 'max'].every((n) => p.json.profiles.some((x: any) => x.name === n)));
+  assert.equal(p.json.profiles.length, 3);
+  assert.equal((await call('GET', '/api/auth/discord')).status, 503);
+  assert.equal((await call('POST', '/api/discord/interactions', { type: 1 })).status, 503);
+  assert.deepEqual(p.json.profiles.map((x: any) => x.name), ['basic', 'medium', 'max']);
+  assert.equal((await call('POST', '/api/jobs', { source: SCRIPT, profile: 'advanced' }, await login('flujo@synex.test', 'clave-segura-2'))).status, 400);
   assert.ok(p.json.techniques.some((t: any) => t.id === 'vm' && t.status === 'implemented'));
   assert.ok(p.json.techniques.some((t: any) => t.id === 'integrity' && t.status === 'implemented'));
   assert.equal(p.json.techniques.filter((t: any) => t.status !== 'implemented').length, 0);

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { execute, LuaError } from '@synex/runtime';
 import { runInVm, compileToLuauVm } from '../src/index.js';
 
@@ -171,7 +172,10 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
   assert.match(code, /getfenv/);
   assert.match(code, /getgenv/);
   assert.match(code, /local function unstr/);
-  assert.match(code, /unstr\(/);
+  assert.match(code, /local function decodeOperand/);
+  assert.ok(code.includes('decodeOperand(ins[6], ip, 6, protoSalt)'));
+  assert.ok(!code.includes('P.k['));
+  assert.ok(code.includes('unstr('));
   assert.equal(compileToLuauVm('local x = game:GetService("Workspace")\nreturn x'), code);
   assert.notEqual(compileToLuauVm('local x = game:GetService("Workspace")\nreturn x', 99), code);
   assert.doesNotMatch(code, /Workspace/);
@@ -189,11 +193,37 @@ test('emisor Luau: aleatoriza los nombres de campos del prototipo por semilla', 
   const otherSeed = compileToLuauVm(src, 124);
   assert.equal(a, b);
   assert.notEqual(a, otherSeed);
-  assert.ok(!['P.np', 'P.va', 'P.c', 'P.k', 'P.q', 'child.u'].some((field) => a.includes(field)));
+  assert.ok(!['__KEY_NP__', '__KEY_VA__', '__KEY_CODE__', '__KEY_CONST__', '__KEY_CHILD__', '__KEY_UP__', '__KEY_SALT__'].some((field) => a.includes(field)));
 });
 
 test('emisor Luau: las cadenas Unicode no aparecen en texto plano dentro de la VM', () => {
   const code = compileToLuauVm('print("こんにちは 🌎")', 321);
   assert.doesNotMatch(code, /こんにちは|🌎/);
-  assert.match(code, /unstr\\(/);
+  assert.ok(code.includes('unstr('));
+});
+
+
+test('emisor Luau: los operandos del bytecode cambian por instrucción y semilla', () => {
+  const src = 'local function f(x) return x + 7 end return f(12)';
+  const a = compileToLuauVm(src, 77);
+  const b = compileToLuauVm(src, 78);
+  assert.match(a, /OPERAND_SEED = 77/);
+  assert.notEqual(a, b);
+  assert.match(a, /bytecode truncado o alterado/);
+  assert.match(a, /límite de pila superado/);
+});
+
+
+const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
+
+test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => {
+  const source = [
+    'local function add(a, b) return a + b end',
+    'local label = "Synex VM"',
+    'local object = {value = add(20, 22)}',
+    'print(label, object.value)',
+  ].join(String.fromCharCode(10));
+  const emitted = compileToLuauVm(source, 918273);
+  const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
+  assert.equal(output.trim(), ['Synex VM', '42'].join(String.fromCharCode(9)));
 });

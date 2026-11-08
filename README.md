@@ -1,4 +1,4 @@
-# Synex Obfuscator
+# Synex Obfuscador
 
 Ofuscador profesional de scripts Luau. Monorepo TypeScript.
 
@@ -13,9 +13,9 @@ Ofuscador profesional de scripts Luau. Monorepo TypeScript.
 | `packages/transformations` | Pipeline: renombrado de locales (determinista por semilla), protección de cadenas con cabecera de descifrado, aplanado del flujo de control (incluye funciones locales y break/continue), comprobación de integridad en tiempo de ejecución y verificación de salida (25 pruebas de aplanado e integridad, con ejecución real en Lua 5.4) |
 | `packages/vm` | VM de pila que ejecuta el IR (referencia en TypeScript) y emisor de la transformación mediante VM: compila el programa al IR y lo sustituye por un intérprete en Luau con códigos de operación aleatorios por build. Pruebas: 18 programas ejecutados en Lua 5.4 original y emitido, con salida idéntica (19 pruebas) |
 | `packages/runtime` | Intérprete de referencia de Luau sobre el AST, con biblioteca mínima (print, pairs, ipairs, table.concat/insert, string.char, bit32). Oráculo para pruebas de equivalencia (18 pruebas) |
-| `packages/engine` | Motor de orquestación: perfiles reales (Basic, Advanced, Professional, Custom), etapas con tiempos, digest SHA-256, comprobación de equivalencia, VM configurable y sistema de trabajos en worker_threads con límites de cola, tamaño y tiempo. Incluye pruebas del perfil completo en Lua 5.4 real (13 pruebas) |
+| `packages/engine` | Motor de orquestación: planes públicos (Basic, Medium, Max), etapas con tiempos, digest SHA-256, comprobación de equivalencia, VM configurable y sistema de trabajos en worker_threads con límites de cola, tamaño y tiempo. Incluye pruebas del perfil completo en Lua 5.4 real (13 pruebas) |
 | `apps/api` | API HTTP sin dependencias: registro y login con scrypt y sesiones con caducidad, bloqueo tras 5 fallos, límite de peticiones por IP, endpoints de trabajos (enviar, consultar, descargar, historial), estadísticas de usuario y panel de administración (usuarios, trabajos, errores y configuración). Persistencia en JSON (11 pruebas de integración) |
-| `apps/web` | Implementado: acceso, panel, editor (resaltado, números de línea, importar/exportar, validación tamaño, técnicas personalizadas), progreso por etapa, historial, administración. 9 pruebas de lógica y render. Pendiente: pruebas end-to-end en navegador y verificación de tipos JSX con `@types/react` (ahora con declaraciones mínimas en `src/types/shims.d.ts`; no se pudo instalar sin acceso al registro npm). |
+| `apps/web` | Implementado: acceso, panel, editor (resaltado, números de línea, importar/exportar, validación tamaño, planes Basic, Medium y Max), progreso por etapa, historial, administración. 9 pruebas de lógica y render. Pendiente: pruebas end-to-end en navegador y verificación de tipos JSX con `@types/react` (ahora con declaraciones mínimas en `src/types/shims.d.ts`; no se pudo instalar sin acceso al registro npm). |
 
 ## Estado del lexer
 
@@ -38,9 +38,12 @@ SYNEX_ADMIN_EMAIL=admin@ejemplo.com SYNEX_ADMIN_PASSWORD=... PORT=8080 node apps
 |---|---|---|
 | POST | /api/auth/register | público |
 | POST | /api/auth/login | público (bloqueo tras 5 fallos) |
+| GET | /api/auth/discord, /api/auth/discord/callback | público (OAuth2) |
+| POST | /api/discord/interactions | público (firma Ed25519 de Discord) |
+| POST | /api/auth/discord/exchange | público (ticket OAuth de un solo uso) |
 | POST | /api/auth/logout | usuario |
 | GET | /api/me | usuario |
-| POST | /api/jobs | usuario (`source`, `profile`, `seed`, `custom`, `checkEquivalence`, `name`) |
+| POST | /api/jobs | usuario (`source`, `profile`, `seed`, `checkEquivalence`, `name`) |
 | GET | /api/jobs | usuario (historial propio) |
 | GET | /api/jobs/:id | dueño |
 | GET | /api/jobs/:id/code | dueño (descarga `.obf.luau`) |
@@ -51,25 +54,22 @@ SYNEX_ADMIN_EMAIL=admin@ejemplo.com SYNEX_ADMIN_PASSWORD=... PORT=8080 node apps
 
 Limitaciones: el código generado vive en memoria del proceso (se pierde al reiniciar); el historial sí persiste. Sin HTTPS, sin recuperación de contraseña y sin verificación de correo.
 
-## Perfiles
+## Planes de ofuscación
 
-Niveles de protección para código propio: **NORMAL** (renombrado, cadenas, constantes y expresiones), **MEDIUM** (añade aplanado del flujo de control y código muerto) y **MAX** (todo lo anterior más la transformación mediante VM). Los perfiles Basic, Advanced y Professional se conservan. Custom permite elegir técnicas.
+La web expone únicamente tres planes. No hay perfiles personalizados ni opciones separadas de Roblox en la interfaz:
 
-| Técnica | Basic | Advanced | Professional | Custom |
-|---|---|---|---|---|
-| Renombrado de identificadores | ✓ | ✓ | ✓ | opcional |
-| Protección de cadenas | ✓ | ✓ | ✓ | opcional |
-| Transformación de constantes | | ✓ | ✓ | opcional |
-| Transformación de expresiones (`==`) | | 50 % | 100 % | opcional |
-| Código muerto | | 15 % | 35 % | opcional |
-| Comprobación de integridad en tiempo de ejecución | | | ✓ | opcional |
-| Aplanado del flujo de control | no | no | sí (probabilidad 0.5) | sí (configurable) |
-| Transformación mediante VM | no | no | no | opcional |
-| Perfil Roblox (VM + transformaciones conservadoras) | — | — | — | perfil dedicado |
+| Técnica | Basic | Medium | Max |
+|---|---:|---:|---:|
+| Renombrado de identificadores | ✓ | ✓ | ✓ |
+| Protección de cadenas | ✓ | ✓ | ✓ |
+| Transformación de constantes | — | ✓ | ✓ |
+| Transformación de expresiones | — | ✓ | ✓ |
+| Código muerto | — | ✓ | ✓ |
+| Aplanado del flujo de control | — | ✓ | ✓ |
+| Comprobación de integridad | — | — | ✓ |
+| VM Luau | — | — | ✓ |
 
-La comprobación de integridad verifica al cargar el script las tablas de datos incrustadas (bytes cifrados y claves) con una suma calculada al ofuscar; si se alteran, el script lanza el error `integridad comprometida`. Requiere la protección de cadenas, que el perfil Custom activa automáticamente. El digest SHA-256 del resultado sigue calculándose fuera del script.
-
-La VM se activa en MAX y ROBLOX, y puede seleccionarse en Custom. El perfil ROBLOX mantiene desactivado el aplanado de control y el código muerto por compatibilidad con APIs dinámicas; la VM resuelve globals desde el entorno Luau.
+Los niveles aplican configuraciones predefinidas del motor. Basic es el nivel esencial; Medium añade transformaciones de expresiones, constantes, código muerto y flujo de control; Max añade las técnicas avanzadas y la virtualización. La salida sigue siendo ofuscación reversible, no cifrado ni almacenamiento seguro de secretos.
 
 ## Limitaciones de la VM
 
@@ -81,7 +81,7 @@ La VM se activa en MAX y ROBLOX, y puede seleccionarse en Custom. El perfil ROBL
 - No implementa toda la semántica de metatablas ni corrutinas; conserva operaciones nativas de indexación y llamadas `__call` que usa el script huésped.
 - El aplanado del flujo de control no se aplica a bloques con `type` ni a bloques que leen una variable antes de declararla (una función que la usa también cuenta). Las funciones locales se hoistean con su nombre, así que la recursión se conserva. Los `break`/`continue` del bucle exterior se reescriben con estados reservados.
 - La VM generada tiene límite de pasos (5 000 000 por defecto) y conserva la línea fuente en mensajes de error.
-- Los códigos de operación, los nombres de los campos del prototipo VM y las claves de cadenas varían por build; las constantes de texto se codifican en el pool. Es ofuscación, no cifrado.
+- Los códigos de operación, los nombres de los campos del prototipo VM y las claves de cadenas varían por build. Cada operando del bytecode se enmascara con una clave derivada de semilla, prototipo, posición y campo; las constantes de texto se codifican en el pool. La VM valida saltos, ranuras, constantes y capturas antes de emitir, y aplica límites de instrucciones, profundidad y pila en runtime. Es ofuscación, no cifrado.
 - La VM generada prefiere `getgenv()` en executors y usa `getfenv(0)`/`_G` como fallback, indexación nativa para Instances/userdata y llamadas `__call`; aun así, debe validarse en Roblox Luau y cada executor objetivo.
 
 ## Limitaciones de la ofuscación actual
@@ -121,13 +121,43 @@ El repositorio incluye `railway.json`. Railway debe usar Node.js 22 o superior, 
 
 Configura `SYNEX_ADMIN_EMAIL` y `SYNEX_ADMIN_PASSWORD` como variables de entorno. Para conservar usuarios e historial entre despliegues, monta un Volume en `/data` y define `SYNEX_DATA_FILE=/data/synex-data.json`. Sin un Volume, el almacenamiento JSON local puede perderse al reemplazar el contenedor.
 
-## Perfil Roblox / Luau
+## Compatibilidad Roblox / Luau
 
-El perfil `roblox` está pensado para scripts Luau de Roblox Studio y entornos Luau compatibles. Activa la VM, renombrado de locales, protección de cadenas, constantes y expresiones. Mantiene desactivados el aplanado de control y el código muerto para reducir incompatibilidades con APIs dinámicas. No inyecta funciones de executor ni añade `getgenv`, `getrawmetatable`, `hookfunction`, `firetouchinterest` u otras APIs específicas/no estándar. Las APIs estándar del juego (`game`, `workspace`, `script`, `task`, `Instance`, `Enum`, `Vector3`, `CFrame`, servicios Roblox) se dejan como globals del código fuente.
-
-El perfil no promete compatibilidad con todas las extensiones de sintaxis/tipado Luau ni con todos los executors. Prueba cada salida en un entorno de prueba de Roblox. La VM resuelve globals mediante `getgenv()` en executors y `getfenv(0)`/`_G` como fallback y conserva indexación de Instances/userdata y llamadas `__call`, pero no garantiza compatibilidad universal con todos los executors.
-
+El motor acepta scripts Luau y mantiene los globals y llamadas del entorno huésped. Los usuarios eligen Basic, Medium o Max; Max incorpora la VM. La compatibilidad concreta depende de las APIs dinámicas usadas por cada script y debe comprobarse en Roblox Studio y en cada executor objetivo. No se garantiza compatibilidad universal.
 
 ## Marca de salida
 
 Todas las salidas comienzan con un comentario Luau de identificación, por ejemplo `-- [Synex Obf] | profile: roblox | vm: on`. Se añade después de transformar el código para que permanezca como primera línea tanto en los perfiles normales como en las salidas virtualizadas.
+
+
+## Synex Obfuscador: planes y acceso con Discord
+
+La aplicación ofrece únicamente tres niveles de ofuscación:
+
+- **Basic:** renombrado de identificadores y protección de cadenas.
+- **Medium:** más transformación de constantes, expresiones, código muerto y aplanado de flujo de control.
+- **Max:** transformaciones intensivas, comprobación de integridad y virtualización mediante la VM Luau con bytecode protegido.
+
+El registro e inicio de sesión por correo sigue disponible. También se puede registrar e iniciar sesión mediante el **bot de Discord**, sin OAuth ni client secret. El usuario instala el bot, ejecuta `/synex-login` y recibe una respuesta privada con un enlace de un solo uso y 90 segundos de vigencia. Al abrirlo, la web intercambia el ticket y crea/inicia su sesión.
+
+### Solo tres variables de Discord
+
+Configura exactamente estas variables en Railway:
+
+- `DISCORD_CLIENT_ID`: Application ID de Discord.
+- `DISCORD_REDIRECT_URI`: URL pública de la web, por ejemplo `https://TU-DOMINIO/` (no es un callback OAuth).
+- `DISCORD_BOT_TOKEN`: token secreto de la pestaña Bot.
+
+No hace falta guardar la Public Key ni un Application ID duplicado: la API obtiene la clave de verificación desde `/oauth2/applications/@me` usando el bot token y comprueba que el ID de la aplicación coincide con `DISCORD_CLIENT_ID`.
+
+### Configuración en Discord
+
+1. Crea una aplicación en el [Discord Developer Portal](https://discord.com/developers/applications).
+2. Copia **Application ID** en `DISCORD_CLIENT_ID`.
+3. En la pestaña **Bot**, genera/copia el token y guárdalo en `DISCORD_BOT_TOKEN`. Nunca lo publiques ni lo subas a GitHub.
+4. Configura el Interactions Endpoint URL como `https://TU-DOMINIO/api/discord/interactions`.
+5. En Railway, configura `DISCORD_REDIRECT_URI` con la URL de tu web.
+6. Reinicia/despliega la API: sincroniza automáticamente el comando global `/synex-login` al arrancar. Si necesitas forzar una sincronización manual, puedes ejecutar `node apps/api/scripts/register-discord-command.mjs` con Node 22.
+7. Invita el bot al servidor desde el botón Discord de Synex o con un enlace de instalación que incluya los scopes `bot` y `applications.commands`.
+
+El endpoint valida las firmas Ed25519 y la antigüedad de cada interacción. Los tickets de acceso son aleatorios, privados, de un solo uso y expiran en 90 segundos. El token del bot solo vive en el servidor; nunca se envía al navegador.

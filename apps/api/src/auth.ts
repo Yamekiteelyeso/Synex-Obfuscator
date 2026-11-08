@@ -7,6 +7,8 @@ export interface User {
   email: string;
   role: Role;
   passwordHash: string;
+  discordId?: string;
+  discordUsername?: string;
   createdAt: number;
 }
 

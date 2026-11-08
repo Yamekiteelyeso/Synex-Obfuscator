@@ -59,7 +59,7 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
-type ProtoKeys = { np: string; va: string; code: string; constants: string; children: string; upvalues: string };
+type ProtoKeys = { np: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string };
 
 /** Los nombres de los campos del prototipo también cambian por semilla. */
 function protoKeys(seed: number): ProtoKeys {
@@ -71,7 +71,7 @@ function protoKeys(seed: number): ProtoKeys {
     used.add(name);
     return name;
   };
-  return { np: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next() };
+  return { np: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next() };
 }
 
 function luaNumber(n: number): string {
@@ -97,14 +97,27 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
   throw new SynexError('constante no serializable en la VM', 1, 1, 'E_INTERNAL');
 }
 
-function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }): string {
-  // Instrucciones: {op, a, b, t, c}. Los saltos usan índices 1-based en la VM.
-  const code = p.code.map((ins: Instr) =>
-    `{${ops[ins.op]},${ins.a ?? 0},${ins.b ?? 0},${ins.t !== undefined ? ins.t + 1 : 0},${ins.c ? 1 : 0},${ins.line ?? 0}}`).join(',');
+const OPERAND_MODULUS = 2147483647;
+
+/** Enmascara cada campo con una clave derivada de semilla, prototipo, instrucción y posición. */
+function encodeOperand(value: number, pc: number, field: number, seed: number, protoSalt: number): number {
+  const normalized = ((value % OPERAND_MODULUS) + OPERAND_MODULUS) % OPERAND_MODULUS;
+  const mask = ((seed >>> 0) + pc * 131 + field * 977 + protoSalt * 4099) % OPERAND_MODULUS;
+  return (normalized + mask) % OPERAND_MODULUS;
+}
+
+function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }): string {
+  // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
+  const protoSalt = ++protoCounter.value;
+  const code = p.code.map((ins: Instr, index: number) => {
+    const pc = index + 1;
+    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, ins.t !== undefined ? ins.t + 1 : 0, ins.c ? 1 : 0, ins.line ?? 0];
+    return `{${fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt)).join(',')}}`;
+  }).join(',');
   const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
-  const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex)).join(',');
-  return `{${keys.np}=${p.nparams},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
+  const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter)).join(',');
+  return `{${keys.salt}=${protoSalt},${keys.np}=${p.nparams},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -125,7 +138,15 @@ local typefn, select, setmt, getmt, errorfn = type, select, setmetatable, getmet
 local getenv, getgenvfn = getfenv, getgenv
 local ENV = (getgenvfn and getgenvfn()) or (getenv and getenv(0)) or _G
 local STEP_LIMIT = __LIMIT__
-local steps, curLine = 0, 0
+local OPERAND_MODULUS, OPERAND_HALF = 2147483647, 1073741823
+local OPERAND_SEED = __OPERAND_SEED__
+local function decodeOperand(value, pc, field, protoSalt)
+  local mask = (OPERAND_SEED + pc * 131 + field * 977 + protoSalt * 4099) % OPERAND_MODULUS
+  local decoded = (value - mask) % OPERAND_MODULUS
+  if decoded > OPERAND_HALF then decoded = decoded - OPERAND_MODULUS end
+  return decoded
+end
+local steps, curLine, depth = 0, 0, 0
 local function fail(msg) errorfn("línea " .. curLine .. ": " .. msg, 0) end
 local MULTI = {}
 local function multi(n) return setmt({n = n}, MULTI) end
@@ -150,6 +171,8 @@ local function makeClosure(child, cells)
   end
 end
 run = function(P, U, args)
+  depth = depth + 1
+  if depth > 200 then depth = depth - 1; fail("stack overflow") end
   local slots = {}
   local np = P.__KEY_NP__
   for i = 1, np do slots[i] = args[i] end
@@ -159,8 +182,14 @@ run = function(P, U, args)
   end
   local st, sp = {}, 0
   local code, pc = P.__KEY_CODE__, 1
-  local function push(v) sp = sp + 1; st[sp] = v end
+  local protoSalt = P.__KEY_SALT__
+  local function push(v)
+    sp = sp + 1
+    if sp > 100000 then fail("límite de pila superado") end
+    st[sp] = v
+  end
   local function pop()
+    if sp < 1 then fail("pila vacía") end
     local v = st[sp]
     st[sp] = nil
     sp = sp - 1
@@ -185,12 +214,18 @@ run = function(P, U, args)
     return out
   end
   while true do
-    local ins = code[pc]
-    pc = pc + 1
-    local op, a, b, t, c = ins[1], ins[2], ins[3], ins[4], ins[5] == 1
+    local ip = pc
+    local ins = code[ip]
+    if not ins then fail("bytecode truncado o alterado") end
+    pc = ip + 1
+    local op = decodeOperand(ins[1], ip, 1, protoSalt)
+    local a = decodeOperand(ins[2], ip, 2, protoSalt)
+    local b = decodeOperand(ins[3], ip, 3, protoSalt)
+    local t = decodeOperand(ins[4], ip, 4, protoSalt)
+    local c = decodeOperand(ins[5], ip, 5, protoSalt) == 1
     steps = steps + 1
     if steps > STEP_LIMIT then fail("límite de ejecución superado") end
-    curLine = ins[6]
+    curLine = decodeOperand(ins[6], ip, 6, protoSalt)
     if op == OP_CONST then push(P.__KEY_CONST__[a + 1])
     elseif op == OP_NIL then push(nil)
     elseif op == OP_TRUE then push(true)
@@ -204,8 +239,8 @@ run = function(P, U, args)
     elseif op == OP_SETBOX then slots[a + 1].v = pop()
     elseif op == OP_GETUP then push(U[a + 1].v)
     elseif op == OP_SETUP then U[a + 1].v = pop()
-    elseif op == OP_GETG then push(ENV[P.k[a + 1]])
-    elseif op == OP_SETG then ENV[P.k[a + 1]] = pop()
+    elseif op == OP_GETG then push(ENV[P.__KEY_CONST__[a + 1]])
+    elseif op == OP_SETG then ENV[P.__KEY_CONST__[a + 1]] = pop()
     elseif op == OP_GETI then
       local k = pop()
       local o = pop()
@@ -218,7 +253,7 @@ run = function(P, U, args)
       o[k] = v
     elseif op == OP_SELF then
       local o = pop()
-      push(index(o, P.k[a + 1]))
+      push(index(o, P.__KEY_CONST__[a + 1]))
       push(o)
     elseif op == OP_ADD then local y = pop(); local x = pop(); push(x + y)
     elseif op == OP_SUB then local y = pop(); local x = pop(); push(x - y)
@@ -287,6 +322,7 @@ run = function(P, U, args)
       else
         out = popN(a)
       end
+      depth = depth - 1
       do return out end
     elseif op == OP_VARARG then
       if c then
@@ -347,10 +383,11 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     return String(code);
   });
   const keys = protoKeys(seed);
-  const keyValues: Record<string, string> = { NP: keys.np, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues };
-  body = body.replace(/__KEY_(NP|VA|CODE|CONST|CHILD|UP)__/g, (_m, name: string) => keyValues[name]);
+  const keyValues: Record<string, string> = { NP: keys.np, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt };
+  body = body.replace(/__KEY_(NP|VA|CODE|CONST|CHILD|UP|SALT)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
-  body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }));
+  body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
+  body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }));
   return body.trimStart();
 }
 

@@ -39,7 +39,7 @@ const MAX_ERRORS = 200;
 
 const DEFAULT_SETTINGS: Settings = {
   maxInputBytes: 1024 * 1024,
-  enabledProfiles: ['normal', 'medium', 'max', 'basic', 'advanced', 'professional', 'custom'],
+  enabledProfiles: ['basic', 'medium', 'max'],
 };
 
 /**
@@ -53,7 +53,7 @@ export class Store {
     this.data = { users: [], history: [], errors: [], settings: { ...DEFAULT_SETTINGS } };
     if (file && existsSync(file)) {
       const loaded = JSON.parse(readFileSync(file, 'utf8')) as Partial<Data>;
-      this.data = { ...this.data, ...loaded, settings: { ...DEFAULT_SETTINGS, ...loaded.settings } };
+      this.data = { ...this.data, ...loaded, settings: { ...DEFAULT_SETTINGS, ...loaded.settings, enabledProfiles: ['basic', 'medium', 'max'] } };
     }
   }
 
@@ -76,6 +76,11 @@ export class Store {
   addUser(u: User): void {
     this.data.users.push(u);
     this.save();
+  }
+
+  updateUser(user: User): void {
+    const index = this.data.users.findIndex((u) => u.id === user.id);
+    if (index >= 0) { this.data.users[index] = user; this.save(); }
   }
 
   addHistory(h: HistoryEntry): void {

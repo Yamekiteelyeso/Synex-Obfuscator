@@ -60,25 +60,22 @@ test('Dashboard muestra métricas y estado vacío', () => {
   assert.match(out, /boom/);
 });
 
-test('Editor deshabilita técnicas pendientes en perfil personalizado', () => {
+test('Editor ofrece editor de código y no muestra perfiles personalizados', () => {
   const html = renderToStaticMarkup(
     <Editor
       token="t"
-      profiles={[{ name: 'basic', techniques: [] }, { name: 'custom', techniques: [] }]}
+      profiles={[{ name: 'basic', techniques: [] }, { name: 'medium', techniques: [] }, { name: 'max', techniques: [] }]}
       techniques={[
         { id: 'identifiers', label: 'Identificadores', status: 'implemented' },
         { id: 'vm', label: 'VM', status: 'pending' },
       ]}
-      initialProfile="custom"
+      initialProfile="basic"
       onDone={() => undefined}
     />,
   );
   assert.match(html, /aria-label="Código Luau"/);
-  assert.match(html, /legend>Técnicas/);
-  assert.match(html, /Identificadores/);
-  // La técnica pendiente aparece marcada como pendiente y deshabilitada.
-  assert.match(html, /VM \(pendiente\)/);
-  assert.match(html, /disabled=""[^>]*\/>VM/);
+  assert.doesNotMatch(html, /legend>Técnicas/);
+  assert.match(html, /BASIC/);
   const basic = renderToStaticMarkup(<Editor token="t" profiles={[]} techniques={[]} onDone={() => undefined} />);
   assert.doesNotMatch(basic, /legend>Técnicas/);
 });
@@ -91,10 +88,14 @@ test('History y Admin renderizan estados', () => {
   const a = renderToStaticMarkup(
     <Admin data={{ users: [], jobs: [], errors: [], settings: { maxInputBytes: 1048576, enabledProfiles: ['basic'] } }} onToggleProfile={() => undefined} />,
   );
-  assert.match(a, /Perfiles habilitados/);
+  assert.match(a, /Planes disponibles/);
 });
 
 test('AuthView muestra el formulario de acceso', () => {
   const html = renderToStaticMarkup(<AuthView onAuth={() => undefined} />);
   assert.match(html, /Iniciar sesión/);
+  assert.match(html, /Discord/);
+  assert.match(html, /SYNEX OBFUSCADOR/);
+  assert.match(html, /Discord/);
+  assert.match(html, /SYNEX OBFUSCADOR/);
 });

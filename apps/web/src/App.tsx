@@ -29,6 +29,7 @@ export function App() {
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [admin, setAdmin] = useState<AdminData | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [discordPending, setDiscordPending] = useState(() => new URLSearchParams(window.location.search).has('discord_ticket'));
 
   const logout = useCallback(() => {
     if (token) api('POST', '/api/auth/logout', undefined, token).catch(() => undefined);
@@ -63,6 +64,16 @@ export function App() {
   }, [token, logout]);
 
   useEffect(() => {
+    const ticket = new URLSearchParams(window.location.search).get('discord_ticket');
+    if (!ticket) return;
+    window.history.replaceState({}, document.title, window.location.pathname);
+    api<{ token: string; user: SessionUser }>('POST', '/api/auth/discord/exchange', { ticket }).then((r) => {
+      try { localStorage.setItem(TOKEN_KEY, r.token); } catch { /* sesión en memoria */ }
+      setToken(r.token); setUser(r.user);
+    }).catch(() => { setToken(null); setUser(null); }).finally(() => setDiscordPending(false));
+  }, []);
+
+  useEffect(() => {
     api('GET', '/api/profiles').then((r: any) => {
       setProfiles(r.profiles);
       setTechniques(r.techniques);
@@ -74,6 +85,8 @@ export function App() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  if (discordPending) return <div className="auth-screen"><div className="auth-card"><div className="brand-mark">SYNEX</div><p>Conectando tu cuenta de Discord…</p></div></div>;
 
   if (!token) {
     return <AuthView onAuth={(t, u) => { setToken(t); setUser(u); }} />;
@@ -93,7 +106,7 @@ export function App() {
   return (
     <div className="app">
       <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
-        <div className="brand">SYNEX<span>Obfuscator</span></div>
+        <div className="brand"><b className="brand-symbol small">S</b> SYNEX<span>OBFUSCADOR</span></div>
         <nav>
           {visible.map((n) => (
             <button key={n.id} className={view === n.id ? 'active' : ''} onClick={() => { setView(n.id); setMenuOpen(false); }}>
@@ -102,7 +115,7 @@ export function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <small>{user?.email}</small>
+          <small>{user?.discordUsername ? '@' + user.discordUsername : user?.email}</small>
           <button className="btn ghost" onClick={logout}>Cerrar sesión</button>
         </div>
       </aside>
@@ -111,7 +124,7 @@ export function App() {
           <button className="btn ghost menu-btn" aria-label="Menú" onClick={() => setMenuOpen(!menuOpen)}>☰</button>
           <span className="muted">{health ? 'Motor en línea' : 'Motor sin conexión'}</span>
         </header>
-        {view === 'dashboard' && <Dashboard stats={stats} health={health} email={user?.email ?? ''} />}
+        {view === 'dashboard' && <Dashboard stats={stats} health={health} email={user?.discordUsername ? '@' + user.discordUsername : (user?.email ?? '')} />}
         {view === 'editor' && (
           <Editor token={token} profiles={profiles} techniques={techniques} maxBytes={health?.maxInputBytes} onDone={refresh} />
         )}

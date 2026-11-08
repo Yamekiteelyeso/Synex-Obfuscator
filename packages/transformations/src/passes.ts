@@ -28,16 +28,21 @@ export function rewrite(root: object, rule: (n: any) => any | undefined): void {
   }
 }
 
-/** Constante entera -> (N + K) - K con K aleatorio: la misma constante, distinta representación. */
+/** Constante entera -> ((N + K) * M - K*M) // M con K y M aleatorios; conserva el entero exacto. */
 export function transformNumbers(chunk: A.Chunk, rand: () => number): void {
   rewrite(chunk, (n) => {
     if (n.kind !== 'Number') return undefined;
     const value = Number(n.raw.replace(/_/g, ''));
-    if (!Number.isInteger(value) || value > 1_000_000) return undefined;
+    if (!Number.isInteger(value) || Math.abs(value) > 1_000_000) return undefined;
     const k = 1 + Math.floor(rand() * 997);
+    const m = 2 + Math.floor(rand() * 31);
     const num = (x: number): A.NumberLit => ({ kind: 'Number', raw: String(x), line: n.line, column: n.column });
-    const inner: A.BinaryExpr = { kind: 'Binary', op: '-', left: num(value + k), right: num(k), line: n.line, column: n.column };
-    return { kind: 'Paren', expr: inner, line: n.line, column: n.column } satisfies A.ParenExpr;
+    const add: A.BinaryExpr = { kind: 'Binary', op: '+', left: num(value), right: num(k), line: n.line, column: n.column };
+    const mul: A.BinaryExpr = { kind: 'Binary', op: '*', left: add, right: num(m), line: n.line, column: n.column };
+    const correction: A.BinaryExpr = { kind: 'Binary', op: '-', left: mul, right: num(k * m), line: n.line, column: n.column };
+    // La división entera exacta recupera N sin convertirlo a float (22 sigue imprimiéndose como 22).
+    const div: A.BinaryExpr = { kind: 'Binary', op: '//', left: correction, right: num(m), line: n.line, column: n.column };
+    return { kind: 'Paren', expr: div, line: n.line, column: n.column } satisfies A.ParenExpr;
   });
 }
 

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runProfile, resolveSettings, PROFILES, unavailable, JobManager } from '../src/index.js';
 
@@ -145,4 +146,25 @@ test('todas las salidas empiezan con la marca Synex y declaran si usan VM', () =
   const roblox = runProfile('print("hola")', { profile: 'roblox', seed: 8 });
   assert.ok(basic.code.startsWith('-- [Synex Obf] | profile: basic | vm: off\n'));
   assert.ok(roblox.code.startsWith('-- [Synex Obf] | profile: roblox | vm: on\n'));
+});
+
+
+test('Max aplica la configuración más intensa y emite bytecode VM protegido', () => {
+  const settings = resolveSettings('max');
+  assert.ok(settings.techniques.includes('vm'));
+  assert.ok(settings.techniques.includes('integrity'));
+  assert.ok(settings.deadCodeDensity >= 0.6);
+  assert.ok(settings.controlFlowProbability >= 0.8);
+  const result = runProfile(SAMPLE, { profile: 'max', seed: 424242 });
+  assert.equal(result.code.split(String.fromCharCode(10))[0], '-- [Synex Obf] | profile: max | vm: on');
+  assert.match(result.code, /decodeOperand/);
+  assert.ok(!result.code.includes('P.k['));
+});
+
+const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
+
+test('Max completo: transformaciones y VM conservan el resultado en Lua 5.4', { skip: !hasLua54 }, () => {
+  const result = runProfile(SAMPLE, { profile: 'max', seed: 8675309 });
+  const output = execFileSync('lua5.4', ['-'], { input: result.code, encoding: 'utf8', timeout: 7000 });
+  assert.equal(output.trim(), ['items', '22', 'false'].join(String.fromCharCode(9)));
 });

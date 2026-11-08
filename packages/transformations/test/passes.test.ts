@@ -10,6 +10,7 @@ const PROGRAMS = [
   'local function f(x) if x == 2 then return "two" elseif x ~= 3 then return "other" end return "three" end\nprint(f(2), f(3), f(9))',
   'local n = 0\nwhile n < 5 do n = n + 1; if n == 3 then continue end end\nprint(n)',
   'local a, b = 1000000, 0.5\nprint(a - 1, b * 2, 2 ^ 3)',
+  'local n = -999999\nprint(n, 999999, -42, 0)',
 ];
 
 for (const [i, src] of PROGRAMS.entries()) {
