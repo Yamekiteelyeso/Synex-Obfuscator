@@ -19,6 +19,46 @@ function tostring(v: Value): string {
   return typeName(v) + ': builtin';
 }
 
+
+function luaPatternToRegExp(pattern: string): RegExp {
+  if (pattern.length > 4096) throw new LuaError('Lua pattern too large');
+  const classFor = (code: string): string | undefined => {
+    const lower: Record<string, string> = {
+      a: 'A-Za-z', c: '\\x00-\\x1F\\x7F', d: '0-9', g: '!-~',
+      l: 'a-z', p: '\\x21-\\x2F\\x3A-\\x40\\x5B-\\x60\\x7B-\\x7E', s: '\\s', u: 'A-Z',
+      w: 'A-Za-z0-9', x: 'A-Fa-f0-9', z: '\\x00',
+    };
+    const key = code.toLowerCase();
+    const value = lower[key];
+    if (!value) return undefined;
+    return code === key ? value : '^' + value;
+  };
+  const escape = (ch: string) => /[\\^$.*+?()[\]{}|]/.test(ch) ? '\\' + ch : ch;
+  let output = '';
+  let inClass = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === '%' && i + 1 < pattern.length) {
+      const next = pattern[++i];
+      if (next === 'b' || next === 'f') throw new LuaError('Lua pattern %' + next + ' is not supported yet');
+      const cls = classFor(next);
+      if (cls !== undefined) {
+        if (inClass && cls.startsWith('^')) throw new LuaError('negated Lua character class inside [] is unsupported');
+        output += inClass ? cls : '[' + cls + ']';
+      } else output += escape(next);
+      continue;
+    }
+    if (ch === '[') { inClass = true; output += '['; continue; }
+    if (ch === ']' && inClass) { inClass = false; output += ']'; continue; }
+    if (ch === '-' && !inClass) { output += '*?'; continue; }
+    if (ch === '(' && pattern[i + 1] === ')') throw new LuaError('Lua position captures () are not supported yet');
+    output += inClass ? ch : escape(ch);
+  }
+  if (inClass) throw new LuaError('malformed Lua pattern (missing ])');
+  try { return new RegExp(output, 'g'); }
+  catch { throw new LuaError('malformed Lua pattern'); }
+}
+
 /** Biblioteca mínima de Luau usada por el intérprete de referencia. */
 export function installStdlib(interp: LuaEnvironment): void {
   const call = (f: Value, args: Value[]): Value[] => interp.callValue(f, args, at);
@@ -254,6 +294,56 @@ export function installStdlib(interp: LuaEnvironment): void {
       return byte;
     });
     return [String.fromCharCode(...bytes)];
+  }));
+  stringLib.set('match', fn('match', (args) => {
+    const source = String(args[0]);
+    const pattern = String(args[1]);
+    const init = args[2] === undefined ? 1 : toNumber(args[2], at);
+    if (!Number.isSafeInteger(init)) throw new LuaError('bad argument to string.match (integer index expected)');
+    const start = init < 0 ? source.length + init + 1 : init;
+    if (start < 1 || start > source.length + 1) return [undefined];
+    const regex = luaPatternToRegExp(pattern);
+    regex.lastIndex = start - 1;
+    const match = regex.exec(source);
+    if (!match) return [undefined];
+    return match.length > 1 ? match.slice(1) : [match[0]];
+  }));
+  stringLib.set('gsub', fn('gsub', (args) => {
+    const source = String(args[0]);
+    const pattern = String(args[1]);
+    const replacement = args[2];
+    const limit = args[3] === undefined ? Number.MAX_SAFE_INTEGER : toNumber(args[3], at);
+    if (!Number.isSafeInteger(limit) || limit < 0) throw new LuaError('bad argument to string.gsub (invalid count)');
+    if (limit === 0) return [source, 0];
+    if (typeof replacement !== 'string' && !(replacement instanceof LuaFunction) && !(replacement instanceof LuaTable)) {
+      throw new LuaError('bad argument to string.gsub (string, table, or function expected)');
+    }
+    const regex = luaPatternToRegExp(pattern);
+    let count = 0;
+    const output = source.replace(regex, (...values: unknown[]) => {
+      const match = String(values[0]);
+      const captures = values.slice(1, -2) as (string | undefined)[];
+      if (count >= limit) return match;
+      count++;
+      if (typeof replacement === 'string') {
+        return replacement.replace(/%%|%[0-9]/g, (token) => {
+          if (token === '%%') return '%';
+          const index = Number(token[1]);
+          if (index === 0) return match;
+          const capture = captures[index - 1];
+          return capture === undefined ? '' : capture;
+        });
+      }
+      if (replacement instanceof LuaTable) {
+        const key = captures.length ? captures[0] : match;
+        const value = replacement.get(key);
+        return value === undefined || value === false ? match : tostring(value);
+      }
+      const callArgs: Value[] = captures.length ? captures : [match];
+      const result = call(replacement, callArgs)[0];
+      return result === undefined || result === false ? match : tostring(result);
+    });
+    return [output, count];
   }));
   stringLib.set('find', fn('find', (args) => {
     const source = String(args[0]);
