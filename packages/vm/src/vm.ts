@@ -4,6 +4,7 @@ import {
   truthy, typeName, type LuaEnvironment, type Value,
 } from '@synex/runtime';
 import { Multi, type Instr, type Proto } from '@synex/ir';
+import { validateProto } from './validate.js';
 
 /** Celda compartida por closures para un local capturado. */
 export interface Cell { v: Value }
