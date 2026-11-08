@@ -1,8 +1,8 @@
-const applicationId = process.env.DISCORD_APPLICATION_ID;
+const applicationId = process.env.DISCORD_CLIENT_ID;
 const botToken = process.env.DISCORD_BOT_TOKEN;
 
 if (!applicationId || !botToken) {
-  console.error('Faltan DISCORD_APPLICATION_ID o DISCORD_BOT_TOKEN.');
+  console.error('Faltan DISCORD_CLIENT_ID o DISCORD_BOT_TOKEN.');
   process.exit(1);
 }
 
