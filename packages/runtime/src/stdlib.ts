@@ -283,7 +283,7 @@ export function installStdlib(interp: LuaEnvironment): void {
     for (let index = 0; index < template.length; index++) {
       if (template[index] !== '%') { output += template[index]; continue; }
       if (template[index + 1] === '%') { output += '%'; index++; continue; }
-      const match = /^%([-+ #0]*)(\\d*)(?:\\.(\\d+))?([cdiuoxXfFeEgGqs])/.exec(template.slice(index));
+      const match = /^%([-+ #0]*)(\d*)(?:\.(\d+))?([cdiuoxXfFeEgGqs])/.exec(template.slice(index));
       if (!match) throw new LuaError('invalid format specifier near ' + template.slice(index, index + 8));
       const [, flags, widthText, precisionText, spec] = match;
       const width = widthText ? Number(widthText) : 0;
