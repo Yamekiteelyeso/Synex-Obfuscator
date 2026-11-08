@@ -24,39 +24,10 @@ El intérprete de referencia y la VM comparten estas implementaciones:
 - **Globales:** `print`, `tostring`, `tonumber`, `type`, `error`, `pcall`, `select`, `pairs`, `ipairs`.
 - **`table`:** `concat`, `pack`, `unpack`, `insert`, `remove`, `sort`, `move`, `clone`, `clear`, `find`, `create`.
 - **`string`:** `char`, `len`, `byte`, `sub`, `rep`, `lower`, `upper`, `reverse`, `split`, `find`, `match`, `gmatch`, `gsub` con un subconjunto de patrones Lua y `format` con conversiones comunes.
-- **`math`:** operaciones trigonométricas y numéricas habituales, `abs`, `min`, `max`, `clamp`, `sign`, `round`, `modf`, `pow`, `frexp`, `ldexp`, `lerp`, `map`, `isnan`, `random`, `randomseed`, `type`, `tointeger`, `pi` y `huge`.
+- **`math`:** operaciones trigonométricas y numéricas habituales, `abs`, `min`, `max`, `clamp`, `sign`, `round`, `modf`, `pow`, `frexp`, `ldexp`, `lerp`, `map`, `noise`, `isnan`, `isinf`, `isfinite`, `random`, `randomseed`, `type`, `tointeger` y constantes `pi`, `huge`, `nan`, `e`, `phi`, `sqrt2`, `tau`.
 - **`bit32`:** `band`, `bor`, `bxor`.
 
-No están implementadas todavía todas las APIs de Lua/Luau: `string.find`, `string.match`, `string.gmatch` y `string.gsub` admiten un subconjunto de patrones Lua con clases comunes, cuantificadores, capturas, punto que también coincide con saltos de línea y anclas `^`/`# Synex Obfuscador
-
-Ofuscador profesional de scripts Luau. Monorepo TypeScript.
-
-## Estructura
-
-| Paquete | Estado |
-|---|---|
-| `packages/shared` | Implementado: errores con posición (`SynexError`) |
-| `packages/parser` | Lexer y parser de Luau con AST implementados (incluye tipos, `continue`, compuestos, `if`-expr, `::`). 49 pruebas |
-| `packages/semantic` | Análisis de ámbitos, referencias, globales y validación de break/continue/... (17 pruebas). Limitación: la posición de los parámetros es la del primer statement del cuerpo |
-| `packages/ir` | Bytecode de pila por función y compilador AST→IR: slots, celdas para locales capturados, upvalues, bucles, llamadas múltiples, tablas |
-| `packages/transformations` | Pipeline: renombrado de locales (determinista por semilla), protección de cadenas con cabecera de descifrado, aplanado del flujo de control (incluye funciones locales y break/continue), comprobación de integridad en tiempo de ejecución y verificación de salida (25 pruebas de aplanado e integridad, con ejecución real en Lua 5.4) |
-| `packages/vm` | VM de pila que ejecuta el IR (referencia en TypeScript) y emisor de la transformación mediante VM: compila el programa al IR y lo sustituye por un intérprete en Luau con códigos de operación aleatorios por build. Pruebas: 18 programas ejecutados en Lua 5.4 original y emitido, con salida idéntica (19 pruebas) |
-| `packages/runtime` | Intérprete de referencia sobre el AST, con globals básicos, `table`, `string`, `math` y `bit32`; oráculo de equivalencia para la VM y las transformaciones. La biblioteca implementa un subconjunto documentado de Lua/Luau, no toda la biblioteca estándar. |
-| `packages/engine` | Motor de orquestación: planes públicos (Basic, Medium, Max), etapas con tiempos, digest SHA-256, comprobación de equivalencia, VM configurable y sistema de trabajos en worker_threads con límites de cola, tamaño y tiempo. Incluye pruebas del perfil completo en Lua 5.4 real (13 pruebas) |
-| `apps/api` | API HTTP sin dependencias: autenticación exclusiva por Discord, cuentas y planes persistidos en JSON, cuota Free por cuenta y asignación administrativa manual de planes, límite de peticiones por IP y endpoints de trabajos. |
-| `apps/web` | Acceso solo por Discord, editor con perfiles Basic/Medium/Max según plan, sección Free/Premium/Plus con contacto directo para comprar y administración de cuentas. |
-
-## Biblioteca estándar del runtime
-
-El intérprete de referencia y la VM comparten estas implementaciones:
-
-- **Globales:** `print`, `tostring`, `tonumber`, `type`, `error`, `pcall`, `select`, `pairs`, `ipairs`.
-- **`table`:** `concat`, `pack`, `unpack`, `insert`, `remove`, `sort`, `move`, `clone`, `clear`, `find`, `create`.
-- **`string`:** `char`, `len`, `byte`, `sub`, `rep`, `lower`, `upper`, `reverse`, `split`, `find`, `match`, `gmatch`, `gsub` con un subconjunto de patrones Lua y `format` con conversiones comunes.
-- **`math`:** operaciones trigonométricas y numéricas habituales, `abs`, `min`, `max`, `clamp`, `sign`, `round`, `modf`, `random`, `randomseed`, `type`, `tointeger`, `pi` y `huge`.
-- **`bit32`:** `band`, `bor`, `bxor`.
-
- en sus posiciones Lua; `%b`, `%f` y capturas de posición todavía no están implementadas. Para limitar el retroceso del motor de expresiones regulares, el traductor rechaza grupos cuantificados que ya contienen repeticiones, más de un comodín repetido y patrones con más de 32 cuantificadores; `string.format` cubre conversiones comunes pero no todos los modificadores y formatos (`%a` hexadecimal, por ejemplo); corrutinas, metatablas completas y APIs específicas de Roblox siguen pendientes. `math.noise` aún no está implementada. El generador aleatorio del runtime es reproducible y útil para pruebas, pero no replica bit a bit el PCG de 32 bits de Luau ni el PRNG de Lua 5.4 y no es criptográfico. Las cadenas internas son byte-strings UTF-8; las funciones de caso convierten sólo ASCII para evitar alterar bytes no ASCII.
+No están implementadas todavía todas las APIs de Lua/Luau: `string.find`, `string.match`, `string.gmatch` y `string.gsub` admiten un subconjunto de patrones Lua con clases comunes, cuantificadores, capturas, punto que también coincide con saltos de línea y anclas `^`/`$` en sus posiciones Lua; `%b`, `%f` y capturas de posición todavía no están implementadas. El traductor de patrones limita su complejidad y rechaza algunas estructuras anidadas para evitar retroceso excesivo en el motor RegExp. `string.format` cubre conversiones comunes pero no todos los modificadores y formatos (`%a` hexadecimal, por ejemplo); corrutinas, metatablas completas y APIs específicas de Roblox siguen pendientes. `math.noise` implementa el ruido Perlin 3D de Luau con período 256 y operaciones intermedias float32; el código y las tablas se adaptaron del runtime Luau bajo licencia MIT (ver `packages/runtime/third_party/LUAU-NOISE-NOTICE.md`). El generador `math.random` del runtime es reproducible para pruebas, pero no replica bit a bit el PCG de Luau ni el PRNG de Lua 5.4 y no es criptográfico. Las cadenas internas son byte-strings UTF-8; las funciones de caso convierten sólo ASCII para evitar alterar bytes no ASCII.
 
 ## Estado del lexer
 
