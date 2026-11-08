@@ -10,6 +10,8 @@ export { emitLuauVm, compileToLuauVm, opcodeTable } from './emit.js';
 export type { EmitOptions } from './emit.js';
 export { validateProto } from './validate.js';
 export { sealXChaCha20Poly1305, openXChaCha20Poly1305 } from './xchacha.js';
+export { compileLuauRecordsV2, verifyLuauRecordsV2 } from './record-format.js';
+export type { ArtifactV2, RecordV2, LuauInstructionV2, CompileRecordV2Options } from './record-format.js';
 
 export interface VmResult {
   output: string[];
