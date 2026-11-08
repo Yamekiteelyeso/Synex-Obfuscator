@@ -173,6 +173,10 @@ test('string.find soporta patrones Lua, capturas, índices negativos y modo plai
   assert.deepEqual(out('print(string.find("a123b", "a.-b"))'), ['1\t5']);
 });
 
+test('string.gmatch itera coincidencias y capturas sin repetir matches vacíos', () => {
+  assert.deepEqual(out('local words = {}; for word in string.gmatch("one two three", "%a+") do table.insert(words, word) end; print(table.concat(words, ","))'), ['one,two,three']);
+  assert.deepEqual(out('local pairs = {}; for left, right in string.gmatch("a1 b2", "(%a)(%d)") do table.insert(pairs, left .. right) end; print(table.concat(pairs, ","))'), ['a1,b2']);
+});
 test('string.match devuelve coincidencias y capturas Lua', () => {
   assert.deepEqual(out('print(string.match("user42", "(%a+)(%d+)")); print(string.match("abc", "%d+"))'), ['user\t42', 'nil']);
   assert.deepEqual(out('print(string.match("abc123", "%d+", -3))'), ['123']);
