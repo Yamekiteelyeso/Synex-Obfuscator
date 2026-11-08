@@ -100,19 +100,23 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
 const OPERAND_MODULUS = 2147483647;
 
 /** Enmascara cada campo con una clave derivada de semilla, prototipo, instrucción y posición. */
-function encodeOperand(value: number, pc: number, field: number, seed: number, protoSalt: number): number {
+function encodeOperand(value: number, pc: number, field: number, seed: number, protoSalt: number, chain: number): number {
   const normalized = ((value % OPERAND_MODULUS) + OPERAND_MODULUS) % OPERAND_MODULUS;
-  const mask = ((seed >>> 0) + pc * 131 + field * 977 + protoSalt * 4099 + (pc * field * protoSalt * 17) % OPERAND_MODULUS) % OPERAND_MODULUS;
+  const mask = ((seed >>> 0) + pc * 131 + field * 977 + protoSalt * 4099 + (pc * field * protoSalt * 17 + chain * 13) % OPERAND_MODULUS) % OPERAND_MODULUS;
   return (normalized + mask) % OPERAND_MODULUS;
 }
 
 function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }): string {
   // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
   const protoSalt = ++protoCounter.value;
+  let chain = ((seed >>> 0) + protoSalt * 8191) % OPERAND_MODULUS;
   const code = p.code.map((ins: Instr, index: number) => {
     const pc = index + 1;
-    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, ins.t !== undefined ? ins.t + 1 : 0, ins.c ? 1 : 0, ins.line ?? 0];
-    return `{${fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt)).join(',')}}`;
+    const opcode = ops[ins.op];
+    const fields = [opcode, ins.a ?? 0, ins.b ?? 0, ins.t !== undefined ? ins.t + 1 : 0, ins.c ? 1 : 0, ins.line ?? 0];
+    const row = '{' + fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt, chain)).join(',') + '}';
+    chain = (chain * 48271 + opcode * 69621 + pc * 31 + protoSalt) % OPERAND_MODULUS;
+    return row;
   }).join(',');
   const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
@@ -160,8 +164,8 @@ local STEP_LIMIT = __LIMIT__
 local VALID_OP = __VALID_OPS__
 local OPERAND_MODULUS, OPERAND_HALF = 2147483647, 1073741823
 local OPERAND_SEED = __OPERAND_SEED__
-local function decodeOperand(value, pc, field, protoSalt)
-  local mask = (OPERAND_SEED + pc * 131 + field * 977 + protoSalt * 4099 + (pc * field * protoSalt * 17) % OPERAND_MODULUS) % OPERAND_MODULUS
+local function decodeOperand(value, pc, field, protoSalt, chain)
+  local mask = (OPERAND_SEED + pc * 131 + field * 977 + protoSalt * 4099 + (pc * field * protoSalt * 17 + chain * 13) % OPERAND_MODULUS) % OPERAND_MODULUS
   local decoded = (value - mask) % OPERAND_MODULUS
   if decoded > OPERAND_HALF then decoded = decoded - OPERAND_MODULUS end
   return decoded
@@ -207,6 +211,7 @@ run = function(P, U, args)
   local st, sp = {}, 0
   local code, pc = P.__KEY_CODE__, 1
   local protoSalt = P.__KEY_SALT__
+  local chain = (OPERAND_SEED + protoSalt * 8191) % OPERAND_MODULUS
   local function push(v)
     sp = sp + 1
     if sp > 100000 then fail("límite de pila superado") end
@@ -250,12 +255,13 @@ run = function(P, U, args)
       if typefn(value) ~= "number" or value ~= floor(value) then fail("operando corrupto") end
     end
     pc = ip + 1
-    local op = decodeOperand(ins[1], ip, 1, protoSalt)
-    local a = decodeOperand(ins[2], ip, 2, protoSalt)
-    local b = decodeOperand(ins[3], ip, 3, protoSalt)
-    local t = decodeOperand(ins[4], ip, 4, protoSalt)
-    local c = decodeOperand(ins[5], ip, 5, protoSalt) == 1
+    local op = decodeOperand(ins[1], ip, 1, protoSalt, chain)
+    local a = decodeOperand(ins[2], ip, 2, protoSalt, chain)
+    local b = decodeOperand(ins[3], ip, 3, protoSalt, chain)
+    local t = decodeOperand(ins[4], ip, 4, protoSalt, chain)
+    local c = decodeOperand(ins[5], ip, 5, protoSalt, chain) == 1
     if not VALID_OP[op] then fail("opcode inválido") end
+    chain = (chain * 48271 + op * 69621 + ip * 31 + protoSalt) % OPERAND_MODULUS
     if (op == OP_GETL or op == OP_SETL or op == OP_NEWBOX or op == OP_GETBOX or op == OP_SETBOX or op == OP_BOXSLOT) and (a < 0 or a >= ns) then fail("slot fuera de rango") end
     if (op == OP_FORTEST or op == OP_FORSTEP or op == OP_GENCALL) and (a < 0 or a + 2 >= ns) then fail("slot de iterador fuera de rango") end
     if (op == OP_CONST or op == OP_GETG or op == OP_SETG or op == OP_SELF) and (a < 0 or a >= #P.__KEY_CONST__) then fail("constante fuera de rango") end
@@ -265,7 +271,7 @@ run = function(P, U, args)
       and (t < 1 or t > #code) then fail("salto fuera del prototipo") end
     steps = steps + 1
     if steps > STEP_LIMIT then fail("límite de ejecución superado") end
-    curLine = decodeOperand(ins[6], ip, 6, protoSalt)
+    curLine = decodeOperand(ins[6], ip, 6, protoSalt, (chain - (op * 69621 + ip * 31 + protoSalt)) * 48271 % OPERAND_MODULUS)
     if op == OP_CONST then push(P.__KEY_CONST__[a + 1])
     elseif op == OP_NIL then push(nil)
     elseif op == OP_TRUE then push(true)
