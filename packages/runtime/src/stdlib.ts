@@ -42,6 +42,7 @@ function luaPatternToRegExp(pattern: string): RegExp {
   let lastAtomIsWildcard = false;
   let wildcardRepeats = 0;
   let quantifierCount = 0;
+  let captureCount = 0;
   const groupHasQuantifier: boolean[] = [];
   let lastClosedGroupHasQuantifier = false;
 
@@ -54,6 +55,10 @@ function luaPatternToRegExp(pattern: string): RegExp {
       if (cls !== undefined) {
         if (inClass && cls.startsWith('^')) throw new LuaError('negated Lua character class inside [] is unsupported');
         output += inClass ? cls : '[' + cls + ']';
+      } else if (next >= '1' && next <= '9') {
+        if (inClass) throw new LuaError('Lua capture references inside character classes are unsupported');
+        if (Number(next) > captureCount) throw new LuaError('invalid Lua pattern backreference');
+        output += '\\' + next;
       } else output += escape(next);
       lastAtomIsWildcard = false;
       previousWasQuantifier = false;
@@ -83,6 +88,7 @@ function luaPatternToRegExp(pattern: string): RegExp {
     }
     if (ch === '(') {
       if (pattern[i + 1] === ')') throw new LuaError('Lua position captures () are not supported yet');
+      if (++captureCount > 32) throw new LuaError('Lua pattern has too many captures');
       groupHasQuantifier.push(false);
       output += '(';
       lastAtomIsWildcard = false;
