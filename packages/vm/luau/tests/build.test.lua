@@ -3,8 +3,14 @@ local names = {"LOAD", "ADD", "CALL", "RETURN", "JUMP"}
 local first = Build.plan(123456, names)
 local second = Build.plan(123456, names)
 local other = Build.plan(123457, names)
+local used = {}
 for _, name in ipairs(names) do
 	assert(first.opcodes[name] == second.opcodes[name], "same seed was not deterministic")
+	assert(not used[first.opcodes[name]], "opcode map contains a collision")
+	used[first.opcodes[name]] = true
+end
+for i = 1, 64 do
+	assert(first.salts[i] == second.salts[i], "same seed produced different prototype salts")
 end
 local different = false
 for _, name in ipairs(names) do
