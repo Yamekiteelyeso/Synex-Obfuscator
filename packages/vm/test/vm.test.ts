@@ -259,10 +259,10 @@ test('emisor Luau: cifra de forma reversible el metadato de línea', () => {
 });
 
 test('emisor Luau: oculta constantes numéricas con un decoder IEEE-754', () => {
-  const source = 'local a = 987654321\\nlocal b = 123.125\\nprint(a, b, -a)';
+  const source = 'local a = 987654321\nlocal b = 123.125\nprint(a, b, -a)';
   const emitted = compileToLuauVm(source, 778899);
   assert.match(emitted, /local function unnum/);
-  assert.doesNotMatch(emitted, /987654321|123\\.125/);
+  assert.doesNotMatch(emitted, /987654321|123\.125/);
   if (hasLua54) {
     const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 7000 });
     assert.equal(output.trim(), ['987654321', '123.125', '-987654321'].join(String.fromCharCode(9)));
