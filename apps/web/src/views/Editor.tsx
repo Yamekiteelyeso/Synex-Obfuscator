@@ -91,10 +91,10 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
 
   return (
     <section className="view">
-      <h2>Editor</h2>
+      <div className="editor-heading"><div><p className="eyebrow">WORKSPACE / PROTECCIÓN DE CÓDIGO</p><h2>Ofuscador</h2><p className="muted">Pega o importa tu script Luau y elige un nivel de protección.</p></div><span className="editor-tag">● MOTOR ACTIVO</span></div>
       <div className="toolbar">
         <select aria-label="Perfil" value={profile} onChange={(e: any) => setProfile(e.target.value)} disabled={busy}>
-          {profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+          {profiles.map((p) => <option key={p.name} value={p.name}>{p.name.toUpperCase()}</option>)}
         </select>
         <button className="btn" onClick={() => fileRef.current?.click()} disabled={busy}>Importar</button>
         <input ref={fileRef} type="file" accept=".lua,.luau,.txt" hidden onChange={importFile} />
@@ -103,7 +103,7 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
         <span className={`size ${problem && source ? 'over' : ''}`}>{formatBytes(bytes)} / {formatBytes(maxBytes)}</span>
       </div>
 
-      {profile === 'custom' && (
+      {false && profile === 'custom' && (
         <fieldset className="card techniques">
           <legend>Técnicas</legend>
           {techniques.map((t) => (
