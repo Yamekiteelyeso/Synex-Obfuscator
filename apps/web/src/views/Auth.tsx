@@ -48,7 +48,10 @@ export function AuthView({ onAuth }: { onAuth: (token: string, user: SessionUser
           {error && <p className="error-text" role="alert">{error}</p>}
           <button className="btn primary auth-submit" disabled={busy}>{busy ? 'Procesando…' : mode === 'login' ? 'Entrar a Synex' : 'Crear cuenta'} <span>↗</span></button>
           <div className="auth-divider"><span>O CONTINÚA CON</span></div>
-          <a className="btn discord-btn" href="/api/auth/discord"><span className="discord-glyph">◈</span> Discord</a>
+          <a className="btn discord-btn" href="/api/auth/discord" aria-label="Continuar con Discord">
+            <svg className="discord-logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.7 5.1A18.4 18.4 0 0 0 15.2 3.7l-.6 1.2a17 17 0 0 0-5.2 0l-.6-1.2a18.4 18.4 0 0 0-4.5 1.4C1.5 9.3.7 13.4 1.1 17.4a18.5 18.5 0 0 0 5.5 2.8l1.2-2a11.8 11.8 0 0 1-1.9-.9l.5-.4a13.2 13.2 0 0 0 11.2 0l.5.4a11.8 11.8 0 0 1-1.9.9l1.2 2a18.5 18.5 0 0 0 5.5-2.8c.5-4.6-.8-8.7-3.2-12.3ZM8.6 14.8c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Zm6.8 0c-1.1 0-2-1-2-2.2s.9-2.2 2-2.2 2 1 2 2.2-.9 2.2-2 2.2Z"/></svg>
+            Continuar con Discord
+          </a>
           <small className="auth-foot">Instala el bot y ejecuta <b>/synex-login</b> para recibir un enlace privado de acceso.</small>
           <button type="button" className="auth-switch" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}>
             {mode === 'login' ? '¿No tienes cuenta? Crear una' : '¿Ya tienes cuenta? Iniciar sesión'}

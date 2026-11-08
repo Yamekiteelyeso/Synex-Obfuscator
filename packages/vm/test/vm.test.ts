@@ -197,6 +197,19 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
 });
 
 
+test('emisor Luau: oculta APIs de introspección de entorno al script virtual', () => {
+  const source = 'print(getfenv, getgenv, getrenv, getreg, debug, hookfunction, getrawmetatable)';
+  const emitted = compileToLuauVm(source, 654321);
+  assert.match(emitted, /local BLOCKED_ENV/);
+  assert.match(emitted, /acceso de entorno bloqueado/);
+  assert.match(emitted, /rawgetfn\(executorEnv, key\)/);
+  const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
+  if (hasLua54) {
+    const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
+    assert.equal(output.trim(), ['nil', 'nil', 'nil', 'nil', 'nil', 'nil', 'nil'].join(String.fromCharCode(9)));
+  }
+});
+
 test('emisor Luau: aleatoriza los nombres de campos del prototipo por semilla', () => {
   const src = 'local function f(x) return x + 1 end return f(4)';
   const a = compileToLuauVm(src, 123);

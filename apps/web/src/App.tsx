@@ -1,16 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, TOKEN_KEY } from './api';
 import { AuthView, SessionUser } from './views/Auth';
-import { Dashboard, Stats } from './views/Dashboard';
 import { Editor, ProfileInfo, TechniqueInfo } from './views/Editor';
-import { History, HistoryEntry } from './views/History';
 import { Admin, AdminData } from './views/Admin';
 
-type View = 'dashboard' | 'editor' | 'history' | 'admin';
+type View = 'editor' | 'admin';
 const NAV: { id: View; label: string; adminOnly?: boolean }[] = [
-  { id: 'dashboard', label: 'Panel' },
-  { id: 'editor', label: 'Editor' },
-  { id: 'history', label: 'Historial' },
+  { id: 'editor', label: 'Ofuscador' },
   { id: 'admin', label: 'Administración', adminOnly: true },
 ];
 
@@ -21,12 +17,10 @@ function readToken(): string | null {
 export function App() {
   const [token, setToken] = useState<string | null>(readToken);
   const [user, setUser] = useState<SessionUser | null>(null);
-  const [view, setView] = useState<View>('dashboard');
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [view, setView] = useState<View>('editor');
   const [health, setHealth] = useState<any>(null);
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [techniques, setTechniques] = useState<TechniqueInfo[]>([]);
-  const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [admin, setAdmin] = useState<AdminData | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [discordPending, setDiscordPending] = useState(() => new URLSearchParams(window.location.search).has('discord_ticket'));
@@ -41,14 +35,8 @@ export function App() {
   const refresh = useCallback(async () => {
     if (!token) return;
     try {
-      const [me, st, hist] = await Promise.all([
-        api<{ user: SessionUser }>('GET', '/api/me', undefined, token),
-        api<Stats>('GET', '/api/stats', undefined, token),
-        api<{ jobs: HistoryEntry[] }>('GET', '/api/jobs', undefined, token),
-      ]);
+      const me = await api<{ user: SessionUser }>('GET', '/api/me', undefined, token);
       setUser(me.user);
-      setStats(st);
-      setHistory(hist.jobs.slice().sort((a, b) => b.createdAt - a.createdAt));
       if (me.user.role === 'admin') {
         const [u, j, e, s] = await Promise.all([
           api<any>('GET', '/api/admin/users', undefined, token),
@@ -124,11 +112,9 @@ export function App() {
           <button className="btn ghost menu-btn" aria-label="Menú" onClick={() => setMenuOpen(!menuOpen)}>☰</button>
           <span className="muted">{health ? 'Motor en línea' : 'Motor sin conexión'}</span>
         </header>
-        {view === 'dashboard' && <Dashboard stats={stats} health={health} email={user?.discordUsername ? '@' + user.discordUsername : (user?.email ?? '')} />}
         {view === 'editor' && (
           <Editor token={token} profiles={profiles} techniques={techniques} maxBytes={health?.maxInputBytes} onDone={refresh} />
         )}
-        {view === 'history' && <History jobs={history} />}
         {view === 'admin' && user?.role === 'admin' && <Admin data={admin} onToggleProfile={toggleProfile} />}
       </main>
     </div>

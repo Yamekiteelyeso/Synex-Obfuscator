@@ -81,6 +81,15 @@ test('cadenas de índice con punto no se cifran (son identificadores)', () => {
   assert.match(code, /t\.name/);
 });
 
+test('cadenas: el runtime no conserva una caché plaintext tras descifrar', () => {
+  const enc = createStringEncoder({ table: 'E', keys: 'K', cache: 'C', decode: 'D' }, createRng(12));
+  enc.encode('private marker');
+  const header = enc.header();
+  assert.match(header, /local v=table\.concat\(t\)/);
+  assert.doesNotMatch(header, /local C=/);
+  assert.doesNotMatch(header, /C\[i\]/);
+});
+
 test('cadenas: el codificador devuelve el valor original', () => {
   const names = { table: 'E', keys: 'K', cache: 'C', decode: 'D' };
   const enc = createStringEncoder(names, createRng(99));

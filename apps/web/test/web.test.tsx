@@ -94,8 +94,7 @@ test('History y Admin renderizan estados', () => {
 test('AuthView muestra el formulario de acceso', () => {
   const html = renderToStaticMarkup(<AuthView onAuth={() => undefined} />);
   assert.match(html, /Iniciar sesión/);
-  assert.match(html, /Discord/);
-  assert.match(html, /SYNEX OBFUSCADOR/);
-  assert.match(html, /Discord/);
-  assert.match(html, /SYNEX OBFUSCADOR/);
+  assert.match(html, /Continuar con Discord/);
+  assert.match(html, /discord-logo/);
+  assert.match(html, /href=\"\/api\/auth\/discord\"/);
 });

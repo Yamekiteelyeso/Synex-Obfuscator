@@ -93,7 +93,7 @@ export function createStringEncoder(
       return dataChecksum(entries);
     },
     header(verify = false): string {
-      const { table, keys, cache, decode } = names;
+      const { table, keys, decode } = names;
       const check = verify
         ? [
             `do local h=0 for i=1,#${table} do local e=${table}[i]`,
@@ -107,19 +107,14 @@ export function createStringEncoder(
       return [
         `local ${table}={${bytesLua}}`,
         `local ${keys}={${keysLua}}`,
-        `local ${cache}={}`,
         ...check,
         `local function ${decode}(i)`,
-        `local v=${cache}[i]`,
-        'if v==nil then',
         `local e=${table}[i]`,
         `local k=${keys}[i]`,
         'local t={}',
         'local s=k',
         'for j=1,#e do s=(s*73+41)%256; t[j]=string.char((e[j]-s-j*31)%256) end',
-        'v=table.concat(t)',
-        `${cache}[i]=v`,
-        'end',
+        'local v=table.concat(t)',
         'return v',
         'end',
         '',
