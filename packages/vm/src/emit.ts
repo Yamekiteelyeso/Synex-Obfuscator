@@ -444,8 +444,8 @@ local MASTER_INTEGRITY_KEY_HEX = "__MASTER_INTEGRITY_KEY__"
 local HEX_NIBBLE = {}
 for digit = 0, 9 do HEX_NIBBLE[48 + digit] = digit end
 for digit = 0, 5 do
-  HEX_NIBBLE[87 + digit] = 10 + digit
-  HEX_NIBBLE[55 + digit] = 10 + digit
+  HEX_NIBBLE[97 + digit] = 10 + digit
+  HEX_NIBBLE[65 + digit] = 10 + digit
 end
 local function hexBytes(hex)
   if typefn(hex) ~= "string" or #hex % 2 ~= 0 then return nil end
