@@ -188,7 +188,7 @@ describe('VM Luau cifrada v3: emisor de producción', { skip: !luauCliAvailable 
     assert.match(output, /ciphertext="[0-9a-f]{72}"/);
     assert.match(output, /chainTag="[0-9a-f]{64}"/);
     assert.doesNotMatch(output, /openPoly1305|hmacSha256|verifyRecord|advanceRecord|stateDigest/);
-    assert.doesNotMatch(output, /Synex\\/VM\\/record-chain|authentication failed|integrity key/);
+    assert.doesNotMatch(output, /Synex\/VM\/record-chain|authentication failed|integrity key/);
     const directory = mkdtempSync(join(tmpdir(), 'synex-v3-'));
     try {
       const file = join(directory, 'encrypted.lua');
