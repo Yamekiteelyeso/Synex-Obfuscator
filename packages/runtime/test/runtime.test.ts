@@ -158,6 +158,19 @@ test('math ofrece pow, frexp, ldexp, lerp, map, isnan y sign Luau', () => {
   assert.throws(() => out('math.ldexp(1, 1.5)'), /integer exponent expected/);
 });
 
+test('math.noise reproduce Perlin 3D Luau, defaults, period and integer lattice', () => {
+  assert.deepEqual(out('print(math.noise(1, 2, 3), math.noise(0), math.noise(10, 20))'), ['0\t0\t0']);
+  assert.deepEqual(out('local a = math.noise(1.158, 5.723); local b = math.noise(1.158, 6); print(math.abs(a - 0.48397532105446) < 0.00002, math.abs(b - 0.15315161645412) < 0.00002)'), ['true\ttrue']);
+  assert.deepEqual(out('print(math.noise(1.158) == math.noise(1.158, 0, 0), math.noise(1.158, 5.723) == math.noise(1.158, 5.723, 0), math.noise(1.158, 5.723, 0) == math.noise(257.158, 5.723, 0))'), ['true\ttrue\ttrue']);
+  assert.throws(() => out('math.noise()'), /one to three coordinates/);
+  assert.throws(() => out('math.noise(1, 2, 3, 4)'), /one to three coordinates/);
+});
+
+test('math expone constantes Luau y predicados de finitud', () => {
+  assert.deepEqual(out('print(math.isinf(math.huge), math.isinf(-math.huge), math.isinf(math.nan), math.isfinite(1), math.isfinite(math.huge), math.isfinite(math.nan), math.nan ~= math.nan)'), ['true\ttrue\tfalse\ttrue\tfalse\tfalse\ttrue']);
+  assert.deepEqual(out('print(math.abs(math.e - 2.718281828459045) < 1e-15, math.abs(math.phi - 1.618033988749895) < 1e-15, math.sqrt2 == math.sqrt(2), math.tau == 2 * math.pi)'), ['true\ttrue\ttrue\ttrue']);
+});
+
 test('math.randomseed hace reproducible math.random y valida intervalos', () => {
   const src = 'math.randomseed(123); local a = math.random(1, 10); local b = math.random(); math.randomseed(123); print(a, math.random(1, 10), b == math.random())';
   assert.deepEqual(out(src), ['' + (Number(out('math.randomseed(123); print(math.random(1, 10))')[0])) + '\t' + (Number(out('math.randomseed(123); print(math.random(1, 10))')[0])) + '\ttrue']);
