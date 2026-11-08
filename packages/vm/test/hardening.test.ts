@@ -173,6 +173,22 @@ describe('sellos jerárquicos de prototipos', { skip: !lua54Available && 'falta 
   });
 });
 
+describe('constantes lazy de nil y boolean', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+  test('preserva nil, true y false incluso tras múltiples lecturas', () => {
+    const source = [
+      'local absent = nil',
+      'local yes = true',
+      'local no = false',
+      'print(absent == nil, yes, no)',
+      'print(absent == nil, yes == true, no == false)',
+    ].join('\\n');
+    const original = runLua54(source);
+    const emitted = runLua54(compileToLuauVm(source, 913579));
+    assert.ok(emitted.ok, emitted.error);
+    assert.equal(emitted.stdout, original.stdout);
+  });
+});
+
 describe('codec polimórfico de constantes', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
   test('decodifica cadenas UTF-8 y números con parámetros variables', () => {
     const source = [
