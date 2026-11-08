@@ -745,7 +745,6 @@ run = function(P, U, args, expectedParentSalt, expectedParentSlot)
     if pc < 0 or pc > #code or (pc == 0 and op ~= OP_JMP and op ~= OP_RET) then
       fail("sucesora fuera del prototipo")
     end
-    if op == OP_RET and pc ~= 0 then fail("retorno con sucesora inesperada") end
     local hasTarget = op == OP_JMP or op == OP_JF or op == OP_JFK or op == OP_JTK
       or op == OP_FORTEST or op == OP_GENCALL
     if hasTarget then
