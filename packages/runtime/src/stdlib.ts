@@ -49,9 +49,17 @@ export function installStdlib(interp: LuaEnvironment): void {
     }
   }));
   g.set('select', fn('select', (args) => {
-    const n = args[0];
-    if (n === '#') return [args.length - 1];
-    return args.slice(toNumber(n, at));
+    const selector = args[0];
+    const count = args.length - 1;
+    if (selector === '#') return [count];
+    const index = toNumber(selector, at);
+    if (!Number.isInteger(index) || index === 0) {
+      throw new LuaError("bad argument to select (index out of range)");
+    }
+    // Lua usa índices 1-based; los negativos cuentan desde el final.
+    const start = index > 0 ? index : count + index + 1;
+    if (start < 1) throw new LuaError("bad argument to select (index out of range)");
+    return args.slice(start);
   }));
 
   const iterate = (t: LuaTable, keys: Value[]) => {
