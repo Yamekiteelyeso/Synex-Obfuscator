@@ -166,5 +166,5 @@ const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
 test('Max completo: transformaciones y VM conservan el resultado en Lua 5.4', { skip: !hasLua54 }, () => {
   const result = runProfile(SAMPLE, { profile: 'max', seed: 8675309 });
   const output = execFileSync('lua5.4', ['-e', result.code], { encoding: 'utf8', timeout: 7000 });
-  assert.equal(output.trim(), 'items\\t22\\tfalse');
+  assert.equal(output.trim(), ['items', '22', 'false'].join(String.fromCharCode(9)));
 });
