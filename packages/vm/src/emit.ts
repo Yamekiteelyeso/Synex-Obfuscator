@@ -436,7 +436,7 @@ local function protoIntact(P)
     or typefn(nparams) ~= "number" or nparams ~= floor(nparams) or nparams < 0
     or typefn(nslots) ~= "number" or nslots ~= floor(nslots) or nslots < 0
     or typefn(isVararg) ~= "boolean" then return false end
-  local hashA = (OPERAND_SEED + salt * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0) + P.__KEY_PARENT__ * 193 + P.__KEY_SLOT__ * 389) % OPERAND_MODULUS
+  local hashA = (OPERAND_SEED + salt * 97 + nparams * 17 + nslots * 31 + (isVararg and 1 or 0) + parentSalt * 193 + parentSlot * 389) % OPERAND_MODULUS
   local hashB = (OPERAND_SEED * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg and 17 or 0) + parentSalt * 521 + parentSlot * 1031) % OPERAND_MODULUS
   local function mix(value)
     hashA = (hashA * 33 + value) % OPERAND_MODULUS
@@ -533,7 +533,8 @@ end
 -- Weak keys: a completed run must not keep every serialized prototype alive.
 local CONST_CACHE, NIL_CONST = setmt({}, {__mode = "k"}), {}
 local function constant(P, index)
-  if typefn(P) ~= "table" or typefn(index) ~= "number" or index ~= floor(index)
+  if typefn(P) ~= "table" or typefn(P.__KEY_CONST__) ~= "table"
+    or typefn(index) ~= "number" or index ~= floor(index)
     or index < 1 or index > #P.__KEY_CONST__ then
     errorfn("índice de constante inválido", 0)
   end
