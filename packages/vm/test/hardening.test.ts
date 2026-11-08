@@ -31,6 +31,15 @@ describe('validación del bytecode', () => {
     assert.throws(() => validateProto(p), /constante fuera de rango/);
   });
 
+  test('limita el total de constantes acumuladas entre prototipos', () => {
+    const p = protoOf('return 1');
+    const child = protoOf('return 2');
+    p.protos = [child];
+    p.consts = Array(500_001).fill(null);
+    child.consts = Array(500_001).fill(null);
+    assert.throws(() => validateProto(p), /cantidad total de constantes excedida/);
+  });
+
 
   test('rechaza operandos ausentes o no enteros en todas las familias', () => {
     const p = protoOf('local x = 1 print(x)');
