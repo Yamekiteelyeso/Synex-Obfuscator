@@ -12,7 +12,7 @@ import type { Value } from '@synex/runtime';
  */
 export type Op =
   | 'CONST' | 'NIL' | 'TRUE' | 'FALSE' | 'POP'
-  | 'GETL' | 'SETL' | 'NEWBOX' | 'GETBOX' | 'SETBOX' | 'BOXSLOT'
+  | 'GETL' | 'SETL' | 'MOVE' | 'NEWBOX' | 'GETBOX' | 'SETBOX' | 'BOXSLOT'
   | 'GETUP' | 'SETUP'
   | 'GETG' | 'SETG'
   | 'GETI' | 'SETI' | 'SELF'
