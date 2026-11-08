@@ -376,7 +376,7 @@ export function installStdlib(interp: LuaEnvironment): void {
   }));
   mathLib.set('type', fn('type', (args) => {
     const value = args[0];
-    return [typeof value !== 'number' ? undefined : Number.isInteger(value) ? 'integer' : 'float'];
+    return [typeof value !== 'number' ? undefined : Number.isSafeInteger(value) ? 'integer' : 'float'];
   }));
   mathLib.set('randomseed', fn('randomseed', (args) => {
     const seed = toNumber(args[0], at);
@@ -400,8 +400,6 @@ export function installStdlib(interp: LuaEnvironment): void {
   }));
   mathLib.set('pi', Math.PI);
   mathLib.set('huge', Infinity);
-  mathLib.set('maxinteger', Number.MAX_SAFE_INTEGER);
-  mathLib.set('mininteger', Number.MIN_SAFE_INTEGER);
   g.set('math', mathLib);
 
   const bit = new LuaTable();
