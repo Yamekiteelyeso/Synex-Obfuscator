@@ -119,10 +119,24 @@ function protoSeal(code: number[][], seed: number, salt: number, nparams: number
 function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }): string {
   // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
   const protoSalt = ++protoCounter.value;
-  const encodedCode = p.code.map((ins: Instr, index: number) => {
-    const pc = index + 1;
-    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, ins.t !== undefined ? ins.t + 1 : 0, ins.c ? 1 : 0, ins.line ?? 0];
-    return '{' + fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt)).join(',') + '}';
+  // Randomize physical instruction storage independently for each prototype.
+  const order = Array.from({ length: p.code.length }, (_, i) => i + 1);
+  const shuffle = rng((seed ^ Math.imul(protoSalt, 0x45d9f3b)) >>> 0);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(shuffle() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const physicalOf: number[] = [];
+  order.forEach((originalPc, physicalIndex) => { physicalOf[originalPc] = physicalIndex + 1; });
+  const encodedCode = order.map((originalPc, physicalIndex) => {
+    const ins = p.code[originalPc - 1];
+    const pc = physicalIndex + 1;
+    const logicalTarget = ins.t !== undefined ? ins.t + 1 : 0;
+    const target = logicalTarget ? physicalOf[logicalTarget] : 0;
+    const nextLogical = originalPc < p.code.length ? originalPc + 1 : 0;
+    const next = nextLogical ? physicalOf[nextLogical] : 0;
+    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, ins.line ?? 0, next];
+    return fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
   });
   const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg);
   const code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
@@ -179,8 +193,8 @@ local function protoIntact(P)
   local code = P.__KEY_CODE__
   for i = 1, #code do
     local ins = code[i]
-    if typefn(ins) ~= "table" or #ins ~= 6 then return false end
-    for j = 1, 6 do
+    if typefn(ins) ~= "table" or #ins ~= 7 then return false end
+    for j = 1, 7 do
       local v = ins[j]
       if typefn(v) ~= "number" or v ~= floor(v) then return false end
       h = (h * 33 + v) % OPERAND_MODULUS
@@ -278,17 +292,18 @@ run = function(P, U, args)
     if not ins then fail("bytecode truncado o alterado") end
     -- Comprueba la forma del registro antes de decodificarlo; evita que una
     -- salida truncada o manipulada termine en errores opacos de indexación.
-    if typefn(ins) ~= "table" or #ins ~= 6 then fail("instrucción corrupta") end
-    for field = 1, 6 do
+    if typefn(ins) ~= "table" or #ins ~= 7 then fail("instrucción corrupta") end
+    for field = 1, 7 do
       local value = ins[field]
       if typefn(value) ~= "number" or value ~= floor(value) then fail("operando corrupto") end
     end
-    pc = ip + 1
     local op = decodeOperand(ins[1], ip, 1, protoSalt)
     local a = decodeOperand(ins[2], ip, 2, protoSalt)
     local b = decodeOperand(ins[3], ip, 3, protoSalt)
     local t = decodeOperand(ins[4], ip, 4, protoSalt)
     local c = decodeOperand(ins[5], ip, 5, protoSalt) == 1
+    pc = decodeOperand(ins[7], ip, 7, protoSalt)
+    if pc < 0 or pc > #code then fail('sucesora fuera del prototipo') end
     if not VALID_OP[op] then fail("opcode inválido") end
     if (op == OP_GETL or op == OP_SETL or op == OP_NEWBOX or op == OP_GETBOX or op == OP_SETBOX or op == OP_BOXSLOT) and (a < 0 or a >= ns) then fail("slot fuera de rango") end
     if (op == OP_FORTEST or op == OP_FORSTEP or op == OP_GENCALL) and (a < 0 or a + 2 >= ns) then fail("slot de iterador fuera de rango") end
