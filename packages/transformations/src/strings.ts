@@ -8,22 +8,29 @@
  * dinámico. No debe usarse para almacenar secretos.
  */
 export interface StringEncoderNames {
-  table: string;
-  keys: string;
-  cache: string;
-  decode: string;
+  table: string;   // E: bytes codificados por índice
+  keys: string;    // K: clave por índice
+  cache: string;   // C: valores ya descifrados
+  decode: string;  // D: función de descifrado
 }
 
 export interface StringEncoder {
+  /** Expresión Luau que devuelve el valor de la cadena. */
   encode(value: string): string;
+  /** Código Luau del runtime de descifrado y verificación opcional. */
   header(verify?: boolean): string;
+  /** Número de cadenas distintas protegidas. */
   readonly count: number;
+  /** Descifrado de referencia en TypeScript, usado por las pruebas. */
   decodeReference(index: number): string;
+  /** Suma de comprobación de las tablas de datos. */
   checksum(): number;
 }
 
+/** Módulo de la suma de comprobación; mantiene el acumulador dentro del rango exacto de doubles. */
 export const CHECKSUM_MODULUS = 2147483647;
 
+/** Suma sobre bytes codificados y claves, en orden de índice. */
 export function dataChecksum(entries: { bytes: number[]; key: number }[]): number {
   let h = 0;
   entries.forEach((e) => {
@@ -61,7 +68,7 @@ export function createStringEncoder(
       if (idx === undefined) {
         const key = 1 + Math.floor(rng() * 255);
         entries.push({ value, bytes: encodeBytes(value, key), key });
-        idx = entries.length;
+        idx = entries.length; // índices Luau empiezan en 1
         indexOf.set(value, idx);
       }
       return `${names.decode}(${idx})`;
