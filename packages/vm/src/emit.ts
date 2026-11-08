@@ -89,7 +89,11 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
     const bytes = Buffer.from(v, 'utf8');
     const index = ++stringIndex.value;
     const key = ((seed >>> 0) + index * 73) % 251 + 1;
-    const encoded = Array.from(bytes, (b, i) => (b + key + (i + 1) * 17) % 256).join(',');
+    let state = key;
+    const encoded = Array.from(bytes, (b, i) => {
+      state = (state * 73 + 41) % 256;
+      return (b + state + (i + 1) * 17) % 256;
+    }).join(',');
     return `unstr({${encoded}},${key})`;
   }
   if (typeof v === 'number') return luaNumber(v);
@@ -130,8 +134,10 @@ local strlib, tbl, floor = string, table, math.floor
 local unpackfn = (tbl and tbl.unpack) or unpack
 local function unstr(bytes, key)
   local out = {}
+  local state = key
   for i = 1, #bytes do
-    out[i] = strlib.char((bytes[i] - key - i * 17) % 256)
+    state = (state * 73 + 41) % 256
+    out[i] = strlib.char((bytes[i] - state - i * 17) % 256)
   end
   return tbl.concat(out)
 end
