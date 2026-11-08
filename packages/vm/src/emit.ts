@@ -59,7 +59,7 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
-type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string; seal: string; blockmap: string; blocks: string };
+type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string; seal: string; parent: string; slot: string; blockmap: string; blocks: string };
 
 /** Los nombres de los campos del prototipo también cambian por semilla. */
 function protoKeys(seed: number): ProtoKeys {
@@ -71,7 +71,7 @@ function protoKeys(seed: number): ProtoKeys {
     used.add(name);
     return name;
   };
-  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), blockmap: next(), blocks: next() };
+  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), parent: next(), slot: next(), blockmap: next(), blocks: next() };
 }
 
 /** Codec reversible por constante: parámetros coprimos/modulares propios de cada build. */
@@ -156,10 +156,11 @@ function encodeOperand(value: number, pc: number, field: number, seed: number, p
 function protoSeal(
   code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean,
   blockMap: number[], blockDescriptors: number[][], constantCount: number, childCount: number, upvalues: number[][],
+  parentSalt: number, parentSlot: number,
 ): [number, number] {
   const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
-  let hashA = (normalizedSeed + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
-  let hashB = (normalizedSeed * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg ? 17 : 0)) % OPERAND_MODULUS;
+  let hashA = (normalizedSeed + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0) + parentSalt * 193 + parentSlot * 389) % OPERAND_MODULUS;
+  let hashB = (normalizedSeed * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg ? 17 : 0) + parentSalt * 521 + parentSlot * 1031) % OPERAND_MODULUS;
   const mix = (value: number) => {
     hashA = (hashA * 33 + value) % OPERAND_MODULUS;
     hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS;
@@ -239,7 +240,7 @@ function shuffleConstantPool(code: Instr[], constants: unknown[], seed: number, 
   return { code: rewritten, constants: shuffled };
 }
 
-function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }): string {
+function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }, parentSalt = 0, parentSlot = 0): string {
   // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
   const protoSalt = ++protoCounter.value;
   const fusedCode = fuseSuperinstructions(p.code);
@@ -311,12 +312,12 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   });
   const blockDescriptors = blockDescriptorValues.map((values) => '{' + values.join(',') + '}').join(',');
   const upvalueValues = p.upvals.map((d) => [d.fromLocal ? 1 : 0, d.index]);
-  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg, blockMap, blockDescriptorValues, p.consts.length, p.protos.length, upvalueValues);
+  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg, blockMap, blockDescriptorValues, p.consts.length, p.protos.length, upvalueValues, parentSalt, parentSlot);
   const code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
   const consts = constantPool.constants.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
-  const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter)).join(',');
-  return `{${keys.salt}=${protoSalt},${keys.seal}={${seal.join(',')}},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
+  const children = p.protos.map((c, index) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter, protoSalt, index + 1)).join(',');
+  return `{${keys.salt}=${protoSalt},${keys.seal}={${seal.join(',')}},${keys.parent}=${parentSalt},${keys.slot}=${parentSlot},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -424,8 +425,8 @@ constIntact = function(bytes, sealA, sealB, key)
   return hashA == sealA and hashB == sealB
 end
 local function protoIntact(P)
-  local hashA = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0)) % OPERAND_MODULUS
-  local hashB = (OPERAND_SEED * 65599 + P.__KEY_SALT__ * 131 + P.__KEY_NP__ * 257 + P.__KEY_NS__ * 911 + (P.__KEY_VA__ and 17 or 0)) % OPERAND_MODULUS
+  local hashA = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0) + P.__KEY_PARENT__ * 193 + P.__KEY_SLOT__ * 389) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + P.__KEY_SALT__ * 131 + P.__KEY_NP__ * 257 + P.__KEY_NS__ * 911 + (P.__KEY_VA__ and 17 or 0) + P.__KEY_PARENT__ * 521 + P.__KEY_SLOT__ * 1031) % OPERAND_MODULUS
   local function mix(value)
     hashA = (hashA * 33 + value) % OPERAND_MODULUS
     hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
@@ -822,8 +823,8 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     return String(code);
   });
   const keys = protoKeys(seed);
-  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal, BLOCKMAP: keys.blockmap, BLOCKS: keys.blocks };
-  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL|BLOCKMAP|BLOCKS)__/g, (_m, name: string) => keyValues[name]);
+  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal, PARENT: keys.parent, SLOT: keys.slot, BLOCKMAP: keys.blockmap, BLOCKS: keys.blocks };
+  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL|PARENT|SLOT|BLOCKMAP|BLOCKS)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
   body = body.replace('__VALID_OPS__', '{' + ALL_OPS.map((op) => '[' + ops[op] + ']=true').join(',') + '}');
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
