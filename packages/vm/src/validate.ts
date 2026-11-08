@@ -15,6 +15,8 @@ const MAX_PROTO_DEPTH = 512;
 const MAX_CODE_LENGTH = 1_000_000;
 const MAX_SLOTS = 1_000_000;
 const MAX_TOTAL_PROTOS = 100_000;
+const MAX_TOTAL_CONSTANTS = 1_000_000;
+const MAX_TOTAL_UPVALUES = 1_000_000;
 const MAX_STRING_CONSTANT_BYTES = 4 * 1024 * 1024;
 
 function fail(msg: string, proto: Proto, pc = -1): never {
@@ -38,6 +40,8 @@ export function validateProto(root: Proto): void {
   const visited = new Set<object>();
   let totalProtos = 0;
   let totalCode = 0;
+  let totalConstants = 0;
+  let totalUpvalues = 0;
   let totalConstantBytes = 0;
 
   const visit = (proto: Proto, parent: Proto | null, depth: number): void => {
@@ -60,6 +64,10 @@ export function validateProto(root: Proto): void {
     if (typeof proto.isVararg !== 'boolean') fail('bandera vararg inválida', proto);
     if (!Array.isArray(proto.consts) || !Array.isArray(proto.protos) || !Array.isArray(proto.upvals)) fail('tablas del prototipo inválidas', proto);
     if (proto.consts.length > MAX_CODE_LENGTH || proto.protos.length > MAX_CODE_LENGTH || proto.upvals.length > MAX_SLOTS) fail('tabla del prototipo demasiado grande', proto);
+    totalConstants += proto.consts.length;
+    if (totalConstants > MAX_TOTAL_CONSTANTS) fail('cantidad total de constantes excedida', proto);
+    totalUpvalues += proto.upvals.length;
+    if (totalUpvalues > MAX_TOTAL_UPVALUES) fail('cantidad total de upvalues excedida', proto);
 
     proto.consts.forEach((value, i) => {
       const t = typeof value;
