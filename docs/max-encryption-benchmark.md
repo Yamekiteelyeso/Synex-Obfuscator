@@ -3,6 +3,8 @@
 Run from the repository root after installing dependencies and building the workspaces:
 
 ```sh
+npm install --no-audit --no-fund
+npm run build
 npm run bench:max
 ```
 
