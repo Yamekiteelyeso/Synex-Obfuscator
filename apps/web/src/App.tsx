@@ -124,7 +124,7 @@ export function App() {
           <button className="btn ghost menu-btn" aria-label="Menú" onClick={() => setMenuOpen(!menuOpen)}>☰</button>
           <span className="muted">{health ? 'Motor en línea' : 'Motor sin conexión'}</span>
         </header>
-        {view === 'dashboard' && <Dashboard stats={stats} health={health} email={user?.email ?? ''} />}
+        {view === 'dashboard' && <Dashboard stats={stats} health={health} email={user?.discordUsername ? '@' + user.discordUsername : (user?.email ?? '')} />}
         {view === 'editor' && (
           <Editor token={token} profiles={profiles} techniques={techniques} maxBytes={health?.maxInputBytes} onDone={refresh} />
         )}
