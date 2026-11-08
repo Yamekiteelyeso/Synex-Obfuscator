@@ -446,6 +446,13 @@ local function protoIntact(P)
   local constants, children, upvalues = P.__KEY_CONST__, P.__KEY_CHILD__, P.__KEY_UP__
   if typefn(blockMap) ~= "table" or typefn(blocks) ~= "table" or typefn(constants) ~= "table"
     or typefn(children) ~= "table" or typefn(upvalues) ~= "table" then return false end
+  -- Verifica el vínculo de cada hijo antes de permitir crear su closure.
+  for i = 1, #children do
+    local child = children[i]
+    if typefn(child) ~= "table" or child.__KEY_PARENT__ ~= P.__KEY_SALT__ or child.__KEY_SLOT__ ~= i then
+      return false
+    end
+  end
   for i = 1, #blockMap do
     local value = blockMap[i]
     if typefn(value) ~= "number" or value ~= floor(value) then return false end
@@ -512,9 +519,22 @@ local function blockIntact(P, blockId)
   end
   return hashA == descriptor[1] and hashB == descriptor[2]
 end
+local CONST_CACHE, NIL_CONST = {}, {}
 local function constant(P, index)
+  local cache = CONST_CACHE[P]
+  if not cache then
+    cache = {seen = {}, values = {}}
+    CONST_CACHE[P] = cache
+  end
+  if cache.seen[index] then
+    local cached = cache.values[index]
+    if cached == NIL_CONST then return nil end
+    return cached
+  end
   local value = P.__KEY_CONST__[index]
-  if typefn(value) == "function" then return value() end
+  if typefn(value) == "function" then value = value() end
+  cache.seen[index] = true
+  cache.values[index] = value == nil and NIL_CONST or value
   return value
 end
 local function decodeOperand(value, pc, field, protoSalt)
