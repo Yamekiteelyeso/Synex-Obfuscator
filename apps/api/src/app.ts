@@ -189,7 +189,8 @@ export function createApp(opts: AppOptions): App {
     if (!clientId) throw new HttpError(503, 'Discord aún no está configurado', 'E_DISCORD_CONFIG');
     const state = randomUUID();
     discordStates.set(state, Date.now() + 10 * 60_000);
-    const origin = process.env.DISCORD_REDIRECT_URI || `https://${req.headers.host}/api/auth/discord/callback`;
+    const origin = process.env.DISCORD_REDIRECT_URI;
+    if (!origin) throw new HttpError(503, 'configura DISCORD_REDIRECT_URI para habilitar Discord', 'E_DISCORD_CONFIG');
     const params = new URLSearchParams({ client_id: clientId, redirect_uri: origin, response_type: 'code', scope: 'identify email', state });
     res.writeHead(302, { Location: `https://discord.com/oauth2/authorize?${params}` }); res.end();
   });
@@ -201,7 +202,8 @@ export function createApp(opts: AppOptions): App {
     discordStates.delete(state);
     const clientId = process.env.DISCORD_CLIENT_ID; const clientSecret = process.env.DISCORD_CLIENT_SECRET;
     if (!clientId || !clientSecret) throw new HttpError(503, 'Discord aún no está configurado', 'E_DISCORD_CONFIG');
-    const redirectUri = process.env.DISCORD_REDIRECT_URI || `https://${req.headers.host}/api/auth/discord/callback`;
+    const redirectUri = process.env.DISCORD_REDIRECT_URI;
+    if (!redirectUri) throw new HttpError(503, 'configura DISCORD_REDIRECT_URI para habilitar Discord', 'E_DISCORD_CONFIG');
     const tokenResponse = await fetch('https://discord.com/api/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, grant_type: 'authorization_code', code, redirect_uri: redirectUri }) });
     if (!tokenResponse.ok) throw new HttpError(401, 'Discord no pudo validar el acceso', 'E_DISCORD_AUTH');
     const tokenData = await tokenResponse.json() as { access_token?: string };
@@ -277,7 +279,7 @@ export function createApp(opts: AppOptions): App {
     const body = bodyObject(await readJson(req, settings.maxInputBytes * 2 + 4096));
     if (typeof body.source !== 'string' || body.source.trim() === '') throw new HttpError(400, 'falta el script', 'E_VALIDATION');
     const profile = String(body.profile ?? 'basic') as ProfileName;
-    if (!VALID_PROFILES.includes(profile)) throw new HttpError(400, 'plan no válido; usa Basic, Medium o Max', 'E_VALIDATION');
+    if (!(VALID_PROFILES as readonly string[]).includes(profile)) throw new HttpError(400, 'plan no válido; usa Basic, Medium o Max', 'E_VALIDATION');
     if (!settings.enabledProfiles.includes(profile)) throw new HttpError(403, 'perfil deshabilitado por el administrador', 'E_DISABLED');
     // Semilla criptográficamente aleatoria si el cliente no fija una: cada build
     // produce una permutación distinta de opcodes sin romper reproducibilidad opt-in.
