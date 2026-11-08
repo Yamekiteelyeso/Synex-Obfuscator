@@ -101,6 +101,26 @@ test('table.remove devuelve el elemento y desplaza la secuencia', () => {
   assert.deepEqual(out('local t = {1, 2}; print(table.remove(t, 9), #t)'), ['nil\t2']);
 });
 
+test('table.concat respeta separador e índices de inicio y fin', () => {
+  assert.deepEqual(out('local t = {"a", "b", "c", "d"}; print(table.concat(t, "-", 2, 3))'), ['b-c']);
+  assert.deepEqual(out('local t = {"a", "b"}; print(table.concat(t, ","))'), ['a,b']);
+});
+
+test('table.insert valida posiciones y conserva el orden', () => {
+  assert.deepEqual(out('local t = {"a", "c"}; table.insert(t, 2, "b"); print(table.concat(t, ""))'), ['abc']);
+  assert.throws(() => out('local t = {}; table.insert(t, 3, "x")'), /position out of bounds/);
+});
+
+test('string.sub y string.byte soportan índices negativos y rangos', () => {
+  assert.deepEqual(out('print(string.sub("abcdef", 2, 4), string.sub("abcdef", -2), string.sub("abc", 8, 9))'), ['bcd	ef	']);
+  assert.deepEqual(out('print(string.byte("abcd", 2, 3), string.byte("abcd", -1))'), ['98	99	100']);
+});
+
+test('string.rep repite con separador y valida límites', () => {
+  assert.deepEqual(out('print(string.rep("ab", 3, "-"), string.rep("x", 0))'), ['ab-ab-ab	']);
+  assert.throws(() => out('string.rep("x", -1)'), /invalid count/);
+});
+
 test('métodos con self', () => {
   const src = `
     local Account = {}
