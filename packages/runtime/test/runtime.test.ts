@@ -136,3 +136,8 @@ test('string.char y bit32.bxor', () => {
 test('script inválido se rechaza antes de ejecutar', () => {
   assert.throws(() => execute('break'), /E_BREAK_OUTSIDE_LOOP|script inválido/);
 });
+
+
+test('longitud de cadenas Unicode cuenta bytes UTF-8 como Lua', () => {
+  assert.deepEqual(out('print(#"áé", #"漢字", #"🙂")'), ['4\t6\t4']);
+});
