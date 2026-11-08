@@ -152,6 +152,29 @@ describe('VM Luau emitida: propiedades', () => {
     }
   });
 
+  test('cada prototipo usa su propio mapa de opcodes sin romper closures recursivas', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+    const source = [
+      'local function outer(seed)',
+      '  local function middle(delta)',
+      '    local function inner(n)',
+      '      if n <= 1 then return seed + delta end',
+      '      return inner(n - 1) + 1',
+      '    end',
+      '    return inner(5)',
+      '  end',
+      '  return middle(3)',
+      'end',
+      'print(outer(10), outer(20))',
+    ].join(String.fromCharCode(10));
+    const original = runLua54(source);
+    assert.ok(original.ok, original.error);
+    for (const seed of [17, 103, 2027]) {
+      const emitted = runLua54(compileToLuauVm(source, seed));
+      assert.ok(emitted.ok, `seed ${seed}: ${emitted.error}`);
+      assert.equal(emitted.stdout, original.stdout, `seed ${seed}`);
+    }
+  });
+
   test('oculta nombres internos de VM e integridad en la salida generada', () => {
     const out = compileToLuauVm(PROGRAMS.closures, 314159);
     assert.doesNotMatch(out, /local function (?:decodeEncryptedPrototype|protoIntact|instructionIntact|blockIntact|makeClosure|run)\b/);
