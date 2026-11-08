@@ -329,3 +329,9 @@ test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => 
   const tampered = emitted.slice(0, tamperAt) + String(Number(numeric[0]) + 1) + emitted.slice(tamperAt + numeric[0].length);
   assert.throws(() => execFileSync('lua5.4', ['-'], { input: tampered, encoding: 'utf8', timeout: 5000 }), /integridad comprometida/);
 });
+
+
+test('la VM cuenta longitud de cadenas Unicode en bytes UTF-8', () => {
+  same('print(#"áé", #"漢字", #"🙂")');
+  assert.deepEqual(runInVm('print(#"áé", #"漢字", #"🙂")').output, ['4\t6\t4']);
+});
