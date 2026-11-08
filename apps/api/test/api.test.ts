@@ -93,11 +93,13 @@ async function loginDiscord(discordId: string, username = discordId): Promise<st
   assert.equal(authorizationUrl.searchParams.has('bot'), false);
   const state = authorizationUrl.searchParams.get('state');
   assert.ok(state, 'se genera state para proteger el callback OAuth2');
+  const stateCookie = (start.headers.get('set-cookie') ?? '').split(';')[0];
+  assert.match(stateCookie, /^synex_oauth_state=/);
 
   const callbackUrl = new URL('/api/auth/discord/callback', base);
   callbackUrl.searchParams.set('code', code);
   callbackUrl.searchParams.set('state', state!);
-  const callback = await fetch(callbackUrl, { redirect: 'manual' });
+  const callback = await fetch(callbackUrl, { redirect: 'manual', headers: { cookie: stateCookie } });
   assert.equal(callback.status, 302);
   const returnUrl = new URL(callback.headers.get('location') ?? '');
   const ticket = returnUrl.searchParams.get('discord_ticket');
@@ -243,13 +245,18 @@ test('OAuth2 valida el state y no solicita instalar un bot', async () => {
   invalid.searchParams.set('code', 'not-used');
   invalid.searchParams.set('state', 'invalid-state');
   assert.equal((await fetch(invalid)).status, 401);
+  const missingCookie = new URL('/api/auth/discord/callback', base);
+  missingCookie.searchParams.set('code', 'not-used');
+  missingCookie.searchParams.set('state', authorizationUrl.searchParams.get('state')!);
+  assert.equal((await fetch(missingCookie)).status, 401, 'el state también debe estar ligado a una cookie del navegador');
 
   const code = `oauth-code-${++oauthCodeNumber}`;
   oauthUsers.set(code, { id: 'state-once-user', username: 'state-once-user', global_name: 'state-once-user' });
   const callbackUrl = new URL('/api/auth/discord/callback', base);
   callbackUrl.searchParams.set('code', code);
   callbackUrl.searchParams.set('state', authorizationUrl.searchParams.get('state')!);
-  const accepted = await fetch(callbackUrl, { redirect: 'manual' });
+  const stateCookie = (start.headers.get('set-cookie') ?? '').split(';')[0];
+  const accepted = await fetch(callbackUrl, { redirect: 'manual', headers: { cookie: stateCookie } });
   assert.equal(accepted.status, 302);
   assert.equal((await fetch(callbackUrl)).status, 401, 'el state no se puede reutilizar');
   assert.equal((await call('GET', '/api/nada')).status, 404);

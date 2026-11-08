@@ -256,11 +256,15 @@ export function createApp(opts: AppOptions): App {
       scope: 'identify',
       state,
     });
-    res.writeHead(302, { Location: `https://discord.com/oauth2/authorize?${params}` });
+    const cookieSecure = redirectUri.protocol === 'https:' ? '; Secure' : '';
+    res.writeHead(302, {
+      Location: `https://discord.com/oauth2/authorize?${params}`,
+      'Set-Cookie': `synex_oauth_state=${state}; Path=/api/auth/discord/callback; HttpOnly; SameSite=Lax; Max-Age=300${cookieSecure}`,
+    });
     res.end();
   });
 
-  route('GET', '/api/auth/discord/callback', 'none', async ({ url, res }) => {
+  route('GET', '/api/auth/discord/callback', 'none', async ({ req, url, res }) => {
     const clientId = process.env.DISCORD_CLIENT_ID;
     const clientSecret = process.env.DISCORD_CLIENT_SECRET;
     const redirectUriValue = process.env.DISCORD_REDIRECT_URI;
@@ -273,9 +277,15 @@ export function createApp(opts: AppOptions): App {
     catch { throw new HttpError(503, 'DISCORD_REDIRECT_URI debe ser una URL válida', 'E_DISCORD_CONFIG'); }
 
     const state = url.searchParams.get('state') ?? '';
+    const stateCookie = (req.headers.cookie ?? '')
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith('synex_oauth_state='))
+      ?.slice('synex_oauth_state='.length);
+    res.setHeader('Set-Cookie', 'synex_oauth_state=; Path=/api/auth/discord/callback; HttpOnly; SameSite=Lax; Max-Age=0' + (redirectUri.protocol === 'https:' ? '; Secure' : ''));
     const expiresAt = discordStates.get(state);
     discordStates.delete(state);
-    if (!state || !expiresAt || expiresAt < Date.now()) {
+    if (!state || stateCookie !== state || !expiresAt || expiresAt < Date.now()) {
       throw new HttpError(401, 'la autorización de Discord expiró o no es válida; inténtalo de nuevo', 'E_DISCORD_STATE');
     }
 
