@@ -276,6 +276,13 @@ export function createApp(opts: AppOptions): App {
     try { redirectUri = new URL(redirectUriValue); }
     catch { throw new HttpError(503, 'DISCORD_REDIRECT_URI debe ser una URL válida', 'E_DISCORD_CONFIG'); }
 
+    const redirectAuthError = (reason: string): void => {
+      const home = new URL('/', redirectUri);
+      home.searchParams.set('discord_error', reason);
+      res.writeHead(302, { Location: home.toString() });
+      res.end();
+    };
+
     const state = url.searchParams.get('state') ?? '';
     const stateCookie = (req.headers.cookie ?? '')
       .split(';')
@@ -286,52 +293,85 @@ export function createApp(opts: AppOptions): App {
     const expiresAt = discordStates.get(state);
     discordStates.delete(state);
     if (!state || stateCookie !== state || !expiresAt || expiresAt < Date.now()) {
-      throw new HttpError(401, 'la autorización de Discord expiró o no es válida; inténtalo de nuevo', 'E_DISCORD_STATE');
+      redirectAuthError('expired');
+      return;
     }
 
     const oauthError = url.searchParams.get('error');
     if (oauthError) {
-      const home = new URL('/', redirectUri);
-      home.searchParams.set('discord_error', oauthError === 'access_denied' ? 'cancelled' : 'failed');
-      res.writeHead(302, { Location: home.toString() });
-      res.end();
+      redirectAuthError(oauthError === 'access_denied' ? 'cancelled' : 'failed');
       return;
     }
 
     const code = url.searchParams.get('code');
-    if (!code) throw new HttpError(400, 'Discord no devolvió un código de autorización', 'E_DISCORD_CODE');
+    if (!code) {
+      redirectAuthError('failed');
+      return;
+    }
 
-    const tokenResponse = await fetch('https://discord.com/api/v10/oauth2/token', {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: redirectUri.toString(),
-      }),
-    });
+    let tokenResponse: Response;
+    try {
+      tokenResponse = await fetch('https://discord.com/api/v10/oauth2/token', {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: redirectUri.toString(),
+        }),
+      });
+    } catch {
+      redirectAuthError('failed');
+      return;
+    }
     if (!tokenResponse.ok) {
-      throw new HttpError(401, 'Discord no pudo validar la autorización; inténtalo de nuevo', 'E_DISCORD_TOKEN');
+      redirectAuthError('failed');
+      return;
     }
-    const tokenData = await tokenResponse.json() as { access_token?: string; scope?: string };
+
+    let tokenData: { access_token?: string; scope?: string };
+    try {
+      tokenData = await tokenResponse.json() as { access_token?: string; scope?: string };
+    } catch {
+      redirectAuthError('failed');
+      return;
+    }
     if (!tokenData.access_token || !String(tokenData.scope ?? '').split(/\s+/).includes('identify')) {
-      throw new HttpError(401, 'Discord no concedió el permiso de identidad requerido', 'E_DISCORD_SCOPE');
+      redirectAuthError('failed');
+      return;
     }
 
-    const profileResponse = await fetch('https://discord.com/api/v10/users/@me', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
+    let profileResponse: Response;
+    try {
+      profileResponse = await fetch('https://discord.com/api/v10/users/@me', {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+    } catch {
+      redirectAuthError('failed');
+      return;
+    }
     if (!profileResponse.ok) {
-      throw new HttpError(401, 'no se pudo verificar tu cuenta de Discord', 'E_DISCORD_USER');
-    }
-    const discordUser = await profileResponse.json() as { id?: string; username?: string; global_name?: string | null };
-    if (!discordUser.id || !discordUser.username) {
-      throw new HttpError(401, 'Discord devolvió un perfil incompleto', 'E_DISCORD_USER');
+      redirectAuthError('failed');
+      return;
     }
 
+    let discordUser: { id?: string; username?: string; global_name?: string | null };
+    try {
+      discordUser = await profileResponse.json() as { id?: string; username?: string; global_name?: string | null };
+    } catch {
+      redirectAuthError('failed');
+      return;
+    }
+    if (!discordUser.id || !discordUser.username) {
+      redirectAuthError('failed');
+      return;
+    }
+
+    // El ID de Discord es la clave estable: el primer acceso crea una cuenta Free;
+    // los siguientes reutilizan la misma cuenta y conservan plan, uso e historial.
     let user = store.users.find((u) => u.discordId === String(discordUser.id));
     if (!user) {
       user = {

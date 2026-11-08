@@ -131,6 +131,33 @@ test('el acceso y las cuentas son exclusivamente de Discord', async () => {
   assert.equal((await call('GET', '/api/jobs')).status, 401);
 });
 
+test('Discord registra automáticamente al primer acceso y reutiliza la cuenta después', async () => {
+  const discordId = 'discord-auto-registration';
+  assert.equal(app.store.users.filter((user) => user.discordId === discordId).length, 0);
+
+  const firstToken = await loginDiscord(discordId, 'primer-nombre');
+  const firstMe = await call('GET', '/api/me', undefined, firstToken);
+  assert.equal(firstMe.status, 200);
+  const createdId = firstMe.json.user.id;
+  assert.ok(createdId);
+  assert.equal(firstMe.json.user.plan, 'free');
+  assert.equal(firstMe.json.user.obfuscationsUsed, 0);
+  assert.equal(app.store.users.filter((user) => user.discordId === discordId).length, 1);
+
+  // Una cuenta existente debe conservar su plan y consumo al volver a entrar.
+  app.store.setUserPlan(createdId, 'premium');
+  app.store.recordObfuscation(createdId);
+
+  const secondToken = await loginDiscord(discordId, 'nombre-actualizado');
+  const secondMe = await call('GET', '/api/me', undefined, secondToken);
+  assert.equal(secondMe.status, 200);
+  assert.equal(secondMe.json.user.id, createdId);
+  assert.equal(secondMe.json.user.discordUsername, 'nombre-actualizado');
+  assert.equal(secondMe.json.user.plan, 'premium');
+  assert.equal(secondMe.json.user.obfuscationsUsed, 1);
+  assert.equal(app.store.users.filter((user) => user.discordId === discordId).length, 1);
+});
+
 test('Free permite dos ofuscaciones totales y luego bloquea en el servidor', async () => {
   const token = await loginDiscord('discord-free-limit', 'free-user');
   assert.equal((await call('POST', '/api/jobs', { source: SCRIPT, profile: 'medium' }, token)).json.error.code, 'E_PLAN_PROFILE');
@@ -244,11 +271,15 @@ test('OAuth2 valida el state y no solicita instalar un bot', async () => {
   const invalid = new URL('/api/auth/discord/callback', base);
   invalid.searchParams.set('code', 'not-used');
   invalid.searchParams.set('state', 'invalid-state');
-  assert.equal((await fetch(invalid)).status, 401);
+  const invalidResponse = await fetch(invalid, { redirect: 'manual' });
+  assert.equal(invalidResponse.status, 302);
+  assert.equal(new URL(invalidResponse.headers.get('location')!).searchParams.get('discord_error'), 'expired');
   const missingCookie = new URL('/api/auth/discord/callback', base);
   missingCookie.searchParams.set('code', 'not-used');
   missingCookie.searchParams.set('state', authorizationUrl.searchParams.get('state')!);
-  assert.equal((await fetch(missingCookie)).status, 401, 'el state también debe estar ligado a una cookie del navegador');
+  const missingCookieResponse = await fetch(missingCookie, { redirect: 'manual' });
+  assert.equal(missingCookieResponse.status, 302, 'el state también debe estar ligado a una cookie del navegador');
+  assert.equal(new URL(missingCookieResponse.headers.get('location')!).searchParams.get('discord_error'), 'expired');
 
   const validStart = await fetch(base + '/api/auth/discord', { redirect: 'manual' });
   const validAuthorizationUrl = new URL(validStart.headers.get('location') ?? '');
@@ -260,7 +291,9 @@ test('OAuth2 valida el state y no solicita instalar un bot', async () => {
   const stateCookie = (validStart.headers.get('set-cookie') ?? '').split(';')[0];
   const accepted = await fetch(callbackUrl, { redirect: 'manual', headers: { cookie: stateCookie } });
   assert.equal(accepted.status, 302);
-  assert.equal((await fetch(callbackUrl)).status, 401, 'el state no se puede reutilizar');
+  const replay = await fetch(callbackUrl, { redirect: 'manual', headers: { cookie: stateCookie } });
+  assert.equal(replay.status, 302, 'el state no se puede reutilizar');
+  assert.equal(new URL(replay.headers.get('location')!).searchParams.get('discord_error'), 'expired');
   assert.equal((await call('GET', '/api/nada')).status, 404);
   assert.equal((await call('DELETE', '/api/health')).status, 405);
   assert.equal((await call('GET', '/api/health')).json.status, 'ok');
