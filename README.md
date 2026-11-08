@@ -62,7 +62,7 @@ La autenticación de usuarios es exclusivamente mediante Discord OAuth2. El back
 | GET | /api/admin/users, /jobs, /errors, /settings | admin |
 | PUT | /api/admin/settings, /api/admin/users/:id/plan | admin |
 
-Las cuentas, el plan, el contador de usos, el historial y las solicitudes se guardan en el archivo configurado en `SYNEX_DATA_FILE`. Para conservarlos en Railway, monta un Volume en `/data`. Los tokens de sesión y los resultados de código siguen residiendo en memoria del proceso.
+Las cuentas, el plan, el contador de usos, el historial y las solicitudes se guardan en el archivo configurado en `SYNEX_DATA_FILE`. Para conservarlos en Railway, monta un Volume en `/data`. Los tokens de sesión se persisten en el JSON y los resultados de código, los estados OAuth y los tickets de intercambio residen en memoria del proceso. Por ello, ejecuta una sola réplica de API mientras no se migren esos estados efímeros a un almacén compartido; varias réplicas pueden romper el callback OAuth o perder descargas tras reiniciar.
 
 ## Planes de ofuscación
 
@@ -129,7 +129,7 @@ Requiere `tsx` (ejecutor TypeScript). `npm install` no se ha podido completar en
 
 El repositorio incluye `railway.json`. Railway debe usar Node.js 22 o superior, ejecutar `npm run build` como comando de compilación y `npm start` para iniciar la API. El build compila primero todos los paquetes transitivos del motor y la API, y después genera `apps/web/dist`; la API sirve la web y expone `GET /api/health` como healthcheck.
 
-Configura `SYNEX_ADMIN_DISCORD_IDS` con los IDs de Discord autorizados para administrar (separados por comas) y las tres variables OAuth2 de Discord descritas abajo. Para conservar cuentas, planes, cuotas e historial entre despliegues, monta un Volume en `/data` y define `SYNEX_DATA_FILE=/data/synex-data.json`. Sin un Volume, el almacenamiento JSON local puede perderse al reemplazar el contenedor.
+El único administrador autorizado está fijado en el servidor por ID de Discord `1518079144590573690`; las demás cuentas reciben rol de usuario. Configura las tres variables OAuth2 de Discord descritas abajo. Para conservar cuentas, planes, cuotas e historial entre despliegues, monta un Volume en `/data` y define `SYNEX_DATA_FILE=/data/synex-data.json`. Sin un Volume, el almacenamiento JSON local puede perderse al reemplazar el contenedor.
 
 ## Compatibilidad Roblox / Luau
 
@@ -211,4 +211,4 @@ Cada petición de trabajo aceptada consume un uso Free, incluso si luego el scri
 
 La sección **Planes** no permite enviar solicitudes ni procesar compras dentro de la web: los botones de Premium y Plus muestran `Contact one admin for buy`. El administrador asigna manualmente el plan desde Administración después de confirmar la compra por un canal externo. No hay pasarela de pago integrada.
 
-Para asignar administradores configura `SYNEX_ADMIN_DISCORD_IDS` con uno o varios IDs de usuario de Discord separados por comas. No hay acceso administrativo por correo o contraseña.
+El único ID con privilegios administrativos está fijado en `apps/api/src/server.ts`: `1518079144590573690`. No hay acceso administrativo por correo o contraseña.
