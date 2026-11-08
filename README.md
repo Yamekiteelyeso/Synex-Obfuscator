@@ -157,7 +157,7 @@ No hace falta guardar la Public Key ni un Application ID duplicado: la API obtie
 3. En la pestaña **Bot**, genera/copia el token y guárdalo en `DISCORD_BOT_TOKEN`. Nunca lo publiques ni lo subas a GitHub.
 4. Configura el Interactions Endpoint URL como `https://TU-DOMINIO/api/discord/interactions`.
 5. En Railway, configura `DISCORD_REDIRECT_URI` con la URL de tu web.
-6. Registra el comando global ejecutando `node apps/api/scripts/register-discord-command.mjs` en Node 22 con acceso a Internet.
+6. Reinicia/despliega la API: sincroniza automáticamente el comando global `/synex-login` al arrancar. Si necesitas forzar una sincronización manual, puedes ejecutar `node apps/api/scripts/register-discord-command.mjs` con Node 22.
 7. Invita el bot al servidor desde el botón Discord de Synex o con un enlace de instalación que incluya los scopes `bot` y `applications.commands`.
 
 El endpoint valida las firmas Ed25519 y la antigüedad de cada interacción. Los tickets de acceso son aleatorios, privados, de un solo uso y expiran en 90 segundos. El token del bot solo vive en el servidor; nunca se envía al navegador.
