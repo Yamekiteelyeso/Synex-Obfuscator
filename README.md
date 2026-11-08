@@ -39,6 +39,7 @@ SYNEX_ADMIN_EMAIL=admin@ejemplo.com SYNEX_ADMIN_PASSWORD=... PORT=8080 node apps
 | POST | /api/auth/register | público |
 | POST | /api/auth/login | público (bloqueo tras 5 fallos) |
 | GET | /api/auth/discord, /api/auth/discord/callback | público (OAuth2) |
+| POST | /api/discord/interactions | público (firma Ed25519 de Discord) |
 | POST | /api/auth/discord/exchange | público (ticket OAuth de un solo uso) |
 | POST | /api/auth/logout | usuario |
 | GET | /api/me | usuario |
@@ -145,4 +146,6 @@ El registro tradicional por correo sigue disponible. También se puede iniciar s
 
 En la configuración OAuth2 de Discord, habilita los scopes `identify` y `email` y registra el mismo redirect URI. No guardes el client secret en el frontend ni en el repositorio. Si estas variables no están configuradas, el acceso por Discord muestra un aviso y el registro por correo continúa funcionando.
 
-**Nota sobre el bot:** el inicio de sesión implementado usa la autorización oficial de Discord (OAuth2). El proceso/servicio del bot de Discord que atiende comandos o verifica miembros del servidor es un componente separado y necesita su propio bot token, permisos y despliegue; no se debe confundir ese token con el client secret OAuth2.
+**Bot de Discord:** también se incluye el endpoint de interacciones firmado y el comando slash global `/synex-login`. El comando responde con un enlace privado de OAuth2; el primer acceso crea la cuenta y los siguientes inician sesión. Configura además `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN` y `DISCORD_PUBLIC_KEY` en Railway. En Discord Developer Portal establece el Interactions Endpoint URL como `https://TU-DOMINIO/api/discord/interactions` y copia la Public Key en `DISCORD_PUBLIC_KEY`. Invita la aplicación al servidor con los scopes `bot` y `applications.commands`.
+
+Registra el comando después de configurar las variables ejecutando `node apps/api/scripts/register-discord-command.mjs` en un entorno con Node 22 y acceso a Discord. El bot usa interacciones HTTP y no necesita mantener una conexión Gateway. Nunca publiques `DISCORD_BOT_TOKEN` ni `DISCORD_CLIENT_SECRET`.
