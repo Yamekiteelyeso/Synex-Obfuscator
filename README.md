@@ -135,17 +135,29 @@ Todas las salidas comienzan con un comentario Luau de identificación, por ejemp
 La aplicación ofrece únicamente tres niveles de ofuscación:
 
 - **Basic:** renombrado de identificadores y protección de cadenas.
-- **Medium:** Basic más transformación de constantes, expresiones, código muerto y aplanado parcial del flujo de control.
-- **Max:** técnicas avanzadas más virtualización mediante la VM Luau.
+- **Medium:** más transformación de constantes, expresiones, código muerto y aplanado de flujo de control.
+- **Max:** transformaciones intensivas, comprobación de integridad y virtualización mediante la VM Luau con bytecode protegido.
 
-El registro tradicional por correo sigue disponible. También se puede iniciar sesión con Discord mediante OAuth2. Para activarlo, crea una aplicación en el [Discord Developer Portal](https://discord.com/developers/applications), configura el redirect URI exacto y añade estas variables al entorno del servicio (por ejemplo, Railway):
+El registro e inicio de sesión por correo sigue disponible. También se puede registrar e iniciar sesión mediante el **bot de Discord**, sin OAuth ni client secret. El usuario instala el bot, ejecuta `/synex-login` y recibe una respuesta privada con un enlace de un solo uso y 90 segundos de vigencia. Al abrirlo, la web intercambia el ticket y crea/inicia su sesión.
 
-- `DISCORD_CLIENT_ID`
-- `DISCORD_CLIENT_SECRET`
-- `DISCORD_REDIRECT_URI` — por ejemplo `https://TU-DOMINIO/api/auth/discord/callback`
+### Solo tres variables de Discord
 
-En la configuración OAuth2 de Discord, habilita los scopes `identify` y `email` y registra el mismo redirect URI. No guardes el client secret en el frontend ni en el repositorio. Si estas variables no están configuradas, el acceso por Discord muestra un aviso y el registro por correo continúa funcionando.
+Configura exactamente estas variables en Railway:
 
-**Bot de Discord:** también se incluye el endpoint de interacciones firmado y el comando slash global `/synex-login`. El comando responde con un enlace privado de OAuth2; el primer acceso crea la cuenta y los siguientes inician sesión. Configura además `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN` y `DISCORD_PUBLIC_KEY` en Railway. En Discord Developer Portal establece el Interactions Endpoint URL como `https://TU-DOMINIO/api/discord/interactions` y copia la Public Key en `DISCORD_PUBLIC_KEY`. Invita la aplicación al servidor con los scopes `bot` y `applications.commands`.
+- `DISCORD_CLIENT_ID`: Application ID de Discord.
+- `DISCORD_REDIRECT_URI`: URL pública de la web, por ejemplo `https://TU-DOMINIO/` (no es un callback OAuth).
+- `DISCORD_BOT_TOKEN`: token secreto de la pestaña Bot.
 
-Registra el comando después de configurar las variables ejecutando `node apps/api/scripts/register-discord-command.mjs` en un entorno con Node 22 y acceso a Discord. El bot usa interacciones HTTP y no necesita mantener una conexión Gateway. Nunca publiques `DISCORD_BOT_TOKEN` ni `DISCORD_CLIENT_SECRET`.
+No hace falta guardar la Public Key ni un Application ID duplicado: la API obtiene la clave de verificación desde `/oauth2/applications/@me` usando el bot token y comprueba que el ID de la aplicación coincide con `DISCORD_CLIENT_ID`.
+
+### Configuración en Discord
+
+1. Crea una aplicación en el [Discord Developer Portal](https://discord.com/developers/applications).
+2. Copia **Application ID** en `DISCORD_CLIENT_ID`.
+3. En la pestaña **Bot**, genera/copia el token y guárdalo en `DISCORD_BOT_TOKEN`. Nunca lo publiques ni lo subas a GitHub.
+4. Configura el Interactions Endpoint URL como `https://TU-DOMINIO/api/discord/interactions`.
+5. En Railway, configura `DISCORD_REDIRECT_URI` con la URL de tu web.
+6. Registra el comando global ejecutando `node apps/api/scripts/register-discord-command.mjs` en Node 22 con acceso a Internet.
+7. Invita el bot al servidor desde el botón Discord de Synex o con un enlace de instalación que incluya los scopes `bot` y `applications.commands`.
+
+El endpoint valida las firmas Ed25519 y la antigüedad de cada interacción. Los tickets de acceso son aleatorios, privados, de un solo uso y expiran en 90 segundos. El token del bot solo vive en el servidor; nunca se envía al navegador.
