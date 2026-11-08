@@ -300,7 +300,7 @@ export function installStdlib(interp: LuaEnvironment): void {
       if (value === undefined) throw new LuaError('bad argument to string.format (no value)');
       let rendered: string;
       if (spec === 's') {
-        if (typeof value !== 'string') throw new LuaError('bad argument to string.format (%s expected)');
+        if (typeof value !== 'string') throw new LuaError('bad argument to string.format (string expected for %s)');
         rendered = precision === undefined ? value : value.slice(0, precision);
       } else if (spec === 'q') {
         rendered = quote(tostring(value));
