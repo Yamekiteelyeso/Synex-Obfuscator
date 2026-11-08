@@ -2,7 +2,7 @@
   "name": "synex-obfuscator",
   "private": true,
   "version": "0.1.0",
-  "description": "Synex Obfuscator: obfuscador profesional de scripts Luau para Roblox y Lua",
+  "description": "Synex Obfuscador: plataforma de ofuscación profesional de scripts Luau para Roblox y Lua",
   "workspaces": [
     "packages/*",
     "apps/*"
