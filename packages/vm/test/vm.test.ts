@@ -292,6 +292,23 @@ test('VM emitida: segmenta cadenas largas con claves distintas y las reconstruye
   assert.equal(output.trim(), value);
 });
 
+test('VM emitida: detecta alteración de bytes de constantes antes de reconstruirlas', { skip: !hasLua54 }, () => {
+  const emitted = compileToLuauVm('print("Synex protected constant")', 556677);
+  const mainStart = emitted.indexOf('local MAIN = {');
+  const payloadStart = emitted.indexOf('local b={', mainStart);
+  assert.ok(mainStart >= 0 && payloadStart > mainStart);
+  const numberStart = payloadStart + 'local b={'.length;
+  const number = /\\d+/.exec(emitted.slice(numberStart));
+  assert.ok(number);
+  const tampered = emitted.slice(0, numberStart + number.index)
+    + String((Number(number[0]) + 1) % 256)
+    + emitted.slice(numberStart + number.index + number[0].length);
+  assert.throws(
+    () => execFileSync('lua5.4', ['-'], { input: tampered, encoding: 'utf8', timeout: 7000 }),
+    /integridad comprometida: constante alterada/,
+  );
+});
+
 test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => {
   const source = [
     'local function add(a, b) return a + b end',

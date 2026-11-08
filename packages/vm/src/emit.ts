@@ -89,11 +89,14 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
         : 5 + (((seed >>> 0) + index * 13 + offset * 7) % 8));
       const key = ((seed >>> 0) + index * 73) % 251 + 1;
       let state = key;
-      const encoded = Array.from(bytes.subarray(offset, offset + chunkSize), (byte, i) => {
+      const rawChunk = Array.from(bytes.subarray(offset, offset + chunkSize));
+      const encodedBytes = rawChunk.map((byte, i) => {
         state = (state * 73 + 41) % 256;
         return (byte + state + (i + 1) * 17) % 256;
-      }).join(',');
-      parts.push(`unstr({${encoded}},${key})`);
+      });
+      const encoded = encodedBytes.join(',');
+      const [sealA, sealB] = constantDataSeal(encodedBytes, seed, key);
+      parts.push(`(function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unstr(b,${key}) end)()`);
       offset += chunkSize;
     }
     return `function() return ${parts.join('..')} end`;
@@ -105,14 +108,27 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
     const index = ++stringIndex.value;
     const key = ((seed >>> 0) + index * 97) % 251 + 1;
     let state = key;
-    const encoded = Array.from(raw, (byte, i) => {
+    const encodedBytes = Array.from(raw, (byte, i) => {
       state = (state * 73 + 41) % 256;
       return (byte + state + (i + 1) * 29) % 256;
-    }).join(',');
-    return `function() return unnum({${encoded}},${key}) end`;
+    });
+    const encoded = encodedBytes.join(',');
+    const [sealA, sealB] = constantDataSeal(encodedBytes, seed, key);
+    return `function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unnum(b,${key}) end`;
   }
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   throw new SynexError('constante no serializable en la VM', 1, 1, 'E_INTERNAL');
+}
+
+function constantDataSeal(bytes: number[], seed: number, key: number): [number, number] {
+  const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
+  let hashA = (normalizedSeed + key * 31 + bytes.length * 17) % OPERAND_MODULUS;
+  let hashB = (normalizedSeed * 65599 + key * 131 + bytes.length * 257) % OPERAND_MODULUS;
+  for (const value of bytes) {
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS;
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS;
+  }
+  return [hashA, hashB];
 }
 
 const OPERAND_MODULUS = 2147483647;
@@ -266,6 +282,7 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
  */
 const TEMPLATE = String.raw`
 local strlib, tbl, floor, tointeger = string, table, math.floor, math.tointeger
+local constIntact
 local unpackfn = (tbl and tbl.unpack) or unpack
 local function unstr(bytes, key)
   local out = {}
@@ -348,6 +365,18 @@ local STEP_LIMIT = __LIMIT__
 local VALID_OP = __VALID_OPS__
 local OPERAND_MODULUS, OPERAND_HALF = 2147483647, 1073741823
 local OPERAND_SEED = __OPERAND_SEED__
+constIntact = function(bytes, sealA, sealB, key)
+  if typefn(bytes) ~= "table" then return false end
+  local hashA = (OPERAND_SEED + key * 31 + #bytes * 17) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + key * 131 + #bytes * 257) % OPERAND_MODULUS
+  for i = 1, #bytes do
+    local value = bytes[i]
+    if typefn(value) ~= "number" or value ~= floor(value) or value < 0 or value > 255 then return false end
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
+  end
+  return hashA == sealA and hashB == sealB
+end
 local function protoIntact(P)
   local hashA = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0)) % OPERAND_MODULUS
   local hashB = (OPERAND_SEED * 65599 + P.__KEY_SALT__ * 131 + P.__KEY_NP__ * 257 + P.__KEY_NS__ * 911 + (P.__KEY_VA__ and 17 or 0)) % OPERAND_MODULUS
