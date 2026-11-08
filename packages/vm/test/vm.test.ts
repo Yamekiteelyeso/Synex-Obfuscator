@@ -116,6 +116,10 @@ const PROGRAMS: Record<string, string> = {
     local removed = table.remove(values, 2)
     print(packed.n, first, middle, last, removed, #values, values[2])
   `,
+  tableFind: `
+    local values = {"a", "b", "a"}
+    print(table.find(values, "a"), table.find(values, "a", 2), table.find(values, "z"))
+  `,
   tableMoveCloneClear: `
     local values = {1, 2, 3, 4}
     table.move(values, 1, 3, 2)
