@@ -86,6 +86,21 @@ test('select respeta índices positivos, negativos y validación Lua', () => {
   assert.throws(() => out('select(-3, "a", "b")'), /select.*index out of range/);
 });
 
+test('table.pack conserva nil y table.unpack devuelve múltiples valores', () => {
+  const src = `
+    local packed = table.pack("a", nil, "c")
+    local first, middle, last = table.unpack(packed, 1, packed.n)
+    print(packed.n, packed[1], packed[2], packed[3])
+    print(first, middle, last)
+  `;
+  assert.deepEqual(out(src), ['3\ta\tnil\tc', 'a\tnil\tc']);
+});
+
+test('table.remove devuelve el elemento y desplaza la secuencia', () => {
+  assert.deepEqual(out('local t = {"a", "b", "c"}; local removed = table.remove(t, 2); print(removed, #t, t[1], t[2])'), ['b\t2\ta\tc']);
+  assert.deepEqual(out('local t = {1, 2}; print(table.remove(t, 9), #t)'), ['nil\t2']);
+});
+
 test('métodos con self', () => {
   const src = `
     local Account = {}
