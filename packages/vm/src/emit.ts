@@ -881,7 +881,7 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
   body = body.replace('__VALID_OPS__', '{' + ALL_OPS.map((op) => '[' + ops[op] + ']=true').join(',') + '}');
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
   body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }));
-  const marker = watermark === undefined ? '' : `-- Synex provenance: ${watermark}\\n`;
+  const marker = watermark === undefined ? '' : `-- Synex provenance: \${watermark}\n`;
   return marker + body.trimStart();
 }
 
