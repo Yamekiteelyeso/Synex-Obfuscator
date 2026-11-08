@@ -296,6 +296,23 @@ export function installStdlib(interp: LuaEnvironment): void {
     });
     return [String.fromCharCode(...bytes)];
   }));
+  stringLib.set('gmatch', fn('gmatch', (args) => {
+    const source = String(args[0]);
+    const regex = luaPatternToRegExp(String(args[1]));
+    let position = 0;
+    let finished = false;
+    const iterator = new NativeFunction(() => {
+      if (finished) return [undefined];
+      regex.lastIndex = position;
+      const match = regex.exec(source);
+      if (!match) { finished = true; return [undefined]; }
+      const next = match.index + match[0].length;
+      position = next > match.index ? next : match.index + 1;
+      if (position > source.length) finished = true;
+      return match.length > 1 ? match.slice(1) : [match[0]];
+    });
+    return [iterator];
+  }));
   stringLib.set('match', fn('match', (args) => {
     const source = String(args[0]);
     const pattern = String(args[1]);
