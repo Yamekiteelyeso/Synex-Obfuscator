@@ -174,6 +174,9 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
   assert.match(code, /local function unstr/);
   assert.match(code, /local function decodeOperand/);
   assert.match(code, /local function protoIntact/);
+  assert.match(code, /local function blockIntact/);
+  assert.match(code, /integridad comprometida: bloque virtual alterado/);
+  assert.match(code, /índice de bloques corrupto/);
   assert.match(code, /integridad comprometida: prototipo alterado/);
   assert.match(code, /local function constant/);
   assert.match(code, /#ins ~= 7/);
