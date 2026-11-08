@@ -94,7 +94,7 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
       state = (state * 73 + 41) % 256;
       return (b + state + (i + 1) * 17) % 256;
     }).join(',');
-    return `unstr({${encoded}},${key})`;
+    return `function() return unstr({${encoded}},${key}) end`;
   }
   if (typeof v === 'number') return luaNumber(v);
   if (typeof v === 'boolean') return v ? 'true' : 'false';
@@ -187,6 +187,11 @@ local function protoIntact(P)
     end
   end
   return h == P.__KEY_SEAL__
+end
+local function constant(P, index)
+  local value = P.__KEY_CONST__[index]
+  if typefn(value) == "function" then return value() end
+  return value
 end
 local function decodeOperand(value, pc, field, protoSalt)
   local mask = (OPERAND_SEED + pc * 131 + field * 977 + protoSalt * 4099 + (pc * field * protoSalt * 17) % OPERAND_MODULUS) % OPERAND_MODULUS
@@ -295,7 +300,7 @@ run = function(P, U, args)
     steps = steps + 1
     if steps > STEP_LIMIT then fail("límite de ejecución superado") end
     curLine = decodeOperand(ins[6], ip, 6, protoSalt)
-    if op == OP_CONST then push(P.__KEY_CONST__[a + 1])
+    if op == OP_CONST then push(constant(P, a + 1))
     elseif op == OP_NIL then push(nil)
     elseif op == OP_TRUE then push(true)
     elseif op == OP_FALSE then push(false)
@@ -308,8 +313,8 @@ run = function(P, U, args)
     elseif op == OP_SETBOX then slots[a + 1].v = pop()
     elseif op == OP_GETUP then push(U[a + 1].v)
     elseif op == OP_SETUP then U[a + 1].v = pop()
-    elseif op == OP_GETG then push(ENV[P.__KEY_CONST__[a + 1]])
-    elseif op == OP_SETG then ENV[P.__KEY_CONST__[a + 1]] = pop()
+    elseif op == OP_GETG then push(ENV[constant(P, a + 1)])
+    elseif op == OP_SETG then ENV[constant(P, a + 1)] = pop()
     elseif op == OP_GETI then
       local k = pop()
       local o = pop()
@@ -322,7 +327,7 @@ run = function(P, U, args)
       o[k] = v
     elseif op == OP_SELF then
       local o = pop()
-      push(index(o, P.__KEY_CONST__[a + 1]))
+      push(index(o, constant(P, a + 1)))
       push(o)
     elseif op == OP_ADD then local y = pop(); local x = pop(); push(x + y)
     elseif op == OP_SUB then local y = pop(); local x = pop(); push(x - y)
