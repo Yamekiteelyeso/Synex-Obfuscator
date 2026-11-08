@@ -458,7 +458,7 @@ export function createApp(opts: AppOptions): App {
       patch.maxInputBytes = n as number;
     }
     if (body.enabledProfiles !== undefined) {
-      if (!Array.isArray(body.enabledProfiles) || !body.enabledProfiles.every((p) => VALID_PROFILES.includes(p as ProfileName))) {
+      if (!Array.isArray(body.enabledProfiles) || !body.enabledProfiles.every((p) => (VALID_PROFILES as readonly string[]).includes(p as string))) {
         throw new HttpError(400, 'enabledProfiles contiene perfiles no válidos', 'E_VALIDATION');
       }
       if (body.enabledProfiles.length === 0) throw new HttpError(400, 'debe quedar al menos un perfil', 'E_VALIDATION');
