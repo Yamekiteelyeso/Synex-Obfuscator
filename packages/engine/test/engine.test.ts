@@ -14,6 +14,7 @@ print(label, total, total == 25)
 `;
 
 test('los perfiles tienen configuraciones distintas y reales', () => {
+  assert.deepEqual(Object.keys(PROFILES).sort(), ['basic', 'max', 'medium']);
   const b = JSON.stringify(PROFILES.basic);
   const a = JSON.stringify(PROFILES.medium);
   const p = JSON.stringify(PROFILES.max);
@@ -41,6 +42,12 @@ test('Basic, Medium y Max producen salidas distintas y equivalentes', () => {
   assert.notEqual(outs[0].code, outs[1].code);
   assert.notEqual(outs[1].code, outs[2].code);
   assert.ok(outs[2].stats.deadBlocks > 0);
+});
+
+test('sin semilla fija, cada build Max genera una variante distinta', () => {
+  const a = runProfile('print("variant")', { profile: 'max' });
+  const b = runProfile('print("variant")', { profile: 'max' });
+  assert.notEqual(a.code, b.code);
 });
 
 test('basic no inserta código muerto ni transforma constantes', () => {
