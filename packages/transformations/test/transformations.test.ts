@@ -84,7 +84,7 @@ test('cadenas de índice con punto no se cifran (son identificadores)', () => {
 test('cadenas: el codificador devuelve el valor original', () => {
   const names = { table: 'E', keys: 'K', cache: 'C', decode: 'D' };
   const enc = createStringEncoder(names, createRng(99));
-  const values = ['', 'a', 'hello world', 'ñandú', '\x00\xff\x80'];
+  const values = ['', 'a', 'hello world', 'ñandú', 'こんにちは 🌎', '\x00\xff\x80'];
   const refs = values.map((v) => enc.encode(v));
   refs.forEach((ref, i) => {
     const idx = Number(/\((\d+)\)/.exec(ref)![1]);

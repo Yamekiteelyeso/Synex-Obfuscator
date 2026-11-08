@@ -1,13 +1,14 @@
 /**
  * Protección de cadenas: cada literal se sustituye por una llamada a un
- * decodificador incluido en una cabecera de runtime. Cada cadena se guarda
- * XOR con una clave de un byte y se descifra la primera vez que se usa.
+ * decodificador incluido en una cabecera de runtime. Los bytes UTF-8 se
+ * transforman con una clave por cadena y una máscara dependiente de posición;
+ * el resultado se descifra de forma perezosa y se cachea al primer uso.
  *
- * Nota: el XOR de un byte es ofuscación ligera, no cifrado. La protección
- * fuerte corresponde a la VM y a las transformaciones de flujo.
+ * Nota: es ofuscación reversible, no cifrado ni una barrera contra análisis
+ * dinámico. No debe usarse para almacenar secretos.
  */
 export interface StringEncoderNames {
-  table: string;   // E: bytes cifrados por índice
+  table: string;   // E: bytes codificados por índice
   keys: string;    // K: clave por índice
   cache: string;   // C: valores ya descifrados
   decode: string;  // D: función de descifrado
@@ -16,24 +17,20 @@ export interface StringEncoderNames {
 export interface StringEncoder {
   /** Expresión Luau que devuelve el valor de la cadena. */
   encode(value: string): string;
-  /**
-   * Código Luau que debe anteponerse al programa. Con `verify`, la cabecera
-   * recalcula al cargar una suma de comprobación de las tablas E y K y lanza
-   * un error si no coincide con la calculada al ofuscar.
-   */
+  /** Código Luau del runtime de descifrado y verificación opcional. */
   header(verify?: boolean): string;
   /** Número de cadenas distintas protegidas. */
   readonly count: number;
   /** Descifrado de referencia en TypeScript, usado por las pruebas. */
   decodeReference(index: number): string;
-  /** Suma de comprobación de las tablas de datos (la misma que verifica la cabecera). */
+  /** Suma de comprobación de las tablas de datos. */
   checksum(): number;
 }
 
-/** Módulo de la suma de comprobación. Con h*31 + x el producto cabe sin pérdida en doubles. */
+/** Módulo de la suma de comprobación; mantiene el acumulador dentro del rango exacto de doubles. */
 export const CHECKSUM_MODULUS = 2147483647;
 
-/** Suma sobre bytes cifrados y claves, en orden de índice. Debe coincidir con el código Luau de `header`. */
+/** Suma sobre bytes codificados y claves, en orden de índice. */
 export function dataChecksum(entries: { bytes: number[]; key: number }[]): number {
   let h = 0;
   entries.forEach((e) => {
@@ -49,6 +46,9 @@ interface Entry {
   key: number;
 }
 
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
 export function createStringEncoder(
   names: StringEncoderNames,
   rng: () => number,
@@ -56,15 +56,8 @@ export function createStringEncoder(
   const entries: Entry[] = [];
   const indexOf = new Map<string, number>();
 
-  const encodeBytes = (value: string, key: number): number[] => {
-    const out: number[] = [];
-    for (let i = 0; i < value.length; i++) {
-      const c = value.charCodeAt(i);
-      if (c > 255) throw new Error('la cadena debe contener bytes (0-255)');
-      out.push(c ^ key);
-    }
-    return out;
-  };
+  const encodeBytes = (value: string, key: number): number[] =>
+    Array.from(textEncoder.encode(value), (byte, i) => (byte + key + (i + 1) * 31) % 256);
 
   return {
     get count() {
@@ -82,7 +75,9 @@ export function createStringEncoder(
     },
     decodeReference(index: number): string {
       const e = entries[index - 1];
-      return String.fromCharCode(...e.bytes.map((b) => b ^ e.key));
+      if (!e) throw new RangeError('índice de cadena fuera de rango');
+      const decoded = e.bytes.map((byte, i) => ((byte - e.key - (i + 1) * 31) % 256 + 256) % 256);
+      return textDecoder.decode(Uint8Array.from(decoded));
     },
     checksum(): number {
       return dataChecksum(entries);
@@ -110,7 +105,7 @@ export function createStringEncoder(
         `local e=${table}[i]`,
         `local k=${keys}[i]`,
         'local t={}',
-        'for j=1,#e do t[j]=string.char(bit32.bxor(e[j],k)) end',
+        'for j=1,#e do t[j]=string.char((e[j]-k-j*31)%256) end',
         'v=table.concat(t)',
         `${cache}[i]=v`,
         'end',

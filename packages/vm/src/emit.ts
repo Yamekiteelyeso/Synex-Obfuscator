@@ -59,6 +59,21 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
+type ProtoKeys = { np: string; va: string; code: string; constants: string; children: string; upvalues: string };
+
+/** Los nombres de los campos del prototipo también cambian por semilla. */
+function protoKeys(seed: number): ProtoKeys {
+  const rand = rng(seed ^ 0x51ed270b);
+  const used = new Set<string>();
+  const next = (): string => {
+    let name = '';
+    do { name = '_' + Math.floor(rand() * 0xffffff).toString(36); } while (used.has(name));
+    used.add(name);
+    return name;
+  };
+  return { np: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next() };
+}
+
 function luaNumber(n: number): string {
   if (Number.isNaN(n)) return '(0/0)';
   if (n === Infinity) return '(1/0)';
@@ -82,14 +97,14 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
   throw new SynexError('constante no serializable en la VM', 1, 1, 'E_INTERNAL');
 }
 
-function serializeProto(p: Proto, ops: Record<Op, number>, seed: number, stringIndex: { value: number }): string {
+function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }): string {
   // Instrucciones: {op, a, b, t, c}. Los saltos usan índices 1-based en la VM.
   const code = p.code.map((ins: Instr) =>
     `{${ops[ins.op]},${ins.a ?? 0},${ins.b ?? 0},${ins.t !== undefined ? ins.t + 1 : 0},${ins.c ? 1 : 0},${ins.line ?? 0}}`).join(',');
   const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
-  const children = p.protos.map((c) => serializeProto(c, ops, seed, stringIndex)).join(',');
-  return `{np=${p.nparams},va=${p.isVararg ? 'true' : 'false'},c={${code}},k={${consts}},q={${children}},u={${upvals}}}`;
+  const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex)).join(',');
+  return `{${keys.np}=${p.nparams},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -136,14 +151,14 @@ local function makeClosure(child, cells)
 end
 run = function(P, U, args)
   local slots = {}
-  local np = P.np
+  local np = P.__KEY_NP__
   for i = 1, np do slots[i] = args[i] end
   local va, nva = {}, 0
-  if P.va then
+  if P.__KEY_VA__ then
     for i = np + 1, args.n do nva = nva + 1; va[nva] = args[i] end
   end
   local st, sp = {}, 0
-  local code, pc = P.c, 1
+  local code, pc = P.__KEY_CODE__, 1
   local function push(v) sp = sp + 1; st[sp] = v end
   local function pop()
     local v = st[sp]
@@ -176,7 +191,7 @@ run = function(P, U, args)
     steps = steps + 1
     if steps > STEP_LIMIT then fail("límite de ejecución superado") end
     curLine = ins[6]
-    if op == OP_CONST then push(P.k[a + 1])
+    if op == OP_CONST then push(P.__KEY_CONST__[a + 1])
     elseif op == OP_NIL then push(nil)
     elseif op == OP_TRUE then push(true)
     elseif op == OP_FALSE then push(false)
@@ -284,9 +299,9 @@ run = function(P, U, args)
       local extra = popMulti()
       for k = 1, a do push(extra[k]) end
     elseif op == OP_CLOSURE then
-      local child = P.q[a + 1]
+      local child = P.__KEY_CHILD__[a + 1]
       local cells = {}
-      for i, d in ipairs(child.u) do
+      for i, d in ipairs(child.__KEY_UP__) do
         if d[1] == 1 then cells[i] = slots[d[2] + 1] else cells[i] = U[d[2] + 1] end
       end
       push(makeClosure(child, cells))
@@ -331,8 +346,11 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     if (code === undefined) throw new Error(`operación sin código: ${name}`);
     return String(code);
   });
+  const keys = protoKeys(seed);
+  const keyValues: Record<string, string> = { NP: keys.np, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues };
+  body = body.replace(/__KEY_(NP|VA|CODE|CONST|CHILD|UP)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
-  body = body.replace('__MAIN__', serializeProto(main, ops, seed, { value: 0 }));
+  body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }));
   return body.trimStart();
 }
 
