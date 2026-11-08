@@ -928,7 +928,7 @@ function shuffleDispatch(template: string, seed: number): string {
 function obfuscateRuntimeSource(source: string, seed: number): string {
   const internalNames = [
     'strlib', 'tbl', 'floor', 'tointeger', 'constIntact', 'unpackfn', 'unstr', 'unnum',
-    'typefn', 'select', 'setmt', 'getmt', 'errorfn', 'pcallfn', 'rawgetfn', 'rawsetfn',
+    'typefn', 'setmt', 'getmt', 'errorfn', 'pcallfn', 'rawgetfn', 'rawsetfn',
     'getenv', 'getgenvfn', 'baseEnv', 'executorEnv', 'BLOCKED_ENV', 'ENV', 'STEP_LIMIT',
     'VALID_OP', 'OPERAND_MODULUS', 'OPERAND_HALF', 'OPERAND_SEED', 'MASTER_ENCRYPTION_KEY_HEX',
     'MASTER_INTEGRITY_KEY_HEX', 'HEX_NIBBLE', 'hexBytes', 'MASTER_ENCRYPTION_KEY',
