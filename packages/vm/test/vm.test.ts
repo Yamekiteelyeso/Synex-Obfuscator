@@ -193,7 +193,7 @@ test('emisor Luau: aleatoriza los nombres de campos del prototipo por semilla', 
   const otherSeed = compileToLuauVm(src, 124);
   assert.equal(a, b);
   assert.notEqual(a, otherSeed);
-  assert.ok(!['__KEY_NP__', '__KEY_VA__', '__KEY_CODE__', '__KEY_CONST__', '__KEY_CHILD__', '__KEY_UP__'].some((field) => a.includes(field)));
+  assert.ok(!['__KEY_NP__', '__KEY_VA__', '__KEY_CODE__', '__KEY_CONST__', '__KEY_CHILD__', '__KEY_UP__', '__KEY_SALT__'].some((field) => a.includes(field)));
 });
 
 test('emisor Luau: las cadenas Unicode no aparecen en texto plano dentro de la VM', () => {
