@@ -142,6 +142,37 @@ describe('polimorfismo del pool de constantes', () => {
 });
 
 
+describe('sellos jerárquicos de prototipos', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+  test('closures anidadas conservan la relación padre-hijo al ejecutarse', () => {
+    const source = [
+      'local seed = 40',
+      'local function outer(delta)',
+      '  local captured = seed + delta',
+      '  return function(extra)',
+      '    return function() return captured + extra end',
+      '  end',
+      'end',
+      'local middle = outer(2)',
+      'local inner = middle(3)',
+      'print(inner())',
+    ].join('\\n');
+    const original = runLua54(source);
+    const emitted = runLua54(compileToLuauVm(source, 441122));
+    assert.ok(emitted.ok, emitted.error);
+    assert.equal(emitted.stdout, original.stdout);
+    assert.equal(emitted.stdout.trim(), '45');
+  });
+
+  test('cada compilación produce una jerarquía reproducible y distinta por semilla', () => {
+    const source = 'local function outer() return function() return 9 end end print(outer()())';
+    const a = compileToLuauVm(source, 7001);
+    const same = compileToLuauVm(source, 7001);
+    const other = compileToLuauVm(source, 7002);
+    assert.equal(a, same);
+    assert.notEqual(a, other);
+  });
+});
+
 describe('codec polimórfico de constantes', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
   test('decodifica cadenas UTF-8 y números con parámetros variables', () => {
     const source = [
