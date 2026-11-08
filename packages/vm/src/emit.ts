@@ -521,7 +521,8 @@ local function blockIntact(P, blockId)
   end
   return hashA == descriptor[1] and hashB == descriptor[2]
 end
-local CONST_CACHE, NIL_CONST = {}, {}
+-- Weak keys: a completed run must not keep every serialized prototype alive.
+local CONST_CACHE, NIL_CONST = setmt({}, {__mode = "k"}), {}
 local function constant(P, index)
   local cache = CONST_CACHE[P]
   if not cache then
