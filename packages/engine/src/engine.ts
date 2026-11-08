@@ -60,6 +60,10 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
     throw new SynexError(`el script supera el límite de ${maxInput} bytes`, 1, 1, 'E_LIMIT');
   }
   if (source.trim() === '') throw new SynexError('el script está vacío', 1, 1, 'E_EMPTY');
+  if (options.seed !== undefined && (!Number.isSafeInteger(options.seed)
+    || options.seed < 0 || options.seed > 0xffff_ffff)) {
+    throw new SynexError('semilla inválida (usa un entero de 0 a 4294967295)', 1, 1, 'E_OPTIONS');
+  }
 
   // Semilla nueva por compilación: evita mapas de opcodes y máscaras repetibles.
   // 32 bits de entropía CSPRNG por build; la semilla fija sigue disponible para pruebas reproducibles.

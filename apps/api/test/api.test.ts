@@ -204,6 +204,19 @@ test('un usuario no puede ver los trabajos de otra cuenta Discord', async () => 
   assert.equal((await call('GET', `/api/jobs/${sent.json.id}/code`, undefined, otherToken)).status, 404);
 });
 
+test('la API valida semillas uint32 antes de aceptar trabajos', async () => {
+  const token = await loginDiscord('discord-seed-validation', 'seed-validation');
+  for (const seed of [-1, 0x1_0000_0000, 1.5, Number.POSITIVE_INFINITY]) {
+    const invalid = await call('POST', '/api/jobs', { source: SCRIPT, profile: 'basic', seed }, token);
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.json.error.code, 'E_VALIDATION');
+  }
+  const accepted = await call('POST', '/api/jobs', { source: SCRIPT, profile: 'basic', seed: 0 }, token);
+  assert.equal(accepted.status, 202);
+  const completed = await waitJob(accepted.json.id, token);
+  assert.equal(completed.status, 'done');
+});
+
 test('validación de envíos: perfil inválido, sin script y script con error', async () => {
   const token = await loginDiscord('discord-validation', 'validation');
   assert.equal((await call('POST', '/api/jobs', { source: SCRIPT, profile: 'ultra' }, token)).status, 400);
