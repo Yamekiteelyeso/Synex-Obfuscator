@@ -427,8 +427,17 @@ constIntact = function(bytes, sealA, sealB, key)
   return hashA == sealA and hashB == sealB
 end
 local function protoIntact(P)
-  local hashA = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0) + P.__KEY_PARENT__ * 193 + P.__KEY_SLOT__ * 389) % OPERAND_MODULUS
-  local hashB = (OPERAND_SEED * 65599 + P.__KEY_SALT__ * 131 + P.__KEY_NP__ * 257 + P.__KEY_NS__ * 911 + (P.__KEY_VA__ and 17 or 0) + P.__KEY_PARENT__ * 521 + P.__KEY_SLOT__ * 1031) % OPERAND_MODULUS
+  if typefn(P) ~= "table" then return false end
+  local salt, parentSalt, parentSlot = P.__KEY_SALT__, P.__KEY_PARENT__, P.__KEY_SLOT__
+  local nparams, nslots, isVararg = P.__KEY_NP__, P.__KEY_NS__, P.__KEY_VA__
+  if typefn(salt) ~= "number" or salt ~= floor(salt)
+    or typefn(parentSalt) ~= "number" or parentSalt ~= floor(parentSalt)
+    or typefn(parentSlot) ~= "number" or parentSlot ~= floor(parentSlot) or parentSlot < 0
+    or typefn(nparams) ~= "number" or nparams ~= floor(nparams) or nparams < 0
+    or typefn(nslots) ~= "number" or nslots ~= floor(nslots) or nslots < 0
+    or typefn(isVararg) ~= "boolean" then return false end
+  local hashA = (OPERAND_SEED + salt * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0) + P.__KEY_PARENT__ * 193 + P.__KEY_SLOT__ * 389) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg and 17 or 0) + parentSalt * 521 + parentSlot * 1031) % OPERAND_MODULUS
   local function mix(value)
     hashA = (hashA * 33 + value) % OPERAND_MODULUS
     hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
@@ -524,6 +533,10 @@ end
 -- Weak keys: a completed run must not keep every serialized prototype alive.
 local CONST_CACHE, NIL_CONST = setmt({}, {__mode = "k"}), {}
 local function constant(P, index)
+  if typefn(P) ~= "table" or typefn(index) ~= "number" or index ~= floor(index)
+    or index < 1 or index > #P.__KEY_CONST__ then
+    errorfn("índice de constante inválido", 0)
+  end
   local cache = CONST_CACHE[P]
   if not cache then
     cache = {seen = {}, values = {}}
