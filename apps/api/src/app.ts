@@ -536,6 +536,40 @@ export function createApp(opts: AppOptions): App {
     });
   });
 
+  // Sincroniza el único slash command al arrancar; no requiere un paso manual de registro.
+  const discordClientId = process.env.DISCORD_CLIENT_ID;
+  const discordBotToken = process.env.DISCORD_BOT_TOKEN;
+  if (discordClientId && discordBotToken && process.env.DISCORD_REDIRECT_URI) {
+    void fetch(`https://discord.com/api/v10/applications/${discordClientId}/commands`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bot ${discordBotToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify([{
+        name: 'synex-login',
+        description: 'Inicia sesión o crea una cuenta de Synex Obfuscador',
+        type: 1,
+      }]),
+    }).then((response) => {
+      if (!response.ok) {
+        store.logError({
+          at: Date.now(),
+          method: 'DISCORD',
+          path: '/applications/:id/commands',
+          message: `no se pudo sincronizar /synex-login (HTTP ${response.status})`,
+        });
+      }
+    }).catch(() => {
+      store.logError({
+        at: Date.now(),
+        method: 'DISCORD',
+        path: '/applications/:id/commands',
+        message: 'no se pudo conectar con Discord para sincronizar /synex-login',
+      });
+    });
+  }
+
   return {
     server,
     store,
