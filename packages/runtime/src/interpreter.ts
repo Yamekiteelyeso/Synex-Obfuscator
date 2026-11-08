@@ -307,7 +307,7 @@ export class Interpreter {
         if (e.op === 'not') return !truthy(v);
         if (e.op === '-') return -toNumber(v, e);
         // '#'
-        if (typeof v === 'string') return v.length;
+        if (typeof v === 'string') return new TextEncoder().encode(v).length;
         if (v instanceof LuaTable) return v.length();
         throw new LuaError(`attempt to get length of ${typeName(v)} value`, e.line, e.column);
       }
