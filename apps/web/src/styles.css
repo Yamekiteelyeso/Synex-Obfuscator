@@ -387,3 +387,20 @@ input:focus,select:focus,textarea:focus { border-color:#aaa; box-shadow:0 0 0 3p
   .auth-screen { padding:22px 16px 54px; }
   .auth-card { padding:22px; }
 }
+
+
+/* Discord OAuth action */
+.discord-btn,.discord-btn:hover {
+  display:flex; align-items:center; justify-content:center; gap:11px;
+  color:#fff; background:#5865f2; border:1px solid #5865f2;
+  font-weight:750; letter-spacing:.1px;
+  box-shadow:0 8px 26px rgba(88,101,242,.22);
+  transition:background .18s ease,transform .18s ease,box-shadow .18s ease;
+}
+.discord-btn:hover { background:#4752c4; border-color:#4752c4; box-shadow:0 10px 30px rgba(88,101,242,.32); }
+.discord-btn:active { transform:translateY(1px) scale(.99); }
+.discord-logo { width:21px; height:21px; flex:0 0 21px; color:#fff; }
+.discord-glyph { display:none; }
+@media (prefers-reduced-motion:reduce) {
+  .discord-btn { transition:none; }
+}
