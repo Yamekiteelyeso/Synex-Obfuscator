@@ -24,7 +24,7 @@ El intérprete de referencia y la VM comparten estas implementaciones:
 - **Globales:** `print`, `tostring`, `tonumber`, `type`, `error`, `pcall`, `select`, `pairs`, `ipairs`.
 - **`table`:** `concat`, `pack`, `unpack`, `insert`, `remove`, `sort`, `move`, `clone`, `clear`, `find`, `create`.
 - **`string`:** `char`, `len`, `byte`, `sub`, `rep`, `lower`, `upper`, `reverse`, `split`, `find`, `match`, `gmatch`, `gsub` con un subconjunto de patrones Lua y `format` con conversiones comunes.
-- **`math`:** operaciones trigonométricas y numéricas habituales, `abs`, `min`, `max`, `clamp`, `sign`, `round`, `modf`, `random`, `randomseed`, `type`, `tointeger`, `pi` y `huge`.
+- **`math`:** operaciones trigonométricas y numéricas habituales, `abs`, `min`, `max`, `clamp`, `sign`, `round`, `modf`, `pow`, `frexp`, `ldexp`, `lerp`, `map`, `isnan`, `random`, `randomseed`, `type`, `tointeger`, `pi` y `huge`.
 - **`bit32`:** `band`, `bor`, `bxor`.
 
 No están implementadas todavía todas las APIs de Lua/Luau: `string.find`, `string.match`, `string.gmatch` y `string.gsub` admiten un subconjunto de patrones Lua con clases comunes, cuantificadores, capturas, punto que también coincide con saltos de línea y anclas `^`/`# Synex Obfuscador
@@ -56,7 +56,7 @@ El intérprete de referencia y la VM comparten estas implementaciones:
 - **`math`:** operaciones trigonométricas y numéricas habituales, `abs`, `min`, `max`, `clamp`, `sign`, `round`, `modf`, `random`, `randomseed`, `type`, `tointeger`, `pi` y `huge`.
 - **`bit32`:** `band`, `bor`, `bxor`.
 
- en sus posiciones Lua; `%b`, `%f` y capturas de posición todavía no están implementadas. Para limitar el retroceso del motor de expresiones regulares, el traductor rechaza grupos cuantificados que ya contienen repeticiones, más de un comodín repetido y patrones con más de 32 cuantificadores; `string.format` cubre conversiones comunes pero no todos los modificadores y formatos (`%a` hexadecimal, por ejemplo); corrutinas, metatablas completas y APIs específicas de Roblox siguen pendientes. El generador aleatorio del runtime es reproducible y útil para pruebas, pero no pretende replicar bit a bit el PRNG de Lua 5.4 ni es criptográfico. Las cadenas internas son byte-strings UTF-8; las funciones de caso convierten sólo ASCII para evitar alterar bytes no ASCII.
+ en sus posiciones Lua; `%b`, `%f` y capturas de posición todavía no están implementadas. Para limitar el retroceso del motor de expresiones regulares, el traductor rechaza grupos cuantificados que ya contienen repeticiones, más de un comodín repetido y patrones con más de 32 cuantificadores; `string.format` cubre conversiones comunes pero no todos los modificadores y formatos (`%a` hexadecimal, por ejemplo); corrutinas, metatablas completas y APIs específicas de Roblox siguen pendientes. `math.noise` aún no está implementada. El generador aleatorio del runtime es reproducible y útil para pruebas, pero no replica bit a bit el PCG de 32 bits de Luau ni el PRNG de Lua 5.4 y no es criptográfico. Las cadenas internas son byte-strings UTF-8; las funciones de caso convierten sólo ASCII para evitar alterar bytes no ASCII.
 
 ## Estado del lexer
 
