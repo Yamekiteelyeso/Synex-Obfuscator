@@ -339,7 +339,7 @@ export function createApp(opts: AppOptions): App {
       redirectAuthError('failed');
       return;
     }
-    if (!tokenData.access_token || !String(tokenData.scope ?? '').split(/\\s+/).includes('identify')) {
+    if (!tokenData.access_token || !String(tokenData.scope ?? '').split(/\s+/).includes('identify')) {
       redirectAuthError('failed');
       return;
     }
