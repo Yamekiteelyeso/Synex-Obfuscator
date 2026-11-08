@@ -48,7 +48,7 @@ export interface AppOptions {
   workerPath: string;
   /** Carpeta con la aplicación web compilada (apps/web/dist). Si se omite, no se sirven archivos estáticos. */
   webDir?: string;
-  /** IDs de Discord autorizados como administradores, separados en server.ts por comas. */
+  /** IDs de Discord autorizados como administradores. */
   adminDiscordIds?: string[];
   concurrency?: number;
   timeoutMs?: number;
@@ -104,7 +104,7 @@ const ACCOUNT_PLANS: Record<AccountPlan, {
     limit: null,
     profiles: ['basic', 'medium'],
     description: 'Para uso frecuente y transformaciones intermedias.',
-    features: ['Ofuscaciones ilimitadas', 'Perfiles Basic y Medium', 'Solicitudes de upgrade guardadas'],
+    features: ['Ofuscaciones ilimitadas', 'Perfiles Basic y Medium', 'Soporte de upgrade'],
   },
   plus: {
     name: 'Plus',
@@ -187,7 +187,13 @@ export function createApp(opts: AppOptions): App {
     const h = req.headers.authorization ?? '';
     if (!h.startsWith('Bearer ')) return null;
     const id = sessions.userIdFor(h.slice(7));
-    return id ? store.users.find((u) => u.id === id) ?? null : null;
+    const stored = id ? store.users.find((u) => u.id === id) : null;
+    if (!stored) return null;
+    // El permiso se deriva del ID permitido en el servidor, nunca de un rol antiguo persistido.
+    return {
+      ...stored,
+      role: (opts.adminDiscordIds ?? []).includes(stored.discordId ?? '') ? 'admin' : 'user',
+    };
   };
 
   const routes: Route[] = [];
