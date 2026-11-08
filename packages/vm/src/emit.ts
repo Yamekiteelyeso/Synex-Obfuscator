@@ -1065,7 +1065,8 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
   body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }, 0, 0, encryptedContext));
   const marker = watermark === undefined ? '' : `-- Synex provenance: ${watermark}\n`;
-  body = obfuscateRuntimeSource(body, seed);\n  return marker + body.trimStart();
+  body = obfuscateRuntimeSource(body, seed);
+  return marker + body.trimStart();
 }
 
 /** Compila un script Luau al IR y lo emite como programa de VM. */
