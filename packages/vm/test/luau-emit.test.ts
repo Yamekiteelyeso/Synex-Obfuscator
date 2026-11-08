@@ -130,9 +130,9 @@ describe('VM Luau emitida: propiedades', () => {
 
   test('oculta nombres internos de VM e integridad en la salida generada', () => {
     const out = compileToLuauVm(PROGRAMS.closures, 314159);
-    assert.doesNotMatch(out, /local function (?:decodeEncryptedPrototype|protoIntact|instructionIntact|blockIntact|makeClosure|run)\\b/);
-    assert.doesNotMatch(out, /local (?:BLOCKED_ENV|OPERAND_SEED|MASTER_ENCRYPTION_KEY_HEX|Crypto|Integrity)\\b/);
-    assert.match(out, /return _[a-z0-9]+\\(/);\n    assert.doesNotMatch(out, /-- Blindaje de introspección|-- Weak keys|-- Bloques básicos/);
+    assert.doesNotMatch(out, /local function (?:decodeEncryptedPrototype|protoIntact|instructionIntact|blockIntact|makeClosure|run)\b/);
+    assert.doesNotMatch(out, /local (?:BLOCKED_ENV|OPERAND_SEED|MASTER_ENCRYPTION_KEY_HEX|Crypto|Integrity)\b/);
+    assert.match(out, /return _[a-z0-9]+\(/);\n    assert.doesNotMatch(out, /-- Blindaje de introspección|-- Weak keys|-- Bloques básicos/);
   });
 
   test('cada build asigna códigos distintos', () => {
