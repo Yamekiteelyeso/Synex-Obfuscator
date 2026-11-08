@@ -140,3 +140,23 @@ describe('polimorfismo del pool de constantes', () => {
     assert.equal(emitted.stdout, original.stdout);
   });
 });
+
+
+describe('codec polimórfico de constantes', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+  test('decodifica cadenas UTF-8 y números con parámetros variables', () => {
+    const source = [
+      'local text = "áé漢字🙂 — Synex"',
+      'local negative = -123.5',
+      'local fraction = 0.125',
+      'local integer = 98765',
+      'print(text)',
+      'print(negative, fraction, integer)',
+    ].join('\\n');
+    const original = runLua54(source);
+    for (const seed of [17, 987654, 0x7fffffff]) {
+      const emitted = runLua54(compileToLuauVm(source, seed));
+      assert.ok(emitted.ok, emitted.error);
+      assert.equal(emitted.stdout, original.stdout);
+    }
+  });
+});
