@@ -59,6 +59,13 @@ describe('validación del bytecode', () => {
     assert.throws(() => validateProto(p), /ciclo en árbol de prototipos/);
   });
 
+  test('valida correctamente closures con upvalues al ejecutarlos', () => {
+    const p = protoOf('local x = 7 local function f() return x end print(f())');
+    const vm = new VM();
+    assert.doesNotThrow(() => vm.execute(p));
+    assert.deepEqual(vm.output, ['7']);
+  });
+
   test('la VM pública rechaza bytecode manipulado antes de ejecutarlo', () => {
     const p = protoOf('print(1)');
     p.code[0].op = 'UNKNOWN' as any;
