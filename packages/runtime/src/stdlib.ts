@@ -403,8 +403,19 @@ export function installStdlib(interp: LuaEnvironment): void {
   tableLib.set('clear', fn('clear', (args) => {
     const table = args[0];
     if (!(table instanceof LuaTable)) throw new LuaError('bad argument to table.clear (table expected)');
-    table.hash.clear();
+    table.clearContents();
     return [];
+  }));
+  tableLib.set('freeze', fn('freeze', (args) => {
+    const table = args[0];
+    if (!(table instanceof LuaTable)) throw new LuaError('bad argument to table.freeze (table expected)');
+    table.freeze();
+    return [table];
+  }));
+  tableLib.set('isfrozen', fn('isfrozen', (args) => {
+    const table = args[0];
+    if (!(table instanceof LuaTable)) throw new LuaError('bad argument to table.isfrozen (table expected)');
+    return [table.isFrozen];
   }));
   tableLib.set('clone', fn('clone', (args) => {
     const source = args[0];
