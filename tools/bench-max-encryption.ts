@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { runProfile } from '../packages/engine/src/engine.js';
 
-const rounds = Math.max(3, Number(process.env.SYNEX_BENCH_ROUNDS ?? 5));
+const requestedRounds = Number(process.env.SYNEX_BENCH_ROUNDS ?? 5);
+const rounds = Number.isFinite(requestedRounds) ? Math.max(3, Math.floor(requestedRounds)) : 5;
 const sizes = [1, 4, 16];
 const luauAvailable = spawnSync('luau', ['--version'], { encoding: 'utf8' }).status === 0;
 
