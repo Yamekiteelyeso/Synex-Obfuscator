@@ -44,7 +44,8 @@ export function AuthView({ onAuth }: { onAuth: (token: string, user: SessionUser
           {error && <p className="error-text" role="alert">{error}</p>}
           <button className="btn primary auth-submit" disabled={busy}>{busy ? 'Procesando…' : mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'} <span>↗</span></button>
           <div className="auth-divider"><span>o continúa con</span></div>
-          <a className="btn discord-btn" href="/api/auth/discord"><span className="discord-glyph">◈</span> Discord</a>
+          <a className="btn discord-btn" href="/api/auth/discord"><span className="discord-glyph">◈</span> Conectar con Discord</a>
+          <small className="auth-foot">Instala el bot y ejecuta <b>/synex-login</b>. Te enviará un enlace privado de un solo uso.</small>
           <button type="button" className="auth-switch" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}>
             {mode === 'login' ? '¿No tienes cuenta? Crear una' : '¿Ya tienes cuenta? Inicia sesión'}
           </button>
