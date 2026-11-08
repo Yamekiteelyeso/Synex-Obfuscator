@@ -110,18 +110,26 @@ function encodeOperand(value: number, pc: number, field: number, seed: number, p
   return (normalized + mask) % OPERAND_MODULUS;
 }
 
+function protoSeal(code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean): number {
+  let hash = ((seed >>> 0) + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
+  for (const instruction of code) for (const value of instruction) hash = (hash * 33 + value) % OPERAND_MODULUS;
+  return hash;
+}
+
 function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }): string {
   // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
   const protoSalt = ++protoCounter.value;
-  const code = p.code.map((ins: Instr, index: number) => {
+  const encodedCode = p.code.map((ins: Instr, index: number) => {
     const pc = index + 1;
     const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, ins.t !== undefined ? ins.t + 1 : 0, ins.c ? 1 : 0, ins.line ?? 0];
     return '{' + fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt)).join(',') + '}';
-  }).join(',');
+  });
+  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg);
+  const code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
   const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
   const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter)).join(',');
-  return `{${keys.salt}=${protoSalt},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
+  return `{${keys.salt}=${protoSalt},${keys.seal}=${seal},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -432,8 +440,8 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     return String(code);
   });
   const keys = protoKeys(seed);
-  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt };
-  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT)__/g, (_m, name: string) => keyValues[name]);
+  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal };
+  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
   body = body.replace('__VALID_OPS__', '{' + ALL_OPS.map((op) => '[' + ops[op] + ']=true').join(',') + '}');
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
