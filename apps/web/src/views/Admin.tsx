@@ -2,7 +2,7 @@ import React from 'react';
 import { formatDate } from '../state';
 
 export interface AdminData {
-  users: { id: string; email: string; role: string; createdAt: number }[];
+  users: { id: string; email: string; discordUsername?: string; role: string; createdAt: number }[];
   jobs: { id: string; fileName: string; status: string; createdAt: number }[];
   errors: { at: number; method: string; path: string; message: string }[];
   settings: { maxInputBytes: number; enabledProfiles: string[] };
@@ -28,7 +28,7 @@ export function Admin({ data, onToggleProfile }: { data: AdminData | null; onTog
         <div className="card">
           <h3>Usuarios ({data.users.length})</h3>
           <ul className="plain-list">
-            {data.users.map((u) => <li key={u.id}><span>{u.email}</span><small>{u.role} · {formatDate(u.createdAt)}</small></li>)}
+            {data.users.map((u) => <li key={u.id}><span>{u.discordUsername ? '@' + u.discordUsername : u.email}</span><small>{u.role} · {formatDate(u.createdAt)}</small></li>)}
           </ul>
         </div>
       </div>
