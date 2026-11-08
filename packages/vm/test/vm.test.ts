@@ -171,6 +171,9 @@ test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
   assert.match(code, /getfenv/);
   assert.match(code, /getgenv/);
   assert.match(code, /local function unstr/);
+  assert.match(code, /local function decodeOperand/);
+  assert.match(code, /decodeOperand\(ins\[6\], ip, 6\)/);
+  assert.doesNotMatch(code, /P\.k\[/);
   assert.ok(code.includes('unstr('));
   assert.equal(compileToLuauVm('local x = game:GetService("Workspace")\nreturn x'), code);
   assert.notEqual(compileToLuauVm('local x = game:GetService("Workspace")\nreturn x', 99), code);
@@ -196,4 +199,15 @@ test('emisor Luau: las cadenas Unicode no aparecen en texto plano dentro de la V
   const code = compileToLuauVm('print("こんにちは 🌎")', 321);
   assert.doesNotMatch(code, /こんにちは|🌎/);
   assert.ok(code.includes('unstr('));
+});
+
+
+test('emisor Luau: los operandos del bytecode cambian por instrucción y semilla', () => {
+  const src = 'local function f(x) return x + 7 end return f(12)';
+  const a = compileToLuauVm(src, 77);
+  const b = compileToLuauVm(src, 78);
+  assert.match(a, /OPERAND_SEED = 77/);
+  assert.notEqual(a, b);
+  assert.match(a, /bytecode truncado o alterado/);
+  assert.match(a, /límite de pila superado/);
 });
