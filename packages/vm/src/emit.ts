@@ -122,8 +122,9 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   // Randomize physical instruction storage independently for each prototype.
   const order = Array.from({ length: p.code.length }, (_, i) => i + 1);
   const shuffle = rng((seed ^ Math.imul(protoSalt, 0x45d9f3b)) >>> 0);
-  for (let i = order.length - 1; i > 0; i--) {
-    const j = Math.floor(shuffle() * (i + 1));
+  // La primera instrucción lógica conserva el slot de entrada de la VM.
+  for (let i = order.length - 1; i > 1; i--) {
+    const j = 1 + Math.floor(shuffle() * i);
     [order[i], order[j]] = [order[j], order[i]];
   }
   const physicalOf: number[] = [];
