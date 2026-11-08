@@ -138,7 +138,7 @@ describe('watermark de procedencia', () => {
   test('incluye el identificador solicitado sin alterar la ejecución', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
     const source = 'print("watermark-ok")';
     const emitted = compileToLuauVm(source, 222, { watermark: 'synex.release:2026-11' });
-    assert.ok(emitted.startsWith('-- Synex provenance: synex.release:2026-11\\n'));
+    assert.ok(emitted.startsWith('-- Synex provenance: synex.release:2026-11\n'));
     const result = runLua54(emitted);
     assert.ok(result.ok, result.error);
     assert.equal(result.stdout.trim(), 'watermark-ok');
