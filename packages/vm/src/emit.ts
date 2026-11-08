@@ -59,7 +59,7 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
-type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string };
+type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string; seal: string };
 
 /** Los nombres de los campos del prototipo también cambian por semilla. */
 function protoKeys(seed: number): ProtoKeys {
@@ -71,7 +71,7 @@ function protoKeys(seed: number): ProtoKeys {
     used.add(name);
     return name;
   };
-  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next() };
+  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next() };
 }
 
 function luaNumber(n: number): string {
