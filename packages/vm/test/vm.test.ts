@@ -372,10 +372,10 @@ test('VM emitida: segmenta cadenas largas con claves distintas y las reconstruye
 
 test('VM emitida: detecta alteración de bytes de constantes antes de reconstruirlas', { skip: !hasLua54 }, () => {
   const emitted = compileToLuauVm('print("Synex protected constant")', 556677);
-  const mainDeclaration = [...emitted.matchAll(/local _[a-z0-9]+ = \\{/g)].at(-1);
+  const mainDeclaration = [...emitted.matchAll(/local _[a-z0-9]+ = \{/g)].at(-1);
   assert.ok(mainDeclaration);
   const mainStart = mainDeclaration.index!;
-  const payload = /local b=\\{(\\d+)/.exec(emitted.slice(mainStart));
+  const payload = /local b=\{(\d+)/.exec(emitted.slice(mainStart));
   assert.ok(payload);
   const numberStart = mainStart + payload.index + 'local b={'.length;
   const tampered = emitted.slice(0, numberStart)
@@ -400,10 +400,10 @@ test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => 
   const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
   assert.ok(emitted.includes('slots[b + 1] = slots[a + 1]'));
   assert.equal(output.trim(), ['Synex VM', '42', '42'].join(String.fromCharCode(9)));
-  const mainDeclaration = [...emitted.matchAll(/local _[a-z0-9]+ = \\{/g)].at(-1);
+  const mainDeclaration = [...emitted.matchAll(/local _[a-z0-9]+ = \{/g)].at(-1);
   assert.ok(mainDeclaration);
   const mainMarker = mainDeclaration.index!;
-  const numeric = /\\d+/.exec(emitted.slice(mainMarker + mainDeclaration[0].length));
+  const numeric = /\d+/.exec(emitted.slice(mainMarker + mainDeclaration[0].length));
   assert.ok(numeric);
   const tamperAt = mainMarker + mainDeclaration[0].length + numeric.index;
   const tampered = emitted.slice(0, tamperAt) + String(Number(numeric[0]) + 1) + emitted.slice(tamperAt + numeric[0].length);
