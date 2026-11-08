@@ -505,3 +505,15 @@ button, .btn, select { min-height: 42px; }
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
 }
+
+/* Mobile navigation backdrop is a real control, not a decorative pseudo-element. */
+.sidebar-backdrop { display: none; }
+@media (max-width: 760px) {
+  .sidebar { z-index: 60; }
+  .sidebar-backdrop {
+    display: block; position: fixed; z-index: 45; inset: 0;
+    width: 100%; height: 100dvh; padding: 0; border: 0; border-radius: 0;
+    background: rgba(0,0,0,.62); backdrop-filter: blur(2px);
+  }
+  .topbar { z-index: 20; }
+}
