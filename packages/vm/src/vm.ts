@@ -4,6 +4,7 @@ import {
   truthy, typeName, type LuaEnvironment, type Value,
 } from '@synex/runtime';
 import { Multi, type Instr, type Proto } from '@synex/ir';
+import { validateProto } from './validate.js';
 
 /** Celda compartida por closures para un local capturado. */
 export interface Cell { v: Value }
@@ -59,6 +60,7 @@ export class VM implements LuaEnvironment {
   }
 
   run(proto: Proto, upvals: Cell[], args: Value[]): Value[] {
+    validateProto(proto);
     if (++this.depth > 200) {
       this.depth--;
       throw new LuaError('stack overflow');
