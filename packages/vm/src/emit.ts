@@ -197,10 +197,41 @@ function fuseSuperinstructions(code: Instr[]): Instr[] {
   return fused;
 }
 
+/**
+ * Permuta el pool de constantes de cada prototipo y reescribe todas las
+ * referencias del IR. La permutación es independiente por prototipo y build;
+ * el flujo de ejecución no cambia y las constantes lazy siguen funcionando.
+ */
+function shuffleConstantPool(code: Instr[], constants: unknown[], seed: number, protoSalt: number): { code: Instr[]; constants: unknown[] } {
+  const order = Array.from({ length: constants.length }, (_, index) => index);
+  const random = rng((seed ^ Math.imul(protoSalt, 0x27d4eb2d) ^ 0x165667b1) >>> 0);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const remap = new Array<number>(order.length);
+  const shuffled = order.map((oldIndex, newIndex) => {
+    remap[oldIndex] = newIndex;
+    return constants[oldIndex];
+  });
+  const rewritten = code.map((instruction) => {
+    if (instruction.op !== 'CONST' && instruction.op !== 'GETG'
+      && instruction.op !== 'SETG' && instruction.op !== 'SELF') return { ...instruction };
+    const oldIndex = instruction.a;
+    if (oldIndex === undefined || remap[oldIndex] === undefined) {
+      throw new SynexError('referencia de constante inválida durante la permutación', instruction.line ?? 1, 1, 'E_INTERNAL');
+    }
+    return { ...instruction, a: remap[oldIndex] };
+  });
+  return { code: rewritten, constants: shuffled };
+}
+
 function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }): string {
   // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
   const protoSalt = ++protoCounter.value;
-  const virtualCode = fuseSuperinstructions(p.code);
+  const fusedCode = fuseSuperinstructions(p.code);
+  const constantPool = shuffleConstantPool(fusedCode, p.consts, seed, protoSalt);
+  const virtualCode = constantPool.code;
   // Randomize physical instruction storage independently for each prototype.
   const order = Array.from({ length: virtualCode.length }, (_, i) => i + 1);
   const shuffle = rng((seed ^ Math.imul(protoSalt, 0x45d9f3b)) >>> 0);
@@ -269,7 +300,7 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   const upvalueValues = p.upvals.map((d) => [d.fromLocal ? 1 : 0, d.index]);
   const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg, blockMap, blockDescriptorValues, p.consts.length, p.protos.length, upvalueValues);
   const code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
-  const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
+  const consts = constantPool.constants.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
   const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter)).join(',');
   return `{${keys.salt}=${protoSalt},${keys.seal}={${seal.join(',')}},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
