@@ -378,7 +378,7 @@ export function installStdlib(interp: LuaEnvironment): void {
       if (searchCursor > source.length) break;
     }
     output += source.slice(outputCursor);
-
+    return [output, count];
   }));
   stringLib.set('find', fn('find', (args) => {
     const source = String(args[0]);
