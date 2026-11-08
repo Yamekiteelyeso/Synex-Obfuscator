@@ -104,6 +104,39 @@ export function installStdlib(interp: LuaEnvironment): void {
     }
     return [parts.join(sep)];
   }));
+  tableLib.set('pack', fn('pack', (args) => {
+    const packed = new LuaTable();
+    args.forEach((value, index) => packed.set(index + 1, value));
+    packed.set('n', args.length);
+    return [packed];
+  }));
+  const unpack = fn('unpack', (args) => {
+    const t = args[0];
+    if (!(t instanceof LuaTable)) throw new LuaError('bad argument to table.unpack (table expected)');
+    const first = args[1] === undefined ? 1 : toNumber(args[1], at);
+    const last = args[2] === undefined ? t.length() : toNumber(args[2], at);
+    if (!Number.isInteger(first) || !Number.isInteger(last)) {
+      throw new LuaError('bad argument to table.unpack (integer index expected)');
+    }
+    if (last < first) return [];
+    const result: Value[] = [];
+    for (let i = first; i <= last; i++) result.push(t.get(i));
+    return result;
+  });
+  tableLib.set('unpack', unpack);
+  g.set('unpack', unpack);
+  tableLib.set('remove', fn('remove', (args) => {
+    const t = args[0];
+    if (!(t instanceof LuaTable)) throw new LuaError('bad argument to table.remove (table expected)');
+    const length = t.length();
+    const pos = args[1] === undefined ? length : toNumber(args[1], at);
+    if (!Number.isInteger(pos)) throw new LuaError('bad argument to table.remove (integer index expected)');
+    if (pos < 1 || pos > length) return [undefined];
+    const removed = t.get(pos);
+    for (let i = pos; i < length; i++) t.set(i, t.get(i + 1));
+    t.set(length, undefined);
+    return [removed];
+  }));
   tableLib.set('insert', fn('insert', (args) => {
     const t = args[0];
     if (!(t instanceof LuaTable)) throw new LuaError('bad argument to table.insert');
