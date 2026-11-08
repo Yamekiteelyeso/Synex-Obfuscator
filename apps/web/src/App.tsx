@@ -58,7 +58,7 @@ export function App() {
       const me = await api<{ user: SessionUser }>('GET', '/api/me', undefined, token);
       setUser(me.user);
       if (me.user.role === 'admin') {
-        const [u, j, e, s, requests] = await Promise.all([
+        const [u, j, e, s] = await Promise.all([
           api<any>('GET', '/api/admin/users', undefined, token),
           api<any>('GET', '/api/admin/jobs', undefined, token),
           api<any>('GET', '/api/admin/errors', undefined, token),
