@@ -218,7 +218,7 @@ function shuffleConstantPool(code: Instr[], constants: unknown[], seed: number, 
     if (instruction.op !== 'CONST' && instruction.op !== 'GETG'
       && instruction.op !== 'SETG' && instruction.op !== 'SELF') return { ...instruction };
     const oldIndex = instruction.a;
-    if (oldIndex === undefined || remap[oldIndex] === undefined) {
+    if (typeof oldIndex !== 'number' || !Number.isInteger(oldIndex) || remap[oldIndex] === undefined) {
       throw new SynexError('referencia de constante inválida durante la permutación', instruction.line ?? 1, 1, 'E_INTERNAL');
     }
     return { ...instruction, a: remap[oldIndex] };
