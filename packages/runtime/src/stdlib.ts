@@ -106,7 +106,7 @@ export function installStdlib(interp: LuaEnvironment): void {
   }));
   tableLib.set('pack', fn('pack', (args) => {
     const packed = new LuaTable();
-    args.forEach((value, index) => packed.set(index + 1, value));
+    for (let index = 0; index < args.length; index++) packed.set(index + 1, args[index]);
     packed.set('n', args.length);
     return [packed];
   }));
