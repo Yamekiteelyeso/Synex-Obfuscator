@@ -171,6 +171,10 @@ test('string.find soporta patrones Lua, capturas, índices negativos y modo plai
   assert.deepEqual(out('print(string.find("abc123", "%d+"))'), ['4\t6']);
   assert.deepEqual(out('local a, b = string.find("a.b", "a.b"); local c, d = string.find("a.b", "a%.b"); print(a, b, c, d)'), ['1\t3\t1\t3']);
   assert.deepEqual(out('print(string.find("a123b", "a.-b"))'), ['1\t5']);
+  assert.throws(() => out('string.find("abc", "%")'), /ends with/);
+  assert.throws(() => out('string.find("abc", "()")'), /position captures/);
+  assert.throws(() => out('string.find("aaaaaaaaaaaaaaaa!", "(a+)+!")'), /unsafe Lua pattern/);
+  assert.throws(() => out('string.find("abc", "[abc")'), /malformed Lua pattern/);
 });
 
 test('string.gmatch itera coincidencias y capturas sin repetir matches vacíos', () => {
@@ -188,6 +192,8 @@ test('string.gsub sustituye coincidencias, capturas y respeta límites', () => {
   assert.deepEqual(out('local s, n = string.gsub("one two", "%a+", string.upper, 1); print(s, n)'), ['ONE two\t1']);
   assert.deepEqual(out('local s, n = string.gsub("a-b-a", "a", {a = "x"}); print(s, n)'), ['x-b-x\t2']);
   assert.deepEqual(out('local s, n = string.gsub("aaa", "a", "b", 0); print(s, n)'), ['aaa\t0']);
+  assert.deepEqual(out('local s, n = string.gsub("aaaa", "a", "x", 2); print(s, n)'), ['xxaa\t2']);
+  assert.deepEqual(out('local s, n = string.gsub("abc", "", "-"); print(s, n)'), ['-a-b-c-\t4']);
   assert.throws(() => out('string.gsub("abc", "(.)", "%9")'), /invalid capture index/);
   assert.throws(() => out('string.gsub("abc", "a", "%x")'), /invalid use of/);
 });
