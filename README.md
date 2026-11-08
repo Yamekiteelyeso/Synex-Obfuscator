@@ -23,7 +23,7 @@ El intérprete de referencia y la VM comparten estas implementaciones:
 
 - **Globales:** `print`, `tostring`, `tonumber`, `type`, `error`, `pcall`, `select`, `pairs`, `ipairs`.
 - **`table`:** `concat`, `pack`, `unpack`, `insert`, `remove`, `sort`, `move`, `clone`, `clear`, `find`, `create`.
-- **`string`:** `char`, `len`, `byte`, `sub`, `rep`, `lower`, `upper`, `reverse`, `split`, `find` en modo literal y `format` con conversiones comunes.
+- **`string`:** `char`, `len`, `byte`, `sub`, `rep`, `lower`, `upper`, `reverse`, `split`, `find`, `match`, `gmatch`, `gsub` con un subconjunto de patrones Lua y `format` con conversiones comunes.
 - **`math`:** operaciones trigonométricas y numéricas habituales, `abs`, `min`, `max`, `clamp`, `sign`, `round`, `modf`, `random`, `randomseed`, `type`, `tointeger`, `pi` y `huge`.
 - **`bit32`:** `band`, `bor`, `bxor`.
 
