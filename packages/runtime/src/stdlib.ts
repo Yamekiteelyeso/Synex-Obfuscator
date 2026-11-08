@@ -686,13 +686,35 @@ export function installStdlib(interp: LuaEnvironment): void {
   g.set('string', stringLib);
 
   const mathLib = new LuaTable();
-  let randomState = 0x6d2b79f5;
-  const randomUnit = () => {
-    // xorshift32: reproducible PRNG for Lua math.random, not cryptography.
-    randomState ^= randomState << 13;
-    randomState ^= randomState >>> 17;
-    randomState ^= randomState << 5;
-    return (randomState >>> 0) / 0x1_0000_0000;
+  let randomState = 0n;
+  const pcg32Random = (): number => {
+    const oldState = randomState;
+    randomState = BigInt.asUintN(64, oldState * 6364136223846793005n + 105n);
+    const shifted = Number((((oldState >> 18n) ^ oldState) >> 27n) & 0xffff_ffffn) >>> 0;
+    const rotation = Number(oldState >> 59n);
+    return ((shifted >>> rotation) | (shifted << ((-rotation) & 31))) >>> 0;
+  };
+  const seedRandom = (seed: number): void => {
+    randomState = 0n;
+    pcg32Random();
+    randomState = BigInt.asUintN(64, randomState + BigInt(seed));
+    pcg32Random();
+  };
+  // Stable default seed for repeatable tests; callers can reset the stream with math.randomseed.
+  seedRandom(0x6d2b79f5);
+  const randomUnit = (): number => {
+    const low = BigInt(pcg32Random());
+    const high = BigInt(pcg32Random());
+    return Number(low | (high << 32n)) / 0x1_0000_0000_0000_0000;
+  };
+  const randomInteger32 = (value: Value, functionName: string): number => {
+    const raw = toNumber(value, at);
+    const integer = Math.trunc(raw);
+    if (!Number.isFinite(raw) || !Number.isSafeInteger(integer)
+      || integer < -0x8000_0000 || integer > 0x7fff_ffff) {
+      throw new LuaError('bad argument to ' + functionName + ' (integer expected)');
+    }
+    return integer;
   };
   const mathUnary: Record<string, (n: number) => number> = {
     abs: Math.abs, acos: Math.acos, asin: Math.asin, atan: Math.atan,
@@ -812,28 +834,28 @@ export function installStdlib(interp: LuaEnvironment): void {
     return [typeof value !== 'number' ? undefined : Number.isSafeInteger(value) ? 'integer' : 'float'];
   }));
   mathLib.set('randomseed', fn('randomseed', (args) => {
-    const seed = toNumber(args[0], at);
-    if (!Number.isSafeInteger(seed)) throw new LuaError('bad argument to math.randomseed (integer expected)');
-    randomState = seed >>> 0;
-    if (randomState === 0) randomState = 0x6d2b79f5;
+    if (args.length !== 1) throw new LuaError('bad argument to math.randomseed (one seed expected)');
+    seedRandom(randomInteger32(args[0], 'math.randomseed'));
     return [];
   }));
   mathLib.set('random', fn('random', (args) => {
     if (args.length === 0) return [randomUnit()];
-    if (args.length > 2) throw new LuaError('bad argument to math.random (too many arguments)');
-    const minimumRaw = args.length > 1 ? toNumber(args[0], at) : 1;
-    const maximumRaw = args.length > 1 ? toNumber(args[1], at) : toNumber(args[0], at);
-    const minimum = Math.trunc(minimumRaw);
-    const maximum = Math.trunc(maximumRaw);
-    if (!Number.isFinite(minimum) || !Number.isFinite(maximum)
-      || !Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum > maximum) {
-      throw new LuaError('bad argument to math.random (interval is empty)');
+    if (args.length === 1) {
+      const upper = randomInteger32(args[0], 'math.random');
+      if (upper < 1) throw new LuaError('bad argument to math.random (interval is empty)');
+      const scaled = (BigInt(upper) * BigInt(pcg32Random())) >> 32n;
+      return [1 + Number(scaled)];
     }
-    const range = maximum - minimum + 1;
-    if (!Number.isSafeInteger(range) || range > 0x1_0000_0000) {
-      throw new LuaError('bad argument to math.random (interval is too large)');
+    if (args.length === 2) {
+      const lower = randomInteger32(args[0], 'math.random');
+      const upper = randomInteger32(args[1], 'math.random');
+      if (lower > upper) throw new LuaError('bad argument to math.random (interval is empty)');
+      const range = upper - lower + 1;
+      if (range > 0xffff_ffff) throw new LuaError('bad argument to math.random (interval is too large)');
+      const scaled = (BigInt(range) * BigInt(pcg32Random())) >> 32n;
+      return [lower + Number(scaled)];
     }
-    return [minimum + Math.floor(randomUnit() * range)];
+    throw new LuaError('bad argument to math.random (wrong number of arguments)');
   }));
   mathLib.set('pi', Math.PI);
   mathLib.set('huge', Infinity);
