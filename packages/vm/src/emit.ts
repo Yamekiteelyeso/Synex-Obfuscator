@@ -515,7 +515,7 @@ local function protoIntact(P)
     hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
   end
   local code = P.__KEY_CODE__
-  if typefn(code) ~= "table" then return false end
+  if typefn(code) ~= "table" or #code == 0 then return false end
   for i = 1, #code do
     local ins = code[i]
     if typefn(ins) ~= "table" or #ins ~= 9 then return false end
@@ -527,8 +527,10 @@ local function protoIntact(P)
   end
   local blockMap, blocks = P.__KEY_BLOCKMAP__, P.__KEY_BLOCKS__
   local constants, children, upvalues = P.__KEY_CONST__, P.__KEY_CHILD__, P.__KEY_UP__
-  if typefn(blockMap) ~= "table" or typefn(blocks) ~= "table" or typefn(constants) ~= "table"
-    or typefn(children) ~= "table" or typefn(upvalues) ~= "table" then return false end
+  if typefn(blockMap) ~= "table" or #blockMap ~= #code
+    or typefn(blocks) ~= "table" or #blocks == 0
+    or typefn(constants) ~= "table" or typefn(children) ~= "table"
+    or typefn(upvalues) ~= "table" then return false end
   -- Verifica el vínculo de cada hijo antes de permitir crear su closure.
   for i = 1, #children do
     local child = children[i]
@@ -538,12 +540,12 @@ local function protoIntact(P)
   end
   for i = 1, #blockMap do
     local value = blockMap[i]
-    if typefn(value) ~= "number" or value ~= floor(value) then return false end
+    if typefn(value) ~= "number" or value ~= floor(value) or value < 1 or value > #blocks then return false end
     mix(value)
   end
   for i = 1, #blocks do
     local descriptor = blocks[i]
-    if typefn(descriptor) ~= "table" then return false end
+    if typefn(descriptor) ~= "table" or #descriptor < 3 then return false end
     for j = 1, #descriptor do
       local value = descriptor[j]
       if typefn(value) ~= "number" or value ~= floor(value) then return false end
@@ -734,10 +736,28 @@ run = function(P, U, args, expectedParentSalt, expectedParentSlot)
     local a = decodeOperand(ins[2], ip, 2, protoSalt)
     local b = decodeOperand(ins[3], ip, 3, protoSalt)
     local t = decodeOperand(ins[4], ip, 4, protoSalt)
-    local c = decodeOperand(ins[5], ip, 5, protoSalt) == 1
+    local cValue = decodeOperand(ins[5], ip, 5, protoSalt)
+    if cValue ~= 0 and cValue ~= 1 then fail("bandera de instrucción inválida") end
+    local c = cValue == 1
     pc = decodeOperand(ins[7], ip, 7, protoSalt)
-    if pc < 0 or pc > #code then fail('sucesora fuera del prototipo') end
     if not VALID_OP[op] then fail("opcode inválido") end
+    -- Only unconditional jumps and returns may omit a fallthrough successor.
+    if pc < 0 or pc > #code or (pc == 0 and op ~= OP_JMP and op ~= OP_RET) then
+      fail("sucesora fuera del prototipo")
+    end
+    if op == OP_RET and pc ~= 0 then fail("retorno con sucesora inesperada") end
+    local hasTarget = op == OP_JMP or op == OP_JF or op == OP_JFK or op == OP_JTK
+      or op == OP_FORTEST or op == OP_GENCALL
+    if hasTarget then
+      if t < 1 or t > #code then fail("salto fuera del prototipo") end
+      local targetBlock = P.__KEY_BLOCKMAP__[t]
+      if typefn(targetBlock) ~= "number" or targetBlock ~= floor(targetBlock)
+        or targetBlock < 1 or targetBlock > #P.__KEY_BLOCKS__ then
+        fail("destino de salto sin bloque válido")
+      end
+    elseif t ~= 0 then
+      fail("destino inesperado en instrucción")
+    end
     if (op == OP_GETL or op == OP_SETL or op == OP_NEWBOX or op == OP_GETBOX or op == OP_SETBOX or op == OP_BOXSLOT) and (a < 0 or a >= ns) then fail("slot fuera de rango") end
     if op == OP_MOVE and (a < 0 or a >= ns or b < 0 or b >= ns) then fail("slot MOVE fuera de rango") end
     if (op == OP_FORTEST or op == OP_FORSTEP or op == OP_GENCALL) and (a < 0 or a + 2 >= ns) then fail("slot de iterador fuera de rango") end
