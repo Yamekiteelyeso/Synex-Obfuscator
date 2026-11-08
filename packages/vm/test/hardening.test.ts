@@ -75,6 +75,20 @@ describe('validación del bytecode', () => {
     assert.deepEqual(vm.output, ['7']);
   });
 
+  test('la VM rechaza límites de pasos inválidos en el constructor', () => {
+    for (const stepLimit of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => new VM({ stepLimit }), /límite de pasos inválido/);
+    }
+  });
+
+  test('cada ejecución principal recibe su propio presupuesto de pasos', () => {
+    const p = protoOf('print(1)');
+    const vm = new VM({ stepLimit: p.code.length });
+    assert.doesNotThrow(() => vm.execute(p));
+    assert.doesNotThrow(() => vm.execute(p));
+    assert.deepEqual(vm.output, ['1', '1']);
+  });
+
   test('la VM pública rechaza bytecode manipulado antes de ejecutarlo', () => {
     const p = protoOf('print(1)');
     p.code[0].op = 'UNKNOWN' as any;
