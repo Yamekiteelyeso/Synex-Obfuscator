@@ -59,7 +59,7 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
-type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string; seal: string; blockmap: string; blocks: string };
+type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string; seal: string; parent: string; slot: string; blockmap: string; blocks: string };
 
 /** Los nombres de los campos del prototipo también cambian por semilla. */
 function protoKeys(seed: number): ProtoKeys {
@@ -71,11 +71,23 @@ function protoKeys(seed: number): ProtoKeys {
     used.add(name);
     return name;
   };
-  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), blockmap: next(), blocks: next() };
+  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), parent: next(), slot: next(), blockmap: next(), blocks: next() };
+}
+
+/** Codec reversible por constante: parámetros coprimos/modulares propios de cada build. */
+function byteCodec(seed: number, index: number): { multiplier: number; increment: number; step: number } {
+  const random = rng(((seed >>> 0) ^ Math.imul(index, 0x9e3779b1) ^ 0x6a09e667) >>> 0);
+  return {
+    multiplier: 1 + 2 * Math.floor(random() * 128),
+    increment: Math.floor(random() * 256),
+    step: 1 + Math.floor(random() * 255),
+  };
 }
 
 function luaConst(v: unknown, seed: number, stringIndex: { value: number }): string {
-  if (v === undefined || v === null) return 'nil';
+  // nil y boolean también se representan como constantes lazy para que el runtime
+  // pueda aplicar la misma política de caché y no dejar literales mutables en el pool.
+  if (v === undefined || v === null) return 'function() return nil end';
   if (typeof v === 'string') {
     // Cada literal largo se reparte en fragmentos con claves independientes.
     // El runtime los reconstruye sólo cuando la constante se utiliza.
@@ -84,19 +96,21 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
     const parts: string[] = [];
     for (let offset = 0; offset < bytes.length;) {
       const index = ++stringIndex.value;
+      const chunkRandom = rng(((seed >>> 0) ^ Math.imul(index, 0x85ebca6b) ^ Math.imul(offset + 1, 0xc2b2ae35)) >>> 0);
       const chunkSize = Math.min(bytes.length - offset, bytes.length <= 12
         ? bytes.length
-        : 5 + (((seed >>> 0) + index * 13 + offset * 7) % 8));
+        : 4 + Math.floor(chunkRandom() * 13));
       const key = ((seed >>> 0) + index * 73) % 251 + 1;
+      const codec = byteCodec(seed, index);
       let state = key;
       const rawChunk = Array.from(bytes.subarray(offset, offset + chunkSize));
       const encodedBytes = rawChunk.map((byte, i) => {
-        state = (state * 73 + 41) % 256;
-        return (byte + state + (i + 1) * 17) % 256;
+        state = (state * codec.multiplier + codec.increment) % 256;
+        return (byte + state + (i + 1) * codec.step) % 256;
       });
       const encoded = encodedBytes.join(',');
       const [sealA, sealB] = constantDataSeal(encodedBytes, seed, key);
-      parts.push(`(function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unstr(b,${key}) end)()`);
+      parts.push(`(function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unstr(b,${key},${codec.multiplier},${codec.increment},${codec.step}) end)()`);
       offset += chunkSize;
     }
     return `function() return ${parts.join('..')} end`;
@@ -107,16 +121,17 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
     raw.writeDoubleLE(v, 0);
     const index = ++stringIndex.value;
     const key = ((seed >>> 0) + index * 97) % 251 + 1;
+    const codec = byteCodec(seed, index);
     let state = key;
     const encodedBytes = Array.from(raw, (byte, i) => {
-      state = (state * 73 + 41) % 256;
-      return (byte + state + (i + 1) * 29) % 256;
+      state = (state * codec.multiplier + codec.increment) % 256;
+      return (byte + state + (i + 1) * codec.step) % 256;
     });
     const encoded = encodedBytes.join(',');
     const [sealA, sealB] = constantDataSeal(encodedBytes, seed, key);
-    return `function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unnum(b,${key}) end`;
+    return `function() local b={${encoded}}; if not constIntact(b,${sealA},${sealB},${key}) then error("integridad comprometida: constante alterada",0) end; return unnum(b,${key},${codec.multiplier},${codec.increment},${codec.step}) end`;
   }
-  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (typeof v === 'boolean') return v ? 'function() return true end' : 'function() return false end';
   throw new SynexError('constante no serializable en la VM', 1, 1, 'E_INTERNAL');
 }
 
@@ -143,10 +158,11 @@ function encodeOperand(value: number, pc: number, field: number, seed: number, p
 function protoSeal(
   code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean,
   blockMap: number[], blockDescriptors: number[][], constantCount: number, childCount: number, upvalues: number[][],
+  parentSalt: number, parentSlot: number,
 ): [number, number] {
   const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
-  let hashA = (normalizedSeed + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
-  let hashB = (normalizedSeed * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg ? 17 : 0)) % OPERAND_MODULUS;
+  let hashA = (normalizedSeed + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0) + parentSalt * 193 + parentSlot * 389) % OPERAND_MODULUS;
+  let hashB = (normalizedSeed * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg ? 17 : 0) + parentSalt * 521 + parentSlot * 1031) % OPERAND_MODULUS;
   const mix = (value: number) => {
     hashA = (hashA * 33 + value) % OPERAND_MODULUS;
     hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS;
@@ -197,10 +213,41 @@ function fuseSuperinstructions(code: Instr[]): Instr[] {
   return fused;
 }
 
-function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }): string {
+/**
+ * Permuta el pool de constantes de cada prototipo y reescribe todas las
+ * referencias del IR. La permutación es independiente por prototipo y build;
+ * el flujo de ejecución no cambia y las constantes lazy siguen funcionando.
+ */
+function shuffleConstantPool(code: Instr[], constants: unknown[], seed: number, protoSalt: number): { code: Instr[]; constants: unknown[] } {
+  const order = Array.from({ length: constants.length }, (_, index) => index);
+  const random = rng((seed ^ Math.imul(protoSalt, 0x27d4eb2d) ^ 0x165667b1) >>> 0);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const remap = new Array<number>(order.length);
+  const shuffled = order.map((oldIndex, newIndex) => {
+    remap[oldIndex] = newIndex;
+    return constants[oldIndex];
+  });
+  const rewritten = code.map((instruction) => {
+    if (instruction.op !== 'CONST' && instruction.op !== 'GETG'
+      && instruction.op !== 'SETG' && instruction.op !== 'SELF') return { ...instruction };
+    const oldIndex = instruction.a;
+    if (typeof oldIndex !== 'number' || !Number.isInteger(oldIndex) || remap[oldIndex] === undefined) {
+      throw new SynexError('referencia de constante inválida durante la permutación', instruction.line ?? 1, 1, 'E_INTERNAL');
+    }
+    return { ...instruction, a: remap[oldIndex] };
+  });
+  return { code: rewritten, constants: shuffled };
+}
+
+function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }, parentSalt = 0, parentSlot = 0): string {
   // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
   const protoSalt = ++protoCounter.value;
-  const virtualCode = fuseSuperinstructions(p.code);
+  const fusedCode = fuseSuperinstructions(p.code);
+  const constantPool = shuffleConstantPool(fusedCode, p.consts, seed, protoSalt);
+  const virtualCode = constantPool.code;
   // Randomize physical instruction storage independently for each prototype.
   const order = Array.from({ length: virtualCode.length }, (_, i) => i + 1);
   const shuffle = rng((seed ^ Math.imul(protoSalt, 0x45d9f3b)) >>> 0);
@@ -267,12 +314,12 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   });
   const blockDescriptors = blockDescriptorValues.map((values) => '{' + values.join(',') + '}').join(',');
   const upvalueValues = p.upvals.map((d) => [d.fromLocal ? 1 : 0, d.index]);
-  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg, blockMap, blockDescriptorValues, p.consts.length, p.protos.length, upvalueValues);
+  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg, blockMap, blockDescriptorValues, p.consts.length, p.protos.length, upvalueValues, parentSalt, parentSlot);
   const code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
-  const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
+  const consts = constantPool.constants.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
-  const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter)).join(',');
-  return `{${keys.salt}=${protoSalt},${keys.seal}={${seal.join(',')}},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
+  const children = p.protos.map((c, index) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter, protoSalt, index + 1)).join(',');
+  return `{${keys.salt}=${protoSalt},${keys.seal}={${seal.join(',')}},${keys.parent}=${parentSalt},${keys.slot}=${parentSlot},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -284,23 +331,23 @@ const TEMPLATE = String.raw`
 local strlib, tbl, floor, tointeger = string, table, math.floor, math.tointeger
 local constIntact
 local unpackfn = (tbl and tbl.unpack) or unpack
-local function unstr(bytes, key)
+local function unstr(bytes, key, multiplier, increment, step)
   local out = {}
   local state = key
   for i = 1, #bytes do
-    state = (state * 73 + 41) % 256
-    out[i] = strlib.char((bytes[i] - state - i * 17) % 256)
+    state = (state * multiplier + increment) % 256
+    out[i] = strlib.char((bytes[i] - state - i * step) % 256)
   end
   local value = tbl.concat(out)
   for i = 1, #out do out[i] = nil end
   return value
 end
-local function unnum(bytes, key)
+local function unnum(bytes, key, multiplier, increment, step)
   local decoded = {}
   local state = key
   for i = 1, #bytes do
-    state = (state * 73 + 41) % 256
-    decoded[i] = (bytes[i] - state - i * 29) % 256
+    state = (state * multiplier + increment) % 256
+    decoded[i] = (bytes[i] - state - i * step) % 256
   end
   local sign = floor(decoded[8] / 128)
   local exponent = (decoded[8] % 128) * 16 + floor(decoded[7] / 16)
@@ -380,8 +427,17 @@ constIntact = function(bytes, sealA, sealB, key)
   return hashA == sealA and hashB == sealB
 end
 local function protoIntact(P)
-  local hashA = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0)) % OPERAND_MODULUS
-  local hashB = (OPERAND_SEED * 65599 + P.__KEY_SALT__ * 131 + P.__KEY_NP__ * 257 + P.__KEY_NS__ * 911 + (P.__KEY_VA__ and 17 or 0)) % OPERAND_MODULUS
+  if typefn(P) ~= "table" then return false end
+  local salt, parentSalt, parentSlot = P.__KEY_SALT__, P.__KEY_PARENT__, P.__KEY_SLOT__
+  local nparams, nslots, isVararg = P.__KEY_NP__, P.__KEY_NS__, P.__KEY_VA__
+  if typefn(salt) ~= "number" or salt ~= floor(salt)
+    or typefn(parentSalt) ~= "number" or parentSalt ~= floor(parentSalt)
+    or typefn(parentSlot) ~= "number" or parentSlot ~= floor(parentSlot) or parentSlot < 0
+    or typefn(nparams) ~= "number" or nparams ~= floor(nparams) or nparams < 0
+    or typefn(nslots) ~= "number" or nslots ~= floor(nslots) or nslots < 0
+    or typefn(isVararg) ~= "boolean" then return false end
+  local hashA = (OPERAND_SEED + salt * 97 + nparams * 17 + nslots * 31 + (isVararg and 1 or 0) + parentSalt * 193 + parentSlot * 389) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg and 17 or 0) + parentSalt * 521 + parentSlot * 1031) % OPERAND_MODULUS
   local function mix(value)
     hashA = (hashA * 33 + value) % OPERAND_MODULUS
     hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
@@ -401,6 +457,13 @@ local function protoIntact(P)
   local constants, children, upvalues = P.__KEY_CONST__, P.__KEY_CHILD__, P.__KEY_UP__
   if typefn(blockMap) ~= "table" or typefn(blocks) ~= "table" or typefn(constants) ~= "table"
     or typefn(children) ~= "table" or typefn(upvalues) ~= "table" then return false end
+  -- Verifica el vínculo de cada hijo antes de permitir crear su closure.
+  for i = 1, #children do
+    local child = children[i]
+    if typefn(child) ~= "table" or child.__KEY_PARENT__ ~= P.__KEY_SALT__ or child.__KEY_SLOT__ ~= i then
+      return false
+    end
+  end
   for i = 1, #blockMap do
     local value = blockMap[i]
     if typefn(value) ~= "number" or value ~= floor(value) then return false end
@@ -467,9 +530,28 @@ local function blockIntact(P, blockId)
   end
   return hashA == descriptor[1] and hashB == descriptor[2]
 end
+-- Weak keys: a completed run must not keep every serialized prototype alive.
+local CONST_CACHE, NIL_CONST = setmt({}, {__mode = "k"}), {}
 local function constant(P, index)
+  if typefn(P) ~= "table" or typefn(P.__KEY_CONST__) ~= "table"
+    or typefn(index) ~= "number" or index ~= floor(index)
+    or index < 1 or index > #P.__KEY_CONST__ then
+    errorfn("índice de constante inválido", 0)
+  end
+  local cache = CONST_CACHE[P]
+  if not cache then
+    cache = {seen = {}, values = {}}
+    CONST_CACHE[P] = cache
+  end
+  if cache.seen[index] then
+    local cached = cache.values[index]
+    if cached == NIL_CONST then return nil end
+    return cached
+  end
   local value = P.__KEY_CONST__[index]
-  if typefn(value) == "function" then return value() end
+  if typefn(value) == "function" then value = value() end
+  cache.seen[index] = true
+  cache.values[index] = value == nil and NIL_CONST or value
   return value
 end
 local function decodeOperand(value, pc, field, protoSalt)
@@ -496,13 +578,13 @@ local function callv(f, args)
   -- La llamada directa conserva __call para tablas/objetos invocables de Luau.
   return pack(f(unpackfn(args, 1, args.n)))
 end
-local function makeClosure(child, cells)
+local function makeClosure(child, cells, parentSalt, parentSlot)
   return function(...)
-    local res = run(child, cells, pack(...))
+    local res = run(child, cells, pack(...), parentSalt, parentSlot)
     return unpackfn(res, 1, res.n)
   end
 end
-run = function(P, U, args)
+run = function(P, U, args, expectedParentSalt, expectedParentSlot)
   depth = depth + 1
   if depth > 200 then depth = depth - 1; fail("stack overflow") end
   -- Asegura que depth se restaure incluso si el script captura un error con pcall.
@@ -510,6 +592,10 @@ run = function(P, U, args)
   local slots = {}
   local np = P.__KEY_NP__
   local ns = P.__KEY_NS__
+  if typefn(P.__KEY_PARENT__) ~= "number" or typefn(P.__KEY_SLOT__) ~= "number"
+    or P.__KEY_PARENT__ ~= (expectedParentSalt or 0) or P.__KEY_SLOT__ ~= (expectedParentSlot or 0) then
+    fail("integridad comprometida: relación jerárquica alterada")
+  end
   if not protoIntact(P) then fail("integridad comprometida: prototipo alterado") end
   if typefn(np) ~= "number" or typefn(ns) ~= "number" or np < 0 or np > ns or np ~= floor(np) or ns ~= floor(ns) then fail("prototipo corrupto") end
   for i = 1, np do slots[i] = args[i] end
@@ -707,7 +793,7 @@ run = function(P, U, args)
       for i, d in ipairs(child.__KEY_UP__) do
         if d[1] == 1 then cells[i] = slots[d[2] + 1] else cells[i] = U[d[2] + 1] end
       end
-      push(makeClosure(child, cells))
+      push(makeClosure(child, cells, protoSalt, a + 1))
     elseif op == OP_NEWT then push({})
     elseif op == OP_SETT then
       local v = pop()
@@ -731,7 +817,7 @@ run = function(P, U, args)
 end
 local MAIN = __MAIN__
 local function main(...)
-  local res = run(MAIN, {}, pack(...))
+  local res = run(MAIN, {}, pack(...), 0, 0)
   return unpackfn(res, 1, res.n)
 end
 return main(...)
@@ -765,12 +851,23 @@ function shuffleDispatch(template: string, seed: number): string {
 export interface EmitOptions {
   /** Instrucciones máximas antes de abortar la ejecución. */
   stepLimit?: number;
+  /** Identificador de procedencia opcional, visible en el fuente emitido. */
+  watermark?: string;
 }
 
 export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): string {
   validateProto(main);
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed > 0xffff_ffff) {
+    throw new SynexError('semilla inválida (usa un entero de 0 a 4294967295)', 1, 1, 'E_OPTIONS');
+  }
   const limit = options.stepLimit ?? 5_000_000;
-  if (!Number.isInteger(limit) || limit <= 0) throw new SynexError('límite de pasos inválido', 1, 1, 'E_OPTIONS');
+  if (!Number.isSafeInteger(limit) || limit <= 0) throw new SynexError('límite de pasos inválido', 1, 1, 'E_OPTIONS');
+  const watermark = options.watermark;
+  if (watermark !== undefined && (typeof watermark !== 'string'
+    || watermark.length < 1 || watermark.length > 64
+    || !/^[A-Za-z0-9._:-]+$/.test(watermark))) {
+    throw new SynexError('watermark inválido (usa 1-64 caracteres: letras, números, . _ : -)', 1, 1, 'E_OPTIONS');
+  }
   const ops = opcodeTable(seed);
   let body = shuffleDispatch(TEMPLATE, seed).replace(/\bOP_([A-Z]+)\b/g, (_m, name: string) => {
     const code = ops[name as Op];
@@ -778,13 +875,14 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     return String(code);
   });
   const keys = protoKeys(seed);
-  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal, BLOCKMAP: keys.blockmap, BLOCKS: keys.blocks };
-  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL|BLOCKMAP|BLOCKS)__/g, (_m, name: string) => keyValues[name]);
+  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal, PARENT: keys.parent, SLOT: keys.slot, BLOCKMAP: keys.blockmap, BLOCKS: keys.blocks };
+  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL|PARENT|SLOT|BLOCKMAP|BLOCKS)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
   body = body.replace('__VALID_OPS__', '{' + ALL_OPS.map((op) => '[' + ops[op] + ']=true').join(',') + '}');
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
   body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }));
-  return body.trimStart();
+  const marker = watermark === undefined ? '' : `-- Synex provenance: ${watermark}\n`;
+  return marker + body.trimStart();
 }
 
 /** Compila un script Luau al IR y lo emite como programa de VM. */

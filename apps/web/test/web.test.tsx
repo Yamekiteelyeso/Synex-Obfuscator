@@ -109,6 +109,14 @@ test('AuthView explica que Discord registra automáticamente y muestra errores d
 });
 
 
+test('Editor Free agotado indica contactar a un administrador, no solicitar plan', () => {
+  const html = renderToStaticMarkup(
+    <Editor token="t" profiles={[{ name: 'basic', techniques: [] }]} techniques={[]} remainingUses={0} onDone={() => undefined} />,
+  );
+  assert.match(html, /contacta a un administrador para comprar Premium o Plus/);
+  assert.doesNotMatch(html, /solicitar Premium o Plus/);
+});
+
 test('Plans muestra contacto de compra, Free, Premium y Plus y el consumo gratuito', () => {
   const html = renderToStaticMarkup(<Plans
     token="test-token"

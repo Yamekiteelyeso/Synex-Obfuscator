@@ -40,6 +40,7 @@ interface Pending {
  */
 export class JobManager {
   private readonly jobs = new Map<string, JobRecord>();
+  private readonly maxRetainedJobs = 5_000;
   private readonly queue: Pending[] = [];
   private running = 0;
   private readonly opts: Required<Omit<JobManagerOptions, 'workerPath'>> & { workerPath: string };
@@ -63,10 +64,31 @@ export class JobManager {
       createdAt: Date.now(),
     };
     this.jobs.set(record.id, record);
+    this.pruneFinishedJobs();
     const pending: Pending = { record, source, options, resolve: () => {} };
     this.queue.push(pending);
     this.pump();
     return record;
+  }
+
+  /** Libera el código generado una vez que la capa API lo ha almacenado. */
+  discardResult(id: string): void {
+    const record = this.jobs.get(id);
+    if (record) record.result = undefined;
+  }
+
+  /** Conserva metadatos recientes, sin retener indefinidamente miles de resultados. */
+  private pruneFinishedJobs(): void {
+    if (this.jobs.size <= this.maxRetainedJobs) return;
+    let excess = this.jobs.size - this.maxRetainedJobs;
+    for (const [id, record] of this.jobs) {
+      if (excess <= 0) break;
+      if (record.status === 'done' || record.status === 'failed' || record.status === 'timeout') {
+        record.result = undefined;
+        this.jobs.delete(id);
+        excess--;
+      }
+    }
   }
 
   /** Trabajos esperando a un worker libre. */

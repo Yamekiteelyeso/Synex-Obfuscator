@@ -31,6 +31,15 @@ describe('validación del bytecode', () => {
     assert.throws(() => validateProto(p), /constante fuera de rango/);
   });
 
+  test('limita el total de constantes acumuladas entre prototipos', () => {
+    const p = protoOf('return 1');
+    const child = protoOf('return 2');
+    p.protos = [child];
+    p.consts = Array(500_001).fill(null);
+    child.consts = Array(500_001).fill(null);
+    assert.throws(() => validateProto(p), /cantidad total de constantes excedida/);
+  });
+
 
   test('rechaza operandos ausentes o no enteros en todas las familias', () => {
     const p = protoOf('local x = 1 print(x)');
@@ -53,6 +62,24 @@ describe('validación del bytecode', () => {
     assert.throws(() => validateProto(p), /descriptor CALL inválido/);
   });
 
+  test('rechaza arrays dispersos en bytecode y metadatos', () => {
+    const sparseCode = protoOf('return 1');
+    delete (sparseCode.code as unknown[])[0];
+    assert.throws(() => validateProto(sparseCode), /código disperso/);
+
+    const sparseConstants = protoOf('return 1');
+    sparseConstants.consts = new Array(sparseConstants.consts.length + 1);
+    assert.throws(() => validateProto(sparseConstants), /tablas del prototipo inválidas o dispersas/);
+
+    const sparseChildren = protoOf('return 1');
+    sparseChildren.protos = new Array(1);
+    assert.throws(() => validateProto(sparseChildren), /tablas del prototipo inválidas o dispersas/);
+
+    const sparseUpvalues = protoOf('return 1');
+    sparseUpvalues.upvals = new Array(1);
+    assert.throws(() => validateProto(sparseUpvalues), /tablas del prototipo inválidas o dispersas/);
+  });
+
   test('rechaza prototipos cíclicos', () => {
     const p = protoOf('local function f() return 1 end');
     p.protos.push(p);
@@ -64,6 +91,20 @@ describe('validación del bytecode', () => {
     const vm = new VM();
     assert.doesNotThrow(() => vm.execute(p));
     assert.deepEqual(vm.output, ['7']);
+  });
+
+  test('la VM rechaza límites de pasos inválidos en el constructor', () => {
+    for (const stepLimit of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => new VM({ stepLimit }), /límite de pasos inválido/);
+    }
+  });
+
+  test('cada ejecución principal recibe su propio presupuesto de pasos', () => {
+    const p = protoOf('print(1)');
+    const vm = new VM({ stepLimit: p.code.length });
+    assert.doesNotThrow(() => vm.execute(p));
+    assert.doesNotThrow(() => vm.execute(p));
+    assert.deepEqual(vm.output, ['1', '1']);
   });
 
   test('la VM pública rechaza bytecode manipulado antes de ejecutarlo', () => {
@@ -107,5 +148,125 @@ describe('VM emitida: límites y diagnóstico', { skip: !lua54Available && 'falt
 
   test('un límite de pasos no válido se rechaza', () => {
     assert.throws(() => compileToLuauVm('print(1)', 1, { stepLimit: 0 }), /límite de pasos inválido/);
+  });
+});
+
+
+describe('watermark de procedencia', () => {
+  test('incluye el identificador solicitado sin alterar la ejecución', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+    const source = 'print("watermark-ok")';
+    const emitted = compileToLuauVm(source, 222, { watermark: 'synex.release:2026-11' });
+    assert.ok(emitted.startsWith('-- Synex provenance: synex.release:2026-11\n'));
+    const result = runLua54(emitted);
+    assert.ok(result.ok, result.error);
+    assert.equal(result.stdout.trim(), 'watermark-ok');
+  });
+
+  test('rechaza semillas fuera del rango uint32 y valores no enteros', () => {
+    for (const seed of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 0x1_0000_0000]) {
+      assert.throws(() => compileToLuauVm('print(1)', seed), /semilla inválida/);
+    }
+  });
+
+  test('rechaza identificadores de procedencia con caracteres de control', () => {
+    assert.throws(() => compileToLuauVm('print(1)', 1, { watermark: 'release\\nprint(2)' }), /watermark inválido/);
+    assert.throws(() => compileToLuauVm('print(1)', 1, { watermark: 'x'.repeat(65) }), /watermark inválido/);
+  });
+});
+
+describe('polimorfismo del pool de constantes', () => {
+  test('la permutación es determinista para una semilla y varía entre builds', () => {
+    const source = [
+      'local alpha = "ALPHA_MARKER"',
+      'local beta = "BETA_MARKER"',
+      'local gamma = "GAMMA_MARKER"',
+      'print(alpha, beta, gamma)',
+    ].join('\n');
+    const a = compileToLuauVm(source, 123456);
+    const same = compileToLuauVm(source, 123456);
+    const other = compileToLuauVm(source, 123457);
+    assert.equal(a, same);
+    assert.notEqual(a, other);
+  });
+
+  test('el pool permutado conserva referencias globales y constantes', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+    const source = [
+      'local alpha = "ALPHA_MARKER"',
+      'local beta = "BETA_MARKER"',
+      'local gamma = "GAMMA_MARKER"',
+      'local function join(a, b) return a .. b end',
+      'print(join(alpha, beta), gamma, math.floor(9.8))',
+    ].join('\n');
+    const original = runLua54(source);
+    const emitted = runLua54(compileToLuauVm(source, 884422));
+    assert.ok(emitted.ok, emitted.error);
+    assert.equal(emitted.stdout, original.stdout);
+  });
+});
+
+
+describe('sellos jerárquicos de prototipos', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+  test('closures anidadas conservan la relación padre-hijo al ejecutarse', () => {
+    const source = [
+      'local seed = 40',
+      'local function outer(delta)',
+      '  local captured = seed + delta',
+      '  return function(extra)',
+      '    return function() return captured + extra end',
+      '  end',
+      'end',
+      'local middle = outer(2)',
+      'local inner = middle(3)',
+      'print(inner())',
+    ].join('\n');
+    const original = runLua54(source);
+    const emitted = runLua54(compileToLuauVm(source, 441122));
+    assert.ok(emitted.ok, emitted.error);
+    assert.equal(emitted.stdout, original.stdout);
+    assert.equal(emitted.stdout.trim(), '45');
+  });
+
+  test('cada compilación produce una jerarquía reproducible y distinta por semilla', () => {
+    const source = 'local function outer() return function() return 9 end end print(outer()())';
+    const a = compileToLuauVm(source, 7001);
+    const same = compileToLuauVm(source, 7001);
+    const other = compileToLuauVm(source, 7002);
+    assert.equal(a, same);
+    assert.notEqual(a, other);
+  });
+});
+
+describe('constantes lazy de nil y boolean', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+  test('preserva nil, true y false incluso tras múltiples lecturas', () => {
+    const source = [
+      'local absent = nil',
+      'local yes = true',
+      'local no = false',
+      'print(absent == nil, yes, no)',
+      'print(absent == nil, yes == true, no == false)',
+    ].join('\n');
+    const original = runLua54(source);
+    const emitted = runLua54(compileToLuauVm(source, 913579));
+    assert.ok(emitted.ok, emitted.error);
+    assert.equal(emitted.stdout, original.stdout);
+  });
+});
+
+describe('codec polimórfico de constantes', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+  test('decodifica cadenas UTF-8 y números con parámetros variables', () => {
+    const source = [
+      'local text = "áé漢字🙂 — Synex"',
+      'local negative = -123.5',
+      'local fraction = 0.125',
+      'local integer = 98765',
+      'print(text)',
+      'print(negative, fraction, integer)',
+    ].join('\n');
+    const original = runLua54(source);
+    for (const seed of [17, 987654, 0x7fffffff]) {
+      const emitted = runLua54(compileToLuauVm(source, seed));
+      assert.ok(emitted.ok, emitted.error);
+      assert.equal(emitted.stdout, original.stdout);
+    }
   });
 });

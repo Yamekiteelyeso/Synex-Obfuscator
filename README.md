@@ -12,10 +12,22 @@ Ofuscador profesional de scripts Luau. Monorepo TypeScript.
 | `packages/ir` | Bytecode de pila por función y compilador AST→IR: slots, celdas para locales capturados, upvalues, bucles, llamadas múltiples, tablas |
 | `packages/transformations` | Pipeline: renombrado de locales (determinista por semilla), protección de cadenas con cabecera de descifrado, aplanado del flujo de control (incluye funciones locales y break/continue), comprobación de integridad en tiempo de ejecución y verificación de salida (25 pruebas de aplanado e integridad, con ejecución real en Lua 5.4) |
 | `packages/vm` | VM de pila que ejecuta el IR (referencia en TypeScript) y emisor de la transformación mediante VM: compila el programa al IR y lo sustituye por un intérprete en Luau con códigos de operación aleatorios por build. Pruebas: 18 programas ejecutados en Lua 5.4 original y emitido, con salida idéntica (19 pruebas) |
-| `packages/runtime` | Intérprete de referencia de Luau sobre el AST, con biblioteca mínima (print, pairs, ipairs, table.concat/insert, string.char, bit32). Oráculo para pruebas de equivalencia (18 pruebas) |
+| `packages/runtime` | Intérprete de referencia sobre el AST, con globals básicos, `table`, `string`, `math` y `bit32`; oráculo de equivalencia para la VM y las transformaciones. La biblioteca implementa un subconjunto documentado de Lua/Luau, no toda la biblioteca estándar. |
 | `packages/engine` | Motor de orquestación: planes públicos (Basic, Medium, Max), etapas con tiempos, digest SHA-256, comprobación de equivalencia, VM configurable y sistema de trabajos en worker_threads con límites de cola, tamaño y tiempo. Incluye pruebas del perfil completo en Lua 5.4 real (13 pruebas) |
-| `apps/api` | API HTTP sin dependencias: autenticación exclusiva por Discord, cuentas y planes persistidos en JSON, cuota Free por cuenta, solicitudes y aprobación administrativa de upgrades, límite de peticiones por IP y endpoints de trabajos. |
-| `apps/web` | Acceso solo por Discord, editor con perfiles Basic/Medium/Max según plan, sección Free/Premium/Plus, estado de cuota y administración de solicitudes de upgrade. |
+| `apps/api` | API HTTP sin dependencias: autenticación exclusiva por Discord, cuentas y planes persistidos en JSON, cuota Free por cuenta y asignación administrativa manual de planes, límite de peticiones por IP y endpoints de trabajos. |
+| `apps/web` | Acceso solo por Discord, editor con perfiles Basic/Medium/Max según plan, sección Free/Premium/Plus con contacto directo para comprar y administración de cuentas. |
+
+## Biblioteca estándar del runtime
+
+El intérprete de referencia y la VM comparten estas implementaciones:
+
+- **Globales:** `print`, `tostring`, `tonumber`, `type`, `error`, `pcall`, `select`, `pairs`, `ipairs`.
+- **`table`:** `concat`, `pack`, `unpack`, `insert`, `remove`, `sort`, `move`, `clone`, `clear`, `find`, `create`.
+- **`string`:** `char`, `len`, `byte`, `sub`, `rep`, `lower`, `upper`, `reverse`, `split`, `find` en modo literal y `format` con conversiones comunes.
+- **`math`:** operaciones trigonométricas y numéricas habituales, `abs`, `min`, `max`, `clamp`, `sign`, `round`, `modf`, `random`, `randomseed`, `type`, `tointeger`, `pi` y `huge`.
+- **`bit32`:** `band`, `bor`, `bxor`.
+
+No están implementadas todavía todas las APIs de Lua/Luau: `string.find` sólo admite búsqueda literal con el argumento `plain=true` (los patrones Lua y capturas aún no están implementados); `string.format` cubre conversiones comunes pero no todos los modificadores y formatos (`%a` hexadecimal, por ejemplo); `string.match`, `string.gsub`, corrutinas, metatablas completas y APIs específicas de Roblox siguen pendientes. El generador aleatorio del runtime es reproducible y útil para pruebas, pero no pretende replicar bit a bit el PRNG de Lua 5.4 ni es criptográfico. Las cadenas internas son byte-strings UTF-8; las funciones de caso convierten sólo ASCII para evitar alterar bytes no ASCII.
 
 ## Estado del lexer
 
@@ -41,17 +53,16 @@ La autenticación de usuarios es exclusivamente mediante Discord OAuth2. El back
 | POST | /api/auth/logout | usuario |
 | GET | /api/me | usuario (identidad, plan y cuota) |
 | GET | /api/plans | público |
-| GET/POST | /api/plan-requests | usuario |
 | POST | /api/jobs | usuario (cuota y perfiles comprobados en servidor) |
 | GET | /api/jobs | usuario (historial propio) |
 | GET | /api/jobs/:id | dueño |
 | GET | /api/jobs/:id/code | dueño (descarga `.obf.luau`) |
 | GET | /api/stats | usuario |
 | GET | /api/profiles, /api/health | público |
-| GET | /api/admin/users, /jobs, /errors, /settings, /plan-requests | admin |
-| PUT | /api/admin/settings, /api/admin/plan-requests/:id | admin |
+| GET | /api/admin/users, /jobs, /errors, /settings | admin |
+| PUT | /api/admin/settings, /api/admin/users/:id/plan | admin |
 
-Las cuentas, el plan, el contador de usos, el historial y las solicitudes se guardan en el archivo configurado en `SYNEX_DATA_FILE`. Para conservarlos en Railway, monta un Volume en `/data`. Los tokens de sesión y los resultados de código siguen residiendo en memoria del proceso.
+Las cuentas, el plan, el contador de usos y el historial se guardan en el archivo configurado en `SYNEX_DATA_FILE`. Para conservarlos en Railway, monta un Volume en `/data`. Los tokens de sesión se persisten en el JSON. Los resultados descargables se mantienen temporalmente en memoria (máximo 100 resultados, 64 MiB agregados y 30 minutos); los resultados individuales que superen el presupuesto no se almacenan. La cola conserva como máximo 5.000 registros de trabajo recientes y libera el bytecode resultante después de transferirlo a la caché de descargas. Los estados OAuth y los tickets de intercambio también residen en memoria. Por ello, ejecuta una sola réplica de API mientras no se migren esos estados efímeros a un almacén compartido; varias réplicas pueden romper el callback OAuth o perder descargas tras reiniciar.
 
 ## Planes de ofuscación
 
@@ -86,7 +97,7 @@ Los niveles aplican configuraciones predefinidas del motor. Basic es el nivel es
 ## Limitaciones de la ofuscación actual
 
 - La equivalencia se verifica con Lua 5.4 real, no con Luau: este entorno no tiene `luau`. Se compila el ejecutor con `tools/lua54/build.sh` (requiere `liblua5.4-0` y `gcc`). Las pruebas que dependen de él se omiten si falta. Luau y Lua 5.4 difieren en sintaxis (`continue`, `+=`) y en biblioteca, así que el aplanado con `continue` se verifica sólo con el intérprete de referencia.
-- Pendiente: ejecutar las pruebas en Luau real.
+- CI instala Luau CLI oficial (versión fijada y checksum SHA-256 verificado) y ejecuta una prueba de la VM emitida en Luau real, además de las pruebas existentes en Lua 5.4. Esto verifica una ruta representativa, pero no sustituye pruebas de todos los perfiles ni de Roblox Studio/executors.
 - La protección de cadenas codifica bytes UTF-8 con una clave por literal y una máscara dependiente de posición; se descifra bajo demanda sin mantener una caché persistente de texto plano. El valor reconstruido existe durante su uso y puede observarse en memoria o interceptando el runtime. Sigue siendo ofuscación reversible, no cifrado ni almacenamiento seguro de secretos.
 - Las posiciones de los parámetros en el análisis semántico son aproximadas.
 
@@ -118,11 +129,32 @@ Requiere `tsx` (ejecutor TypeScript). `npm install` no se ha podido completar en
 
 El repositorio incluye `railway.json`. Railway debe usar Node.js 22 o superior, ejecutar `npm run build` como comando de compilación y `npm start` para iniciar la API. El build compila primero todos los paquetes transitivos del motor y la API, y después genera `apps/web/dist`; la API sirve la web y expone `GET /api/health` como healthcheck.
 
-Configura `SYNEX_ADMIN_DISCORD_IDS` con los IDs de Discord autorizados para administrar (separados por comas) y las tres variables OAuth2 de Discord descritas abajo. Para conservar cuentas, planes, cuotas e historial entre despliegues, monta un Volume en `/data` y define `SYNEX_DATA_FILE=/data/synex-data.json`. Sin un Volume, el almacenamiento JSON local puede perderse al reemplazar el contenedor.
+El único administrador autorizado está fijado en el servidor por ID de Discord `1518079144590573690`; las demás cuentas reciben rol de usuario. Configura las tres variables OAuth2 de Discord descritas abajo. Para conservar cuentas, planes, cuotas e historial entre despliegues, monta un Volume en `/data` y define `SYNEX_DATA_FILE=/data/synex-data.json`. Sin un Volume, el almacenamiento JSON local puede perderse al reemplazar el contenedor.
 
 ## Compatibilidad Roblox / Luau
 
 El motor acepta scripts Luau y mantiene los globals y llamadas del entorno huésped. Los usuarios eligen Basic, Medium o Max; Max incorpora la VM. La compatibilidad concreta depende de las APIs dinámicas usadas por cada script y debe comprobarse en Roblox Studio y en cada executor objetivo. No se garantiza compatibilidad universal.
+
+## Uso de la VM desde TypeScript
+
+El paquete `@synex/vm` exporta `compileToLuauVm`, `emitLuauVm`, `runInVm` y `VM`.
+La emisión acepta una semilla uint32 para hacer reproducible un build y opciones opcionales:
+
+```ts
+import { compileToLuauVm } from '@synex/vm';
+
+const output = compileToLuauVm(source, 123456, {
+  stepLimit: 5_000_000,
+  watermark: 'synex.release:2026-11',
+});
+```
+
+- `seed`: entero entre `0` y `4294967295`; la misma fuente, semilla y opciones generan la misma salida.
+- `stepLimit`: entero seguro positivo; limita las instrucciones ejecutadas por la VM emitida.
+- `watermark`: identificador opcional de 1 a 64 caracteres ASCII (`A-Z a-z 0-9 . _ : -`). Se añade como comentario visible al principio de la salida y sirve como marca de procedencia, no como marca resistente a eliminación.
+- La instancia TypeScript `VM` reinicia el contador de pasos en cada llamada de nivel superior a `execute`; las llamadas anidadas comparten el presupuesto de esa ejecución.
+
+Los límites son defensas de robustez y consumo de recursos, no sustituyen límites externos de CPU/memoria ni hacen seguro ejecutar código no confiable dentro del proceso del servidor.
 
 ## Marca de salida
 
@@ -177,6 +209,6 @@ Los planes de cuenta son independientes de los perfiles de ofuscación:
 
 Cada petición de trabajo aceptada consume un uso Free, incluso si luego el script falla al procesarse. El contador vive en el registro persistente de la cuenta y las cuentas antiguas migran su contador desde el historial existente. El servidor aplica la cuota y los perfiles permitidos; la interfaz no es la única barrera.
 
-La sección **Planes** registra solicitudes de Premium o Plus. Un administrador revisa la solicitud y, después de confirmar el pago por el canal de venta externo, puede aprobarla desde Administración. Esta implementación no procesa tarjetas ni pagos automáticamente y los precios deben definirse antes de anunciar una tarifa.
+La sección **Planes** no permite enviar solicitudes ni procesar compras dentro de la web: los botones de Premium y Plus muestran `Contact one admin for buy`. El administrador asigna manualmente el plan desde Administración después de confirmar la compra por un canal externo. No hay pasarela de pago integrada.
 
-Para asignar administradores configura `SYNEX_ADMIN_DISCORD_IDS` con uno o varios IDs de usuario de Discord separados por comas. No hay acceso administrativo por correo o contraseña.
+El único ID con privilegios administrativos está fijado en `apps/api/src/server.ts`: `1518079144590573690`. No hay acceso administrativo por correo o contraseña.

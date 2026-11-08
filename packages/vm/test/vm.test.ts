@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { execute, LuaError } from '@synex/runtime';
 import { runInVm, compileToLuauVm } from '../src/index.js';
 
@@ -108,6 +111,58 @@ const PROGRAMS: Record<string, string> = {
   ifExpr: `
     local function sign(n) return if n > 0 then "pos" elseif n < 0 then "neg" else "zero" end
     print(sign(3), sign(-2), sign(0))`,
+  selectIndices: `print(select(2, "a", "b", "c"), select(-1, "a", "b", "c"), select("#", "a", "b", "c"))`,
+  tablePackUnpackRemove: `
+    local packed = table.pack("a", nil, "c")
+    local first, middle, last = table.unpack(packed, 1, packed.n)
+    local values = {"x", "y", "z"}
+    local removed = table.remove(values, 2)
+    print(packed.n, first, middle, last, removed, #values, values[2])
+  `,
+  mathLibrary: `
+    math.randomseed(123)
+    local a = math.random(1, 10)
+    local b = math.clamp(-4, 0, 10)
+    local i, f = math.modf(-2.75)
+    print(math.abs(-4), math.sqrt(81), a, b, i, f, math.round(2.5))
+  `,
+  stringFindAndFormat: `
+    local first, last = string.find("hello hello", "hello", 2, true)
+    print(first, last, string.format("%04d %.2f %s", 7, 2.5, "ok"))
+  `,
+  tableCreateAndStringSplit: `
+    local values = table.create(3, "x")
+    local parts = string.split("a,,b,", ",")
+    print(#values, values[1], #parts, parts[2], parts[4])
+  `,
+  tableFind: `
+    local values = {"a", "b", "a"}
+    print(table.find(values, "a"), table.find(values, "a", 2), table.find(values, "z"))
+  `,
+  tableMoveCloneClear: `
+    local values = {1, 2, 3, 4}
+    table.move(values, 1, 3, 2)
+    local copy = table.clone(values)
+    copy[1] = 99
+    print(table.concat(values, ","), copy[1])
+    table.clear(copy)
+    print(#copy)
+  `,
+  tableSortAndStringCase: `
+    local values = {4, 1, 3, 2}
+    table.sort(values)
+    local words = {"a", "ccc", "bb"}
+    table.sort(words, function(a, b) return #a < #b end)
+    print(table.concat(values, ","), table.concat(words, ","))
+    print(string.lower("HeLLo"), string.upper("Synex"), string.reverse("abc"))
+  `,
+  tableAndStringRanges: `
+    local t = {"a", "b", "c", "d"}
+    table.insert(t, 2, "x")
+    local removed = table.remove(t, 3)
+    print(table.concat(t, "-", 2, 4), removed)
+    print(string.sub("abcdef", -3, -1), string.byte("abcd", 2, 3), string.rep("z", 3, "."))
+  `,
   genericForPairs: `
     local t = {10, 20, x = 1}
     local count = 0
@@ -206,7 +261,29 @@ test('emisor Luau: oculta APIs de introspección de entorno al script virtual', 
   assert.match(emitted, /local BLOCKED_ENV/);
   assert.match(emitted, /acceso de entorno bloqueado/);
   assert.match(emitted, /rawgetfn\(executorEnv, key\)/);
-  const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
+  const hasLuauCli = spawnSync('luau', ['--help'], { encoding: 'utf8' }).status === 0;
+
+test('VM emitida ejecuta código en Luau CLI real', { skip: !hasLuauCli }, () => {
+  const source = [
+    'local function add(a, b) return a + b end',
+    'local values = table.create(3, 2)',
+    'table.move(values, 1, 2, 2)',
+    'local parts = string.split("a,,b,", ",")',
+    'print(add(20, 22), #values, parts[2] == "", parts[4] == "")',
+  ].join(String.fromCharCode(10));
+  const emitted = compileToLuauVm(source, 741026);
+  const dir = mkdtempSync(join(tmpdir(), 'synex-luau-'));
+  const file = join(dir, 'generated.luau');
+  try {
+    writeFileSync(file, emitted, 'utf8');
+    const output = execFileSync('luau', [file], { encoding: 'utf8', timeout: 10_000 });
+    assert.equal(output.trim(), ['42', '3', 'true', 'true'].join(String.fromCharCode(9)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
   if (hasLua54) {
     const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
     assert.equal(output.trim(), ['nil', 'nil', 'nil', 'nil', 'nil', 'nil', 'nil'].join(String.fromCharCode(9)));
@@ -328,4 +405,10 @@ test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => 
   const tamperAt = mainMarker + 'local MAIN = {'.length + numeric.index;
   const tampered = emitted.slice(0, tamperAt) + String(Number(numeric[0]) + 1) + emitted.slice(tamperAt + numeric[0].length);
   assert.throws(() => execFileSync('lua5.4', ['-'], { input: tampered, encoding: 'utf8', timeout: 5000 }), /integridad comprometida/);
+});
+
+
+test('la VM cuenta longitud de cadenas Unicode en bytes UTF-8', () => {
+  same('print(#"áé", #"漢字", #"🙂")');
+  assert.deepEqual(runInVm('print(#"áé", #"漢字", #"🙂")').output, ['4\t6\t4']);
 });

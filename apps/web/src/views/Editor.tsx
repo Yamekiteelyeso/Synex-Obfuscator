@@ -143,7 +143,7 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
         </div>
       </div>
 
-      {remainingUses === 0 && <p className="error-text" role="status">Ya utilizaste tus 2 ofuscaciones Free. Abre la sección Planes para solicitar Premium o Plus.</p>}
+      {remainingUses === 0 && <p className="error-text" role="status">Ya utilizaste tus 2 ofuscaciones Free. Abre la sección Planes y contacta a un administrador para comprar Premium o Plus.</p>}
       {problem && source && <p className="error-text" role="alert">{problem}</p>}
       {message && <p className="error-text" role="alert">{message}</p>}
 

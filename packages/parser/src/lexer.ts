@@ -201,7 +201,13 @@ export class Lexer {
           const close = this.src.indexOf('}', this.pos);
           const hex = close === -1 ? '' : this.src.slice(this.pos + 1, close);
           if (!/^[0-9a-fA-F]+$/.test(hex)) this.error('escape \\u inválido', 'E_BAD_ESCAPE');
-          out += utf8ToBytes(String.fromCodePoint(parseInt(hex, 16)));
+          const codePoint = Number.parseInt(hex, 16);
+          // Los escapes Unicode deben ser escalares válidos; evita que
+          // String.fromCodePoint/encodeURIComponent filtren RangeError/URIError.
+          if (codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+            this.error('punto de código Unicode fuera de rango', 'E_BAD_ESCAPE');
+          }
+          out += utf8ToBytes(String.fromCodePoint(codePoint));
           this.pos = close + 1;
           break;
         }

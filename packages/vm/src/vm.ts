@@ -42,11 +42,18 @@ export class VM implements LuaEnvironment {
 
   constructor(options: { stepLimit?: number } = {}) {
     this.stepLimit = options.stepLimit ?? 5_000_000;
+    if (!Number.isSafeInteger(this.stepLimit) || this.stepLimit <= 0) {
+      throw new SynexError('límite de pasos inválido', 1, 1, 'E_OPTIONS');
+    }
     installStdlib(this);
   }
 
   /** Ejecuta el prototipo principal y devuelve sus resultados. */
   execute(main: Proto): Value[] {
+    // El presupuesto pertenece a una ejecución de nivel superior, no a toda
+    // la vida de la instancia VM. Las llamadas anidadas siguen compartiéndolo.
+    this.steps = 0;
+    this.depth = 0;
     return this.run(main, [], []);
   }
 

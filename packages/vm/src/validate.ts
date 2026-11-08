@@ -15,6 +15,8 @@ const MAX_PROTO_DEPTH = 512;
 const MAX_CODE_LENGTH = 1_000_000;
 const MAX_SLOTS = 1_000_000;
 const MAX_TOTAL_PROTOS = 100_000;
+const MAX_TOTAL_CONSTANTS = 1_000_000;
+const MAX_TOTAL_UPVALUES = 1_000_000;
 const MAX_STRING_CONSTANT_BYTES = 4 * 1024 * 1024;
 
 function fail(msg: string, proto: Proto, pc = -1): never {
@@ -28,6 +30,14 @@ function index(value: unknown, length: number): value is number {
   return integer(value) && value >= 0 && value < length;
 }
 
+/** Array denso: evita que posiciones ausentes eludan la validación con forEach. */
+function isDenseArray(value: unknown[]): boolean {
+  for (let i = 0; i < value.length; i++) {
+    if (!Object.prototype.hasOwnProperty.call(value, i)) return false;
+  }
+  return true;
+}
+
 /**
  * Valida de forma defensiva todo el árbol de prototipos antes de ejecutarlo o
  * emitirlo. Comprueba operandos por opcode, rangos, constantes y capturas.
@@ -38,6 +48,8 @@ export function validateProto(root: Proto): void {
   const visited = new Set<object>();
   let totalProtos = 0;
   let totalCode = 0;
+  let totalConstants = 0;
+  let totalUpvalues = 0;
   let totalConstantBytes = 0;
 
   const visit = (proto: Proto, parent: Proto | null, depth: number): void => {
@@ -50,16 +62,24 @@ export function validateProto(root: Proto): void {
     visiting.add(proto);
     if (++totalProtos > MAX_TOTAL_PROTOS) fail('cantidad total de prototipos excedida', proto);
 
-    if (!Array.isArray(proto.code) || proto.code.length === 0 || proto.code.length > MAX_CODE_LENGTH) {
-      fail('longitud de código inválida', proto);
+    if (!Array.isArray(proto.code) || proto.code.length === 0 || proto.code.length > MAX_CODE_LENGTH
+      || !isDenseArray(proto.code)) {
+      fail('longitud de código inválida o código disperso', proto);
     }
     totalCode += proto.code.length;
     if (totalCode > MAX_CODE_LENGTH) fail('tamaño total de bytecode excedido', proto);
     if (!integer(proto.nparams) || proto.nparams < 0) fail('número de parámetros inválido', proto);
     if (!integer(proto.nslots) || proto.nslots < proto.nparams || proto.nslots > MAX_SLOTS) fail('número de ranuras inválido', proto);
     if (typeof proto.isVararg !== 'boolean') fail('bandera vararg inválida', proto);
-    if (!Array.isArray(proto.consts) || !Array.isArray(proto.protos) || !Array.isArray(proto.upvals)) fail('tablas del prototipo inválidas', proto);
+    if (!Array.isArray(proto.consts) || !Array.isArray(proto.protos) || !Array.isArray(proto.upvals)
+      || !isDenseArray(proto.consts) || !isDenseArray(proto.protos) || !isDenseArray(proto.upvals)) {
+      fail('tablas del prototipo inválidas o dispersas', proto);
+    }
     if (proto.consts.length > MAX_CODE_LENGTH || proto.protos.length > MAX_CODE_LENGTH || proto.upvals.length > MAX_SLOTS) fail('tabla del prototipo demasiado grande', proto);
+    totalConstants += proto.consts.length;
+    if (totalConstants > MAX_TOTAL_CONSTANTS) fail('cantidad total de constantes excedida', proto);
+    totalUpvalues += proto.upvals.length;
+    if (totalUpvalues > MAX_TOTAL_UPVALUES) fail('cantidad total de upvalues excedida', proto);
 
     proto.consts.forEach((value, i) => {
       const t = typeof value;
