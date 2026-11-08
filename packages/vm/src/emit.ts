@@ -74,13 +74,6 @@ function protoKeys(seed: number): ProtoKeys {
   return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), blockmap: next(), blocks: next() };
 }
 
-function luaNumber(n: number): string {
-  if (Number.isNaN(n)) return '(0/0)';
-  if (n === Infinity) return '(1/0)';
-  if (n === -Infinity) return '(-1/0)';
-  return String(n);
-}
-
 function luaConst(v: unknown, seed: number, stringIndex: { value: number }): string {
   if (v === undefined || v === null) return 'nil';
   if (typeof v === 'string') {
