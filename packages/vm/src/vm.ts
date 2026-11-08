@@ -47,7 +47,6 @@ export class VM implements LuaEnvironment {
 
   /** Ejecuta el prototipo principal y devuelve sus resultados. */
   execute(main: Proto): Value[] {
-    validateProto(main);
     return this.run(main, [], []);
   }
 
