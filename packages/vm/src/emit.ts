@@ -62,7 +62,7 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
-type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string; seal: string; parent: string; slot: string; blockmap: string; blocks: string };
+type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string; seal: string; parent: string; slot: string; blockmap: string; blocks: string; opmap: string };
 
 /** Los nombres de los campos del prototipo también cambian por semilla. */
 function protoKeys(seed: number): ProtoKeys {
@@ -74,7 +74,7 @@ function protoKeys(seed: number): ProtoKeys {
     used.add(name);
     return name;
   };
-  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), parent: next(), slot: next(), blockmap: next(), blocks: next() };
+  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), parent: next(), slot: next(), blockmap: next(), blocks: next(), opmap: next() };
 }
 
 /** Codec reversible por constante: parámetros coprimos/modulares propios de cada build. */
@@ -160,7 +160,7 @@ function encodeOperand(value: number, pc: number, field: number, seed: number, p
 
 function protoSeal(
   code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean,
-  blockMap: number[], blockDescriptors: number[][], constantCount: number, childCount: number, upvalues: number[][],
+  blockMap: number[], blockDescriptors: number[][], opcodeMap: number[], constantCount: number, childCount: number, upvalues: number[][],
   parentSalt: number, parentSlot: number,
 ): [number, number] {
   const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
@@ -173,6 +173,7 @@ function protoSeal(
   // Dos acumuladores con recorridos dependientes detectan más alteraciones
   // accidentales que un checksum lineal simple; no son una firma criptográfica.
   for (const instruction of code) for (const value of instruction) mix(value);
+  for (const value of opcodeMap) mix(value);
   for (const block of blockMap) mix(block);
   for (const descriptor of blockDescriptors) for (const value of descriptor) mix(value);
   mix(constantCount); mix(childCount); mix(upvalues.length);
@@ -250,6 +251,22 @@ interface EncryptedEmitterContext { enabled: boolean; masterEncryptionKey: Buffe
 function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed: number, stringIndex: { value: number }, protoCounter: { value: number }, parentSalt = 0, parentSlot = 0, encryptedContext?: EncryptedEmitterContext): string {
   // Cada prototipo recibe una sal propia; las máscaras no se repiten entre funciones hermanas.
   const protoSalt = ++protoCounter.value;
+  // Each prototype gets its own opcode namespace, then maps back to the
+  // per-build dispatcher only after runtime validation.
+  const protoOpcodeCodes = Array.from({ length: ALL_OPS.length }, (_, index) => index + 1);
+  const opcodeRandom = rng((seed ^ Math.imul(protoSalt, 0x6c8e9cf5) ^ 0x9e3779b9) >>> 0);
+  for (let i = protoOpcodeCodes.length - 1; i > 0; i--) {
+    const j = Math.floor(opcodeRandom() * (i + 1));
+    [protoOpcodeCodes[i], protoOpcodeCodes[j]] = [protoOpcodeCodes[j]!, protoOpcodeCodes[i]!];
+  }
+  const opcodeByName = {} as Record<Op, number>;
+  const opcodeMap = new Array<number>(ALL_OPS.length);
+  ALL_OPS.forEach((op, index) => {
+    const localCode = protoOpcodeCodes[index]!;
+    opcodeByName[op] = localCode;
+    opcodeMap[localCode - 1] = ops[op];
+  });
+
   const fusedCode = fuseSuperinstructions(p.code);
   const constantPool = shuffleConstantPool(fusedCode, p.consts, seed, protoSalt);
   const virtualCode = constantPool.code;
@@ -271,7 +288,7 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
     const nextLogical = originalPc < virtualCode.length ? originalPc + 1 : 0;
     const next = nextLogical ? physicalOf[nextLogical] : 0;
     const hiddenLine = encodeLineNumber(ins.line ?? 0, seed, protoSalt);
-    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, hiddenLine, next];
+    const fields = [opcodeByName[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, hiddenLine, next];
     const encoded = fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
     const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
     let checkA = (normalizedSeed + protoSalt * 97 + pc * 31) % OPERAND_MODULUS;
@@ -335,7 +352,7 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   });
   const blockDescriptors = blockDescriptorValues.map((values) => '{' + values.join(',') + '}').join(',');
   const upvalueValues = p.upvals.map((d) => [d.fromLocal ? 1 : 0, d.index]);
-  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg, blockMap, blockDescriptorValues, p.consts.length, p.protos.length, upvalueValues, parentSalt, parentSlot);
+  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg, blockMap, blockDescriptorValues, opcodeMap, p.consts.length, p.protos.length, upvalueValues, parentSalt, parentSlot);
   let code: string;
   if (encryptedContext?.enabled) {
     const instructions: LuauInstructionV3[] = encodedCode.map((fields) => ({ opcode: fields[0]!, a: fields[1]!, b: fields[2]!, target: fields[3]!, c: fields[4]!, line: fields[5]!, nextPC: fields[6]!, checkA: fields[7]!, checkB: fields[8]! }));
@@ -347,7 +364,7 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   const consts = constantPool.constants.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
   const children = p.protos.map((c, index) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter, protoSalt, index + 1, encryptedContext)).join(',');
-  return `{${keys.salt}=${protoSalt},${keys.seal}={${seal.join(',')}},${keys.parent}=${parentSalt},${keys.slot}=${parentSlot},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
+  return `{${keys.salt}=${protoSalt},${keys.seal}={${seal.join(',')}},${keys.parent}=${parentSalt},${keys.slot}=${parentSlot},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.opmap}={${opcodeMap.join(',')}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -542,17 +559,25 @@ local function protoIntact(P)
     end
   end
   local blockMap, blocks = P.__KEY_BLOCKMAP__, P.__KEY_BLOCKS__
+  local opcodeMap = P.__KEY_OPMAP__
   local constants, children, upvalues = P.__KEY_CONST__, P.__KEY_CHILD__, P.__KEY_UP__
   if typefn(blockMap) ~= "table" or #blockMap ~= #code
     or typefn(blocks) ~= "table" or #blocks == 0
     or typefn(constants) ~= "table" or typefn(children) ~= "table"
-    or typefn(upvalues) ~= "table" then return false end
+    or typefn(upvalues) ~= "table" or typefn(opcodeMap) ~= "table" or #opcodeMap ~= 52 then return false end
   -- Verifica el vínculo de cada hijo antes de permitir crear su closure.
   for i = 1, #children do
     local child = children[i]
     if typefn(child) ~= "table" or child.__KEY_PARENT__ ~= P.__KEY_SALT__ or child.__KEY_SLOT__ ~= i then
       return false
     end
+  end
+  local seenOpcodes = {}
+  for i = 1, #opcodeMap do
+    local value = opcodeMap[i]
+    if typefn(value) ~= "number" or not VALID_OP[value] or seenOpcodes[value] then return false end
+    seenOpcodes[value] = true
+    mix(value)
   end
   for i = 1, #blockMap do
     local value = blockMap[i]
@@ -748,7 +773,8 @@ run = function(P, U, args, expectedParentSalt, expectedParentSlot)
       local value = ins[field]
       if typefn(value) ~= "number" or value ~= floor(value) then fail("operando corrupto") end
     end
-    local op = decodeOperand(ins[1], ip, 1, protoSalt)
+    local localOpcode = decodeOperand(ins[1], ip, 1, protoSalt)
+    local op = P.__KEY_OPMAP__[localOpcode]
     local a = decodeOperand(ins[2], ip, 2, protoSalt)
     local b = decodeOperand(ins[3], ip, 3, protoSalt)
     local t = decodeOperand(ins[4], ip, 4, protoSalt)
@@ -967,7 +993,7 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
     'getenv', 'getgenvfn', 'baseEnv', 'executorEnv', 'BLOCKED_ENV', 'ENV', 'STEP_LIMIT',
     'VALID_OP', 'OPERAND_MODULUS', 'OPERAND_HALF', 'OPERAND_SEED', 'MASTER_ENCRYPTION_KEY_HEX',
     'MASTER_INTEGRITY_KEY_HEX', 'HEX_NIBBLE', 'hexBytes', 'MASTER_ENCRYPTION_KEY',
-    'MASTER_INTEGRITY_KEY', 'readU32LE', 'decodeEncryptedPrototype', 'protoIntact',
+    'MASTER_INTEGRITY_KEY', 'readU32LE', 'decodeEncryptedPrototype', 'protoIntact', 'opcodeMap',
     'instructionIntact', 'blockIntact', 'constant', 'CONST_CACHE', 'NIL_CONST',
     'decodeOperand', 'MULTI', 'multi', 'isMulti', 'pack', 'fail', 'index', 'callv',
     'makeClosure', 'push', 'pop', 'popN', 'popMulti', 'join', 'run', 'MAIN', 'main',
@@ -1115,8 +1141,8 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     return String(code);
   });
   const keys = protoKeys(seed);
-  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal, PARENT: keys.parent, SLOT: keys.slot, BLOCKMAP: keys.blockmap, BLOCKS: keys.blocks };
-  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL|PARENT|SLOT|BLOCKMAP|BLOCKS)__/g, (_m, name: string) => keyValues[name]);
+  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal, PARENT: keys.parent, SLOT: keys.slot, BLOCKMAP: keys.blockmap, BLOCKS: keys.blocks, OPMAP: keys.opmap };
+  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL|PARENT|SLOT|BLOCKMAP|BLOCKS|OPMAP)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
   if (encrypted) {
     const cryptoSource = readFileSync(new URL('../luau/crypto.lua', import.meta.url), 'utf8');
