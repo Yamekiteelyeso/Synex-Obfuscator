@@ -1007,11 +1007,8 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
       const start = i++;
       while (i < source.length && /[A-Za-z0-9_]/.test(source[i]!)) i++;
       const identifier = source.slice(start, i);
-      let lookahead = i;
-      while (lookahead < source.length && /\s/.test(source[lookahead]!)) lookahead++;
-      const tableKey = source[lookahead] === '=' && (previous === '{' || previous === ',');
       const property = previous === '.' || previous === ':';
-      output += !tableKey && !property ? (aliases.get(identifier) ?? identifier) : identifier;
+      output += !property ? (aliases.get(identifier) ?? identifier) : identifier;
       previous = 'identifier';
       continue;
     }
