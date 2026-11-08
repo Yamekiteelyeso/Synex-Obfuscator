@@ -80,7 +80,7 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
     const url = URL.createObjectURL(new Blob([result], { type: 'text/plain' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = fileName.replace(/\.lua$/i, '') + '.obf.lua';
+    a.download = fileName.replace(/\.luau?$/i, '') + '.obf.luau';
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -160,7 +160,7 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
         <div className="card">
           <div className="progress-head">
             <h3>Resultado</h3>
-            <button className="btn primary" onClick={exportResult}>Descargar .obf.lua</button>
+            <button className="btn primary" onClick={exportResult}>Descargar .obf.luau</button>
           </div>
           <p className="muted">{formatBytes(new TextEncoder().encode(result).length)} generados</p>
           <pre className="result">{result}</pre>

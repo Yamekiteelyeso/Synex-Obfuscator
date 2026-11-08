@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execute, LuaError } from '@synex/runtime';
-import { runInVm } from '../src/index.js';
+import { runInVm, compileToLuauVm } from '../src/index.js';
 
 /** Oráculo: el intérprete de referencia. La VM debe coincidir con él en salida y retornos. */
 function same(src: string) {
@@ -164,3 +164,19 @@ for (const [name, src] of Object.entries(PROGRAMS)) {
     });
   }
 }
+
+
+test('emisor Luau: usa el entorno Roblox y soporta objetos nativos', () => {
+  const code = compileToLuauVm('local x = game:GetService("Workspace")\nreturn x');
+  assert.match(code, /getfenv/);
+  assert.match(code, /getgenv/);
+  assert.match(code, /local function unstr/);
+  assert.match(code, /unstr\(/);
+  assert.equal(compileToLuauVm('local x = game:GetService("Workspace")\nreturn x'), code);
+  assert.notEqual(compileToLuauVm('local x = game:GetService("Workspace")\nreturn x', 99), code);
+  assert.doesNotMatch(code, /Workspace/);
+  assert.match(code, /local ENV/);
+  assert.match(code, /return o\[k\]/);
+  assert.match(code, /f\(tbl\.unpack/);
+  assert.doesNotMatch(code, /typefn\(o\) ~= "table"/);
+});

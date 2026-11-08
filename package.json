@@ -2,15 +2,16 @@
   "name": "synex-obfuscator",
   "private": true,
   "version": "0.1.0",
-  "description": "Synex Obfuscator: obfuscador profesional de scripts Luau",
+  "description": "Synex Obfuscator: obfuscador profesional de scripts Luau para Roblox y Lua",
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
-    "build": "tsc -b packages/shared packages/parser",
+    "build": "tsc -b packages/engine apps/api && npm run build -w @synex/web",
+    "start": "node apps/api/dist/server.js",
     "test": "vitest run",
-    "typecheck": "tsc -b packages/shared packages/parser"
+    "typecheck": "tsc -b packages/engine apps/api"
   },
   "engines": {
     "node": ">=22"

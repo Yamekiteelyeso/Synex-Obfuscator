@@ -11,8 +11,8 @@ import { validateProto } from './validate.js';
  * códigos de operación aleatorios, así que el bytecode de una salida no sirve
  * para otra.
  *
- * Limitaciones: sin límite de pasos en la VM generada, y los mensajes de error
- * en tiempo de ejecución no reproducen la posición de línea del original.
+ * La VM usa un límite global de instrucciones y resuelve los globals desde el
+ * entorno de ejecución Luau (getfenv), además de permitir indexar userdata/Instances.
  */
 
 /** Todas las operaciones del IR. El tipo obliga a listarlas todas. */
@@ -59,16 +59,6 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
-function luaString(s: string): string {
-  const bytes = /^[\x00-\xff]*$/.test(s) ? Buffer.from(s, 'latin1') : Buffer.from(s, 'utf8');
-  let out = '"';
-  for (const b of bytes) {
-    const plain = b >= 32 && b < 127 && b !== 34 && b !== 92;
-    out += plain ? String.fromCharCode(b) : '\\' + String(b).padStart(3, '0');
-  }
-  return out + '"';
-}
-
 function luaNumber(n: number): string {
   if (Number.isNaN(n)) return '(0/0)';
   if (n === Infinity) return '(1/0)';
@@ -76,21 +66,29 @@ function luaNumber(n: number): string {
   return String(n);
 }
 
-function luaConst(v: unknown): string {
+function luaConst(v: unknown, seed: number, stringIndex: { value: number }): string {
   if (v === undefined || v === null) return 'nil';
-  if (typeof v === 'string') return luaString(v);
+  if (typeof v === 'string') {
+    // Cifrado polimórfico del pool de constantes: cada literal usa una clave
+    // distinta derivada de la semilla del build y se reconstruye en runtime.
+    const bytes = Buffer.from(v, 'utf8');
+    const index = ++stringIndex.value;
+    const key = ((seed >>> 0) + index * 73) % 251 + 1;
+    const encoded = Array.from(bytes, (b, i) => (b + key + (i + 1) * 17) % 256).join(',');
+    return `unstr({${encoded}},${key})`;
+  }
   if (typeof v === 'number') return luaNumber(v);
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   throw new SynexError('constante no serializable en la VM', 1, 1, 'E_INTERNAL');
 }
 
-function serializeProto(p: Proto, ops: Record<Op, number>): string {
+function serializeProto(p: Proto, ops: Record<Op, number>, seed: number, stringIndex: { value: number }): string {
   // Instrucciones: {op, a, b, t, c}. Los saltos usan índices 1-based en la VM.
   const code = p.code.map((ins: Instr) =>
     `{${ops[ins.op]},${ins.a ?? 0},${ins.b ?? 0},${ins.t !== undefined ? ins.t + 1 : 0},${ins.c ? 1 : 0},${ins.line ?? 0}}`).join(',');
-  const consts = p.consts.map(luaConst).join(',');
+  const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
-  const children = p.protos.map((c) => serializeProto(c, ops)).join(',');
+  const children = p.protos.map((c) => serializeProto(c, ops, seed, stringIndex)).join(',');
   return `{np=${p.nparams},va=${p.isVararg ? 'true' : 'false'},c={${code}},k={${consts}},q={${children}},u={${upvals}}}`;
 }
 
@@ -101,7 +99,16 @@ function serializeProto(p: Proto, ops: Record<Op, number>): string {
  */
 const TEMPLATE = String.raw`
 local strlib, tbl, floor = string, table, math.floor
+local function unstr(bytes, key)
+  local out = {}
+  for i = 1, #bytes do
+    out[i] = strlib.char((bytes[i] - key - i * 17) % 256)
+  end
+  return tbl.concat(out)
+end
 local typefn, select, setmt, getmt, errorfn = type, select, setmetatable, getmetatable, error
+local getenv, getgenvfn = getfenv, getgenv
+local ENV = (getgenvfn and getgenvfn()) or (getenv and getenv(0)) or _G
 local STEP_LIMIT = __LIMIT__
 local steps, curLine = 0, 0
 local function fail(msg) errorfn("línea " .. curLine .. ": " .. msg, 0) end
@@ -113,11 +120,12 @@ local function index(o, k)
   local t = typefn(o)
   if t == "table" then return o[k] end
   if t == "string" then return strlib[k] end
-  fail("attempt to index " .. t .. " value")
+  -- Roblox Instances, userdata y objetos con __index deben usar el acceso nativo.
+  return o[k]
 end
 local run
 local function callv(f, args)
-  if typefn(f) ~= "function" then fail("attempt to call " .. typefn(f) .. " value") end
+  -- La llamada directa conserva __call para tablas/objetos invocables de Luau.
   return pack(f(tbl.unpack(args, 1, args.n)))
 end
 local function makeClosure(child, cells)
@@ -181,8 +189,8 @@ run = function(P, U, args)
     elseif op == OP_SETBOX then slots[a + 1].v = pop()
     elseif op == OP_GETUP then push(U[a + 1].v)
     elseif op == OP_SETUP then U[a + 1].v = pop()
-    elseif op == OP_GETG then push(_G[P.k[a + 1]])
-    elseif op == OP_SETG then _G[P.k[a + 1]] = pop()
+    elseif op == OP_GETG then push(ENV[P.k[a + 1]])
+    elseif op == OP_SETG then ENV[P.k[a + 1]] = pop()
     elseif op == OP_GETI then
       local k = pop()
       local o = pop()
@@ -191,7 +199,7 @@ run = function(P, U, args)
       local v = pop()
       local k = pop()
       local o = pop()
-      if typefn(o) ~= "table" then fail("attempt to index " .. typefn(o) .. " value") end
+      -- Permite propiedades de Instance y asignaciones vía __newindex.
       o[k] = v
     elseif op == OP_SELF then
       local o = pop()
@@ -324,7 +332,7 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     return String(code);
   });
   body = body.replace('__LIMIT__', String(limit));
-  body = body.replace('__MAIN__', serializeProto(main, ops));
+  body = body.replace('__MAIN__', serializeProto(main, ops, seed, { value: 0 }));
   return body.trimStart();
 }
 

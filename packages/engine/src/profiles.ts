@@ -12,13 +12,13 @@ const TECHNIQUE_TABLE = {
   deadcode: { status: 'implemented', label: 'Código muerto' },
   integrity: { status: 'implemented', label: 'Comprobación de integridad (en tiempo de ejecución)' },
   controlflow: { status: 'implemented', label: 'Aplanado del flujo de control' },
-  vm: { status: 'implemented', label: 'Transformación mediante VM (solo perfil personalizado)' },
+  vm: { status: 'implemented', label: 'Virtualización del código (VM Luau)' },
 } as const;
 
 export const TECHNIQUES: Record<keyof typeof TECHNIQUE_TABLE, { status: TechStatus; label: string }> = TECHNIQUE_TABLE;
 
 export type Technique = keyof typeof TECHNIQUES;
-export type ProfileName = 'normal' | 'medium' | 'max' | 'basic' | 'advanced' | 'professional' | 'custom';
+export type ProfileName = 'normal' | 'medium' | 'max' | 'basic' | 'advanced' | 'professional' | 'roblox' | 'custom';
 
 export interface TechniqueSettings {
   techniques: Technique[];
@@ -64,6 +64,15 @@ const MEDIUM: TechniqueSettings = {
   techniques: [...ADVANCED.techniques, 'controlflow'],
 };
 
+const ROBLOX: TechniqueSettings = {
+  // VM habilitada por defecto: resuelve globals del entorno Luau y soporta
+  // indexación/callables nativos (Instances, userdata y __call).
+  techniques: ['identifiers', 'strings', 'numbers', 'expressions', 'vm'],
+  expressionProbability: 0.35,
+  deadCodeDensity: 0,
+  controlFlowProbability: 0,
+};
+
 const MAX: TechniqueSettings = {
   ...PROFESSIONAL,
   techniques: [...PROFESSIONAL.techniques, 'vm'],
@@ -76,6 +85,7 @@ export const PROFILES: Record<Exclude<ProfileName, 'custom'>, TechniqueSettings>
   basic: BASIC,
   advanced: ADVANCED,
   professional: PROFESSIONAL,
+  roblox: ROBLOX,
 };
 
 /** Resuelve la configuración de un perfil; "custom" usa la selección del usuario. */
