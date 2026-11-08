@@ -318,7 +318,7 @@ export function createApp(opts: AppOptions): App {
       throw new HttpError(401, 'Discord no pudo validar la autorización; inténtalo de nuevo', 'E_DISCORD_TOKEN');
     }
     const tokenData = await tokenResponse.json() as { access_token?: string; scope?: string };
-    if (!tokenData.access_token || !String(tokenData.scope ?? '').split(/\\s+/).includes('identify')) {
+    if (!tokenData.access_token || !String(tokenData.scope ?? '').split(/\s+/).includes('identify')) {
       throw new HttpError(401, 'Discord no concedió el permiso de identidad requerido', 'E_DISCORD_SCOPE');
     }
 

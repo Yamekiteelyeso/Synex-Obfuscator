@@ -39,7 +39,7 @@ before(async () => {
     }
     if (url === 'https://discord.com/api/v10/users/@me') {
       const authorization = new Headers(init?.headers).get('authorization') ?? '';
-      const accessToken = authorization.replace(/^Bearer\\s+/i, '');
+      const accessToken = authorization.replace(/^Bearer\s+/i, '');
       const user = oauthAccess.get(accessToken);
       if (!user) return new Response(JSON.stringify({ message: 'unauthorized' }), { status: 401 });
       return new Response(JSON.stringify(user), { status: 200, headers: { 'Content-Type': 'application/json' } });
