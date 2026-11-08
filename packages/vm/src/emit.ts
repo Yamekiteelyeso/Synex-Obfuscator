@@ -59,7 +59,7 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
-type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string; seal: string };
+type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string; seal: string; blockmap: string; blocks: string };
 
 /** Los nombres de los campos del prototipo también cambian por semilla. */
 function protoKeys(seed: number): ProtoKeys {
@@ -71,7 +71,7 @@ function protoKeys(seed: number): ProtoKeys {
     used.add(name);
     return name;
   };
-  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next() };
+  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next(), seal: next(), blockmap: next(), blocks: next() };
 }
 
 function luaNumber(n: number): string {
@@ -169,11 +169,39 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
     return fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
   });
   const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg);
+  // Bloques básicos: entrada, destinos de salto y sucesores de bifurcaciones.
+  const leaders = new Set<number>([0]);
+  virtualCode.forEach((ins, index) => {
+    if (ins.t !== undefined) leaders.add(ins.t);
+    if (['JMP', 'JF', 'JFK', 'JTK', 'FORTEST', 'GENCALL', 'RET'].includes(ins.op) && index + 1 < virtualCode.length) leaders.add(index + 1);
+  });
+  const sortedLeaders = [...leaders].sort((a, b) => a - b);
+  const logicalBlock = new Array<number>(virtualCode.length);
+  sortedLeaders.forEach((start, blockIndex) => {
+    const end = sortedLeaders[blockIndex + 1] ?? virtualCode.length;
+    for (let i = start; i < end; i++) logicalBlock[i] = blockIndex + 1;
+  });
+  const blockMembers = new Map<number, number[]>();
+  order.forEach((originalPc, physicalIndex) => {
+    const id = logicalBlock[originalPc - 1];
+    const members = blockMembers.get(id) ?? [];
+    members.push(physicalIndex + 1);
+    blockMembers.set(id, members);
+  });
+  const blockMap = order.map((originalPc) => logicalBlock[originalPc - 1]);
+  const blockDescriptors = [...blockMembers.entries()].sort((a, b) => a[0] - b[0]).map(([id, pcs]) => {
+    let hash = ((seed >>> 0) + protoSalt * 97 + id * 31) % OPERAND_MODULUS;
+    for (const pc of pcs) {
+      hash = (hash * 33 + pc) % OPERAND_MODULUS;
+      for (const value of encodedCode[pc - 1]) hash = (hash * 33 + value) % OPERAND_MODULUS;
+    }
+    return '{' + [hash, ...pcs].join(',') + '}';
+  }).join(',');
   const code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
   const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
   const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter)).join(',');
-  return `{${keys.salt}=${protoSalt},${keys.seal}=${seal},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
+  return `{${keys.salt}=${protoSalt},${keys.seal}=${seal},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -232,6 +260,24 @@ local function protoIntact(P)
   end
   return h == P.__KEY_SEAL__
 end
+local function blockIntact(P, blockId)
+  local descriptor = P.__KEY_BLOCKS__[blockId]
+  if typefn(descriptor) ~= "table" or #descriptor < 2 then return false end
+  local h = (OPERAND_SEED + P.__KEY_SALT__ * 97 + blockId * 31) % OPERAND_MODULUS
+  for j = 2, #descriptor do
+    local pc = descriptor[j]
+    if typefn(pc) ~= "number" or pc < 1 or pc > #P.__KEY_CODE__ or P.__KEY_BLOCKMAP__[pc] ~= blockId then return false end
+    local ins = P.__KEY_CODE__[pc]
+    if typefn(ins) ~= "table" or #ins ~= 7 then return false end
+    h = (h * 33 + pc) % OPERAND_MODULUS
+    for k = 1, 7 do
+      local value = ins[k]
+      if typefn(value) ~= "number" or value ~= floor(value) then return false end
+      h = (h * 33 + value) % OPERAND_MODULUS
+    end
+  end
+  return h == descriptor[1]
+end
 local function constant(P, index)
   local value = P.__KEY_CONST__[index]
   if typefn(value) == "function" then return value() end
@@ -284,6 +330,8 @@ run = function(P, U, args)
   end
   local st, sp = {}, 0
   local code, pc = P.__KEY_CODE__, 1
+  local activeBlock = 0
+  if typefn(P.__KEY_BLOCKMAP__) ~= "table" or #P.__KEY_BLOCKMAP__ ~= #code or typefn(P.__KEY_BLOCKS__) ~= "table" then fail("índice de bloques corrupto") end
   local protoSalt = P.__KEY_SALT__
   local function push(v)
     sp = sp + 1
@@ -319,6 +367,12 @@ run = function(P, U, args)
   while true do
     local ip = pc
     local ins = code[ip]
+    local blockId = P.__KEY_BLOCKMAP__[ip]
+    if typefn(blockId) ~= "number" or blockId < 1 or blockId ~= floor(blockId) then fail("bloque virtual inválido") end
+    if blockId ~= activeBlock then
+      if not blockIntact(P, blockId) then fail("integridad comprometida: bloque virtual alterado") end
+      activeBlock = blockId
+    end
     if not ins then fail("bytecode truncado o alterado") end
     -- Comprueba la forma del registro antes de decodificarlo; evita que una
     -- salida truncada o manipulada termine en errores opacos de indexación.
@@ -507,8 +561,8 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     return String(code);
   });
   const keys = protoKeys(seed);
-  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal };
-  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL)__/g, (_m, name: string) => keyValues[name]);
+  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt, SEAL: keys.seal, BLOCKMAP: keys.blockmap, BLOCKS: keys.blocks };
+  body = body.replace(/__KEY_(NP|NS|VA|CODE|CONST|CHILD|UP|SALT|SEAL|BLOCKMAP|BLOCKS)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
   body = body.replace('__VALID_OPS__', '{' + ALL_OPS.map((op) => '[' + ops[op] + ']=true').join(',') + '}');
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
