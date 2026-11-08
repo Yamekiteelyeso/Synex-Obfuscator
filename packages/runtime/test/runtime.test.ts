@@ -138,6 +138,21 @@ test('table.sort ordena números y acepta comparador Lua', () => {
   assert.throws(() => out('local t = {1, "a"}; table.sort(t)'), /attempt to compare/);
 });
 
+test('table.create crea secuencias con valor inicial opcional', () => {
+  assert.deepEqual(out('local a = table.create(3, "x"); local b = table.create(2); print(#a, a[1], a[3], #b, b[1])'), ['3\tx\tx\t0\tnil']);
+  assert.throws(() => out('table.create(-1)'), /invalid size/);
+});
+
+test('string.char valida bytes y string.split conserva campos vacíos', () => {
+  assert.deepEqual(out('local t = string.split("a,,b,", ","); print(#t, t[1], t[2], t[3], t[4])'), ['4\ta\t\tb\t']);
+  assert.throws(() => out('string.char(256)'), /out of range/);
+  assert.throws(() => out('string.char(1.5)'), /out of range/);
+});
+
+test('string.lower y upper conservan bytes no ASCII', () => {
+  assert.deepEqual(out('print(string.lower("ABC-á"), string.upper("abc-á"))'), ['abc-á\tABC-á']);
+});
+
 test('string.lower, upper y reverse', () => {
   assert.deepEqual(out('print(string.lower("HeLLo"), string.upper("Synex"), string.reverse("abc"))'), ['hello\tSYNEX\tcba']);
 });
