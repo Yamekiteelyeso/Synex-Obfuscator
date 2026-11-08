@@ -14,6 +14,8 @@ const CONST_NAME = new Set<Op>(['GETG', 'SETG', 'SELF']);
 const MAX_PROTO_DEPTH = 512;
 const MAX_CODE_LENGTH = 1_000_000;
 const MAX_SLOTS = 1_000_000;
+const MAX_TOTAL_PROTOS = 100_000;
+const MAX_STRING_CONSTANT_BYTES = 4 * 1024 * 1024;
 
 function fail(msg: string, proto: Proto, pc = -1): never {
   const name = typeof proto?.name === 'string' ? proto.name : '<unknown>';
@@ -34,6 +36,9 @@ function index(value: unknown, length: number): value is number {
 export function validateProto(root: Proto): void {
   const visiting = new Set<object>();
   const visited = new Set<object>();
+  let totalProtos = 0;
+  let totalCode = 0;
+  let totalConstantBytes = 0;
 
   const visit = (proto: Proto, parent: Proto | null, depth: number): void => {
     if (!proto || typeof proto !== 'object' || Array.isArray(proto)) {
@@ -43,10 +48,13 @@ export function validateProto(root: Proto): void {
     if (visiting.has(proto)) fail('ciclo en árbol de prototipos', proto);
     if (visited.has(proto)) fail('prototipo compartido entre varias posiciones', proto);
     visiting.add(proto);
+    if (++totalProtos > MAX_TOTAL_PROTOS) fail('cantidad total de prototipos excedida', proto);
 
     if (!Array.isArray(proto.code) || proto.code.length === 0 || proto.code.length > MAX_CODE_LENGTH) {
       fail('longitud de código inválida', proto);
     }
+    totalCode += proto.code.length;
+    if (totalCode > MAX_CODE_LENGTH) fail('tamaño total de bytecode excedido', proto);
     if (!integer(proto.nparams) || proto.nparams < 0) fail('número de parámetros inválido', proto);
     if (!integer(proto.nslots) || proto.nslots < proto.nparams || proto.nslots > MAX_SLOTS) fail('número de ranuras inválido', proto);
     if (typeof proto.isVararg !== 'boolean') fail('bandera vararg inválida', proto);
@@ -55,6 +63,10 @@ export function validateProto(root: Proto): void {
 
     proto.consts.forEach((value, i) => {
       const t = typeof value;
+      if (t === 'string') {
+        totalConstantBytes += Buffer.byteLength(value as string, 'utf8');
+        if (totalConstantBytes > MAX_STRING_CONSTANT_BYTES) fail('tamaño total de cadenas excedido', proto);
+      }
       if (!(value === undefined || value === null || t === 'string' || t === 'number' || t === 'boolean')) {
         fail(`tipo de constante no serializable en índice ${i}`, proto);
       }
