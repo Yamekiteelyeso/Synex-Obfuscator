@@ -122,6 +122,11 @@ test('table.move maneja solapamiento y destino distinto', () => {
   assert.throws(() => out('table.move({}, 1.5, 2, 1)'), /integer index/);
 });
 
+test('table.find devuelve el primer índice desde el inicio indicado', () => {
+  assert.deepEqual(out('local t = {"a", "b", "a"}; print(table.find(t, "a"), table.find(t, "a", 2), table.find(t, "z"))'), ['1\t3\tnil']);
+  assert.throws(() => out('table.find({}, 1, 1.5)'), /integer index/);
+});
+
 test('table.clone copia superficialmente y table.clear vacía', () => {
   assert.deepEqual(out('local t = {1, 2, x = 3}; local c = table.clone(t); c[1] = 9; print(t[1], c[1], c.x); table.clear(c); print(#c, c.x)'), ['1\t9\t3', '0\tnil']);
 });
