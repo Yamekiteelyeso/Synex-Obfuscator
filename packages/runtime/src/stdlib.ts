@@ -122,6 +122,7 @@ export function installStdlib(interp: LuaEnvironment): void {
       throw new LuaError('bad argument to table.unpack (integer index expected)');
     }
     if (last < first) return [];
+    if (last - first + 1 > 1_000_000) throw new LuaError('table.unpack result too large');
     const result: Value[] = [];
     for (let i = first; i <= last; i++) result.push(t.get(i));
     return result;
@@ -144,7 +145,9 @@ export function installStdlib(interp: LuaEnvironment): void {
     const t = args[0];
     if (!(t instanceof LuaTable)) throw new LuaError('bad argument to table.insert');
     const length = t.length();
-    if (args.length >= 3) {
+    if (args.length !== 2 && args.length !== 3) throw new LuaError('wrong number of arguments to table.insert');
+    if (args[args.length - 1] === undefined) throw new LuaError('bad argument to table.insert (value expected)');
+    if (args.length === 3) {
       const pos = toNumber(args[1], at);
       if (!Number.isInteger(pos) || pos < 1 || pos > length + 1) throw new LuaError('bad argument to table.insert (position out of bounds)');
       for (let i = length; i >= pos; i--) t.set(i + 1, t.get(i));
@@ -280,6 +283,7 @@ export function installStdlib(interp: LuaEnvironment): void {
     const last = normalize(args[2] === undefined ? first : toNumber(args[2], at), true);
     if (!Number.isInteger(first) || !Number.isInteger(last)) throw new LuaError('bad argument to string.byte (integer index expected)');
     if (first < 1 || first > length || last < first || last < 1) return [];
+    if (last - first + 1 > 1_000_000) throw new LuaError('string.byte result too large');
     const result: Value[] = [];
     for (let i = first; i <= last; i++) result.push(s.charCodeAt(i - 1));
     return result;
