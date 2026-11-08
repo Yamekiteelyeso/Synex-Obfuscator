@@ -161,6 +161,7 @@ test('solo expone Basic, Medium y Max y mantiene salud pública', async () => {
   assert.equal(p.status, 200);
   assert.equal(p.json.profiles.length, 3);
   assert.equal((await call('GET', '/api/auth/discord')).status, 503);
+  assert.equal((await call('POST', '/api/discord/interactions', { type: 1 })).status, 503);
   assert.deepEqual(p.json.profiles.map((x: any) => x.name), ['basic', 'medium', 'max']);
   assert.equal((await call('POST', '/api/jobs', { source: SCRIPT, profile: 'advanced' }, await login('flujo@synex.test', 'clave-segura-2'))).status, 400);
   assert.ok(p.json.techniques.some((t: any) => t.id === 'vm' && t.status === 'implemented'));
