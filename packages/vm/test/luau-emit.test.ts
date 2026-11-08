@@ -128,6 +128,30 @@ describe('VM Luau emitida: propiedades', () => {
     assert.equal(armOrder(a).length, 52);
   });
 
+  test('los identificadores de bloques permutados conservan saltos y bucles entre builds', { skip: !lua54Available && 'falta tools/lua54/lua54run' }, () => {
+    const source = [
+      'local total = 0',
+      'for i = 1, 12 do',
+      '  if i % 3 == 0 then total = total + i * 2',
+      '  elseif i % 2 == 0 then total = total - i',
+      '  else total = total + 1 end',
+      'end',
+      'local n = 0',
+      'while n < 4 do',
+      '  if n == 2 then total = total + 7 else total = total + n end',
+      '  n = n + 1',
+      'end',
+      'print(total, n)',
+    ].join(String.fromCharCode(10));
+    const original = runLua54(source);
+    assert.ok(original.ok, original.error);
+    for (const seed of [11, 29, 71, 991]) {
+      const emitted = runLua54(compileToLuauVm(source, seed));
+      assert.ok(emitted.ok, `seed ${seed}: ${emitted.error}`);
+      assert.equal(emitted.stdout, original.stdout, `seed ${seed}`);
+    }
+  });
+
   test('oculta nombres internos de VM e integridad en la salida generada', () => {
     const out = compileToLuauVm(PROGRAMS.closures, 314159);
     assert.doesNotMatch(out, /local function (?:decodeEncryptedPrototype|protoIntact|instructionIntact|blockIntact|makeClosure|run)\b/);
