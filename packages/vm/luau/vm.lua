@@ -124,12 +124,13 @@ function M.execute(vm, handlers)
 		if type(handler) ~= "function" then error("attempt to call a nil value", 2) end
 		local oldPC = vm.pc
 		local nextPC = instruction.nextPC
-		if nextPC == 0 then nextPC = oldPC + 1 end
+		if nextPC == 0 then nextPC = oldPC < vm.recordCount and (oldPC + 1) or 0 end
 		if nextPC < 0 or nextPC > vm.recordCount then
 			error("attempt to index nil value", 2)
 		end
 		vm.pc = nextPC
 		handler(vm, instruction)
+		if nextPC == 0 then vm.halted = true end
 		if vm.pc == oldPC then
 			-- Explicit self-loops remain legal but are bounded by maxSteps.
 		end
