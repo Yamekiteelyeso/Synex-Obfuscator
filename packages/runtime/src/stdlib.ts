@@ -34,7 +34,7 @@ function luaPatternToRegExp(pattern: string): RegExp {
     return code === key ? value : '^' + value;
   };
   const escape = (ch: string) => /[\\^$.*+?()[\]{}|]/.test(ch) ? '\\' + ch : ch;
-  const escapeLuaLiteral = (ch: string) => /[\\\]{}|]/.test(ch) ? '\\' + ch : ch;
+  const escapeLuaLiteral = (ch: string) => ['\\', ']', '{', '}', '|'].includes(ch) ? '\\' + ch : ch;
   let output = '';
   let inClass = false;
   for (let i = 0; i < pattern.length; i++) {
