@@ -478,11 +478,13 @@ export function installStdlib(interp: LuaEnvironment): void {
     const pattern = String(args[1]);
     const init = args[2] === undefined ? 1 : toNumber(args[2], at);
     if (!Number.isSafeInteger(init)) throw new LuaError('bad argument to string.match (integer index expected)');
-    const start = init < 0 ? source.length + init + 1 : init;
-    if (start < 1 || start > source.length + 1) return [undefined];
+    const start = Math.max(1, init < 0 ? source.length + init + 1 : init);
+    if (start > source.length + 1) return [undefined];
+    const anchored = pattern.startsWith('^');
+    const subject = anchored ? source.slice(start - 1) : source;
     const regex = luaPatternToRegExp(pattern);
-    regex.lastIndex = start - 1;
-    const match = regex.exec(source);
+    regex.lastIndex = anchored ? 0 : start - 1;
+    const match = regex.exec(subject);
     if (!match) return [undefined];
     return match.length > 1 ? match.slice(1) : [match[0]];
   }));
@@ -550,18 +552,22 @@ export function installStdlib(interp: LuaEnvironment): void {
     const source = String(args[0]);
     const pattern = String(args[1]);
     const init = args[2] === undefined ? 1 : toNumber(args[2], at);
-    const plain = args[3] === true;
+    const plain = args[3] !== undefined && args[3] !== false;
     if (!Number.isSafeInteger(init)) throw new LuaError('bad argument to string.find (integer index expected)');
-    const start = init < 0 ? source.length + init + 1 : init;
-    if (start < 1 || start > source.length + 1) return [undefined];
+    const start = Math.max(1, init < 0 ? source.length + init + 1 : init);
+    if (start > source.length + 1) return [undefined];
     if (plain) {
       const index = source.indexOf(pattern, start - 1);
       return index < 0 ? [undefined] : [index + 1, index + pattern.length];
     }
+    const anchored = pattern.startsWith('^');
+    const subject = anchored ? source.slice(start - 1) : source;
     const regex = luaPatternToRegExp(pattern);
-    regex.lastIndex = start - 1;
-    const match = regex.exec(source);
-    return match ? [match.index + 1, match.index + match[0].length, ...match.slice(1)] : [undefined];
+    regex.lastIndex = anchored ? 0 : start - 1;
+    const match = regex.exec(subject);
+    if (!match) return [undefined];
+    const base = anchored ? start - 1 : 0;
+    return [base + match.index + 1, base + match.index + match[0].length, ...match.slice(1)];
   }));
   stringLib.set('format', fn('format', (args) => {
     const template = String(args[0]);
@@ -665,12 +671,14 @@ export function installStdlib(interp: LuaEnvironment): void {
   stringLib.set('byte', fn('byte', (args) => {
     const s = String(args[0]);
     const length = s.length;
-    const normalize = (index: number, isLast: boolean) =>
-      index < 0 ? Math.max(length + index + 1, 1) : isLast ? Math.min(index, length) : index;
-    const first = normalize(args[1] === undefined ? 1 : toNumber(args[1], at), false);
-    const last = normalize(args[2] === undefined ? first : toNumber(args[2], at), true);
-    if (!Number.isInteger(first) || !Number.isInteger(last)) throw new LuaError('bad argument to string.byte (integer index expected)');
-    if (first < 1 || first > length || last < first || last < 1) return [];
+    const firstRaw = args[1] === undefined ? 1 : toNumber(args[1], at);
+    const lastRaw = args[2] === undefined ? firstRaw : toNumber(args[2], at);
+    if (!Number.isInteger(firstRaw) || !Number.isInteger(lastRaw)) throw new LuaError('bad argument to string.byte (integer index expected)');
+    let first = firstRaw < 0 ? length + firstRaw + 1 : firstRaw;
+    let last = lastRaw < 0 ? length + lastRaw + 1 : lastRaw;
+    if (first <= 0) first = 1;
+    if (last > length) last = length;
+    if (first > last || first > length) return [];
     if (last - first + 1 > 1_000_000) throw new LuaError('string.byte result too large');
     const result: Value[] = [];
     for (let i = first; i <= last; i++) result.push(s.charCodeAt(i - 1));
@@ -679,14 +687,14 @@ export function installStdlib(interp: LuaEnvironment): void {
   stringLib.set('sub', fn('sub', (args) => {
     const s = String(args[0]);
     const length = s.length;
-    const normalize = (index: number, isLast: boolean) =>
-      index < 0 ? Math.max(length + index + 1, 1) : isLast ? Math.min(index, length) : index;
     const firstRaw = toNumber(args[1], at);
     const lastRaw = args[2] === undefined ? -1 : toNumber(args[2], at);
     if (!Number.isInteger(firstRaw) || !Number.isInteger(lastRaw)) throw new LuaError('bad argument to string.sub (integer index expected)');
-    const first = normalize(firstRaw, false);
-    const last = normalize(lastRaw, true);
-    if (first < 1 || first > length || last < first) return [''];
+    let first = firstRaw < 0 ? length + firstRaw + 1 : firstRaw;
+    let last = lastRaw < 0 ? length + lastRaw + 1 : lastRaw;
+    if (first < 1) first = 1;
+    if (last > length) last = length;
+    if (first > last || first > length) return [''];
     return [s.slice(first - 1, last)];
   }));
   stringLib.set('rep', fn('rep', (args) => {
