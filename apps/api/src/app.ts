@@ -96,6 +96,7 @@ export function createApp(opts: AppOptions): App {
   const codes = new Map<string, string>();
   let discordVerifyKeyCache: { key: string; expiresAt: number } | null = null;
   const discordTickets = new Map<string, { userId: string; expiresAt: number }>();
+  const discordInteractions = new Map<string, { expiresAt: number; response: unknown }>();
   const ipWindow = new Map<string, { count: number; reset: number }>();
   const rateLimit = opts.rateLimitPerMinute ?? 300;
 
@@ -198,7 +199,9 @@ export function createApp(opts: AppOptions): App {
   // El botón invita al usuario a instalar el bot; la identidad se verifica con /synex-login.
   route('GET', '/api/auth/discord', 'none', ({ res }) => {
     const clientId = process.env.DISCORD_CLIENT_ID;
-    if (!clientId) throw new HttpError(503, 'Discord aún no está configurado', 'E_DISCORD_CONFIG');
+    if (!clientId || !process.env.DISCORD_BOT_TOKEN || !process.env.DISCORD_REDIRECT_URI) {
+      throw new HttpError(503, 'configura DISCORD_CLIENT_ID, DISCORD_REDIRECT_URI y DISCORD_BOT_TOKEN', 'E_DISCORD_CONFIG');
+    }
     const params = new URLSearchParams({ client_id: clientId, scope: 'bot applications.commands', permissions: '0' });
     res.writeHead(302, { Location: `https://discord.com/oauth2/authorize?${params}` });
     res.end();
@@ -261,6 +264,11 @@ export function createApp(opts: AppOptions): App {
     if (interaction.type !== 2 || interaction.data?.name !== 'synex-login') {
       return json(res, 200, { type: 4, data: { content: 'Comando no reconocido.', flags: 64 } });
     }
+    const interactionId = String(interaction.id ?? '');
+    if (!interactionId) throw new HttpError(400, 'interacción sin ID', 'E_DISCORD_INTERACTION');
+    const previous = discordInteractions.get(interactionId);
+    if (previous && previous.expiresAt > Date.now()) return json(res, 200, previous.response);
+    for (const [id, entry] of discordInteractions) if (entry.expiresAt <= Date.now()) discordInteractions.delete(id);
     const discordUser = interaction.member?.user ?? interaction.user;
     if (!discordUser?.id || !discordUser?.username) {
       return json(res, 200, { type: 4, data: { content: 'No se pudo verificar tu cuenta de Discord.', flags: 64 } });
@@ -290,13 +298,15 @@ export function createApp(opts: AppOptions): App {
       throw new HttpError(503, 'DISCORD_REDIRECT_URI debe usar HTTPS', 'E_DISCORD_CONFIG');
     }
     loginUrl.searchParams.set('discord_ticket', ticket);
-    return json(res, 200, {
+    const response = {
       type: 4,
       data: {
         content: 'Acceso seguro a Synex Obfuscador. Este enlace es privado y caduca en 90 segundos: ' + loginUrl.toString(),
         flags: 64,
       },
-    });
+    };
+    discordInteractions.set(interactionId, { expiresAt: Date.now() + 5 * 60_000, response });
+    return json(res, 200, response);
   });
 
   route('POST', '/api/auth/register', 'none', async ({ req, res }) => {
