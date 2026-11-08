@@ -64,7 +64,7 @@ export function validateProto(root: Proto): void {
     proto.consts.forEach((value, i) => {
       const t = typeof value;
       if (t === 'string') {
-        totalConstantBytes += Buffer.byteLength(value as string, 'utf8');
+        totalConstantBytes += new TextEncoder().encode(value as string).length;
         if (totalConstantBytes > MAX_STRING_CONSTANT_BYTES) fail('tamaño total de cadenas excedido', proto);
       }
       if (!(value === undefined || value === null || t === 'string' || t === 'number' || t === 'boolean')) {
