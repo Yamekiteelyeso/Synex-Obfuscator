@@ -124,7 +124,15 @@ function luaPatternToRegExp(pattern: string): RegExp {
       lastClosedGroupHasQuantifier = false;
       continue;
     }
-    if (ch === '^' || ch === '
+    if (ch === '^' || ch === '$') {
+      if (ch === '^' && i === 0) output += '^';
+      else if (ch === '$' && i === pattern.length - 1) output += '$(?![\\s\\S])';
+      else output += '\\' + ch;
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
     output += escapeLuaLiteral(ch);
     lastAtomIsWildcard = false;
     previousWasQuantifier = false;
