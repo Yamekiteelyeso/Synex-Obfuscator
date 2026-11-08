@@ -1,5 +1,5 @@
 import type * as A from '@synex/parser';
-import { LuaError, LuaTable, NativeFunction, type Value } from './values.js';
+import { LuaError, LuaTable, LuaFunction, NativeFunction, type Value } from './values.js';
 import { numberToString, toNumber, typeName } from './interpreter.js';
 
 /** Lo que la biblioteca necesita del entorno de ejecución (lo cumplen el intérprete y la VM). */
@@ -154,6 +154,44 @@ export function installStdlib(interp: LuaEnvironment): void {
     }
     return [];
   }));
+  tableLib.set('move', fn('move', (args) => {
+    const source = args[0];
+    const first = toNumber(args[1], at);
+    const last = toNumber(args[2], at);
+    const target = args[3] === undefined ? first : toNumber(args[3], at);
+    const destination = args[4] === undefined ? source : args[4];
+    if (!(source instanceof LuaTable) || !(destination instanceof LuaTable)) {
+      throw new LuaError('bad argument to table.move (table expected)');
+    }
+    if (![first, last, target].every(Number.isSafeInteger)) {
+      throw new LuaError('bad argument to table.move (integer index expected)');
+    }
+    if (last < first) return [destination];
+    const count = last - first + 1;
+    if (!Number.isSafeInteger(count) || count > 1_000_000
+      || !Number.isSafeInteger(target + count - 1)) {
+      throw new LuaError('table.move range too large');
+    }
+    if (source === destination && target > first && target <= last) {
+      for (let i = count - 1; i >= 0; i--) destination.set(target + i, source.get(first + i));
+    } else {
+      for (let i = 0; i < count; i++) destination.set(target + i, source.get(first + i));
+    }
+    return [destination];
+  }));
+  tableLib.set('clear', fn('clear', (args) => {
+    const table = args[0];
+    if (!(table instanceof LuaTable)) throw new LuaError('bad argument to table.clear (table expected)');
+    table.hash.clear();
+    return [];
+  }));
+  tableLib.set('clone', fn('clone', (args) => {
+    const source = args[0];
+    if (!(source instanceof LuaTable)) throw new LuaError('bad argument to table.clone (table expected)');
+    const clone = new LuaTable();
+    for (const [key, value] of source.hash) clone.set(key, value);
+    return [clone];
+  }));
   tableLib.set('sort', fn('sort', (args) => {
     const t = args[0];
     if (!(t instanceof LuaTable)) throw new LuaError('bad argument to table.sort (table expected)');
@@ -161,10 +199,17 @@ export function installStdlib(interp: LuaEnvironment): void {
     const values: Value[] = [];
     for (let i = 1; i <= length; i++) values.push(t.get(i));
     const comparator = args[1];
+    if (comparator !== undefined && !(comparator instanceof LuaFunction)) {
+      throw new LuaError('bad argument to table.sort (function expected)');
+    }
     values.sort((a, b) => {
       if (comparator !== undefined) {
-        const result = call(comparator, [a, b])[0];
-        return result ? -1 : 1;
+        const abResult = call(comparator, [a, b])[0];
+        const ab = abResult !== undefined && abResult !== false;
+        const baResult = call(comparator, [b, a])[0];
+        const ba = baResult !== undefined && baResult !== false;
+        if (ab && ba) throw new LuaError('invalid order function for sorting');
+        return ab ? -1 : ba ? 1 : 0;
       }
       if (typeof a === 'number' && typeof b === 'number') return a < b ? -1 : a > b ? 1 : 0;
       if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
