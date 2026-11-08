@@ -946,7 +946,7 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
   const names = new Set(internalNames);
   // Include helper functions in the embedded crypto modules without exposing
   // their source-level names in the generated artifact.
-  for (const match of source.matchAll(/\\blocal\\s+function\\s+([A-Za-z_]\\w*)/g)) names.add(match[1]!);
+  for (const match of source.matchAll(/\blocal\s+function\s+([A-Za-z_]\w*)/g)) names.add(match[1]!);
   const used = new Set(names);
   for (const name of names) {
     let alias = '';
@@ -987,7 +987,7 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
       }
       const literal = source.slice(start, i);
       const plain = literal.slice(1, -1);
-      if (!plain.includes('\\') && /integridad|compromet|corrupt|autentic|cifrad|prototipo|operación desconocida|salto fuera|índice de constante|bytecode|integrity|prototype|encrypt|authenticat|cryptographic|ciphertext|poly1305|synex\\//i.test(plain)) {
+      if (!plain.includes('\\') && /integridad|compromet|corrupt|autentic|cifrad|prototipo|operación desconocida|salto fuera|índice de constante|bytecode|integrity|prototype|encrypt|authenticat|cryptographic|ciphertext|poly1305|synex\//i.test(plain)) {
         const encoded = Array.from(Buffer.from(plain, 'utf8'), (byte) => '\\' + String(byte).padStart(3, '0')).join('');
         output += '"' + encoded + '"';
       } else {
