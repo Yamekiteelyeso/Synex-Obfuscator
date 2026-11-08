@@ -122,7 +122,7 @@ function isPaidPlan(value: unknown): value is Exclude<AccountPlan, 'free'> {
 
 export function createApp(opts: AppOptions): App {
   const store = new Store(opts.dataFile ?? null);
-  const sessions = new Sessions();
+  const sessions = new Sessions(12 * 60 * 60 * 1000, Date.now, store);
   const jobs = new JobManager({
     workerPath: opts.workerPath,
     concurrency: opts.concurrency ?? 2,
