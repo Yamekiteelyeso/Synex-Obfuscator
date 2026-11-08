@@ -64,6 +64,8 @@ La autenticación de usuarios es exclusivamente mediante Discord OAuth2. El back
 
 Las cuentas, el plan, el contador de usos y el historial se guardan en el archivo configurado en `SYNEX_DATA_FILE`. Para conservarlos en Railway, monta un Volume en `/data`. Los tokens de sesión se persisten en el JSON. Los resultados descargables se mantienen temporalmente en memoria (máximo 100 resultados, 64 MiB agregados y 30 minutos); los resultados individuales que superen el presupuesto no se almacenan. La cola conserva como máximo 5.000 registros de trabajo recientes y libera el bytecode resultante después de transferirlo a la caché de descargas. Los estados OAuth y los tickets de intercambio también residen en memoria. Por ello, ejecuta una sola réplica de API mientras no se migren esos estados efímeros a un almacén compartido; varias réplicas pueden romper el callback OAuth o perder descargas tras reiniciar.
 
+Los estados OAuth y tickets de intercambio permanecen en memoria, con un máximo de 10.000 entradas por mapa y caducidades de 5 minutos y 90 segundos. Las ventanas de rate-limit por IP se limitan a 50.000 entradas y se limpian periódicamente. Las sesiones persistidas tienen un máximo de 10.000 registros; si se alcanza el límite, se expulsa la sesión más antigua. Por ello, ejecuta una sola réplica de API mientras esos estados efímeros no se migren a un almacén compartido.
+
 ## Planes de ofuscación
 
 La web expone únicamente tres planes. No hay perfiles personalizados ni opciones separadas de Roblox en la interfaz:

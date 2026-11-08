@@ -304,6 +304,39 @@ test('OAuth2 valida el state y no solicita instalar un bot', async () => {
 });
 
 
+test('Sessions limita registros activos y persiste la expulsión FIFO', () => {
+  let persisted: Array<{ token: string; userId: string; expiresAt: number }> = [];
+  const persistence = {
+    readSessions: () => persisted.slice(),
+    writeSessions: (next: typeof persisted) => { persisted = next.slice(); },
+  };
+  const sessions = new Sessions(60_000, () => 1_000, persistence, 2);
+  const first = sessions.create('first-user');
+  const second = sessions.create('second-user');
+  const third = sessions.create('third-user');
+
+  assert.equal(sessions.userIdFor(first), null);
+  assert.equal(sessions.userIdFor(second), 'second-user');
+  assert.equal(sessions.userIdFor(third), 'third-user');
+  assert.equal(persisted.length, 2);
+});
+
+test('Sessions limpia sesiones expiradas en una lectura periódica', () => {
+  let now = 1_000;
+  let persisted: Array<{ token: string; userId: string; expiresAt: number }> = [];
+  const persistence = {
+    readSessions: () => persisted.slice(),
+    writeSessions: (next: typeof persisted) => { persisted = next.slice(); },
+  };
+  const sessions = new Sessions(1_000, () => now, persistence, 10);
+  const token = sessions.create('expired-user');
+  now += 61_000;
+
+  assert.equal(sessions.userIdFor('missing-token'), null);
+  assert.equal(sessions.userIdFor(token), null);
+  assert.equal(persisted.length, 0);
+});
+
 test('las sesiones Discord sobreviven a una reconstrucción del servidor', () => {
   const dir = mkdtempSync(join(tmpdir(), 'synex-sessions-'));
   const file = join(dir, 'data.json');
