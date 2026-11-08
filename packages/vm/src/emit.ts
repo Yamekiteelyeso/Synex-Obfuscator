@@ -441,16 +441,26 @@ constIntact = function(bytes, sealA, sealB, key)
 end
 local MASTER_ENCRYPTION_KEY_HEX = "__MASTER_ENCRYPTION_KEY__"
 local MASTER_INTEGRITY_KEY_HEX = "__MASTER_INTEGRITY_KEY__"
+local HEX_NIBBLE = {}
+for digit = 0, 9 do HEX_NIBBLE[48 + digit] = digit end
+for digit = 0, 5 do
+  HEX_NIBBLE[97 + digit] = 10 + digit
+  HEX_NIBBLE[65 + digit] = 10 + digit
+end
 local function hexBytes(hex)
   if typefn(hex) ~= "string" or #hex % 2 ~= 0 then return nil end
   local out = {}
   for i = 1, #hex, 2 do
-    local value = tonumber(strlib.sub(hex, i, i + 1), 16)
-    if value == nil then return nil end
-    out[#out + 1] = strlib.char(value)
+    local high = HEX_NIBBLE[strlib.byte(hex, i)]
+    local low = HEX_NIBBLE[strlib.byte(hex, i + 1)]
+    if high == nil or low == nil then return nil end
+    out[#out + 1] = strlib.char(high * 16 + low)
   end
   return tbl.concat(out)
 end
+-- Decode the embedded master keys once per standalone script, not once per prototype.
+local MASTER_ENCRYPTION_KEY = hexBytes(MASTER_ENCRYPTION_KEY_HEX)
+local MASTER_INTEGRITY_KEY = hexBytes(MASTER_INTEGRITY_KEY_HEX)
 local function readU32LE(bytes, offset)
   local a, b, c, d = strlib.byte(bytes, offset, offset + 3)
   if d == nil then return nil end
@@ -462,13 +472,14 @@ local function decodeEncryptedPrototype(P)
   local first = code[1]
   if typefn(first) ~= "table" or typefn(first.nonce) ~= "string" then return end
   if typefn(Crypto) ~= "table" or typefn(Integrity) ~= "table" then errorfn("runtime criptográfico no disponible", 0) end
-  local masterEncryptionKey = hexBytes(MASTER_ENCRYPTION_KEY_HEX)
-  local masterIntegrityKey = hexBytes(MASTER_INTEGRITY_KEY_HEX)
-  if not masterEncryptionKey or #masterEncryptionKey ~= 32 or not masterIntegrityKey or #masterIntegrityKey ~= 32 then errorfn("claves de bytecode inválidas", 0) end
+  if not MASTER_ENCRYPTION_KEY or #MASTER_ENCRYPTION_KEY ~= 32
+    or not MASTER_INTEGRITY_KEY or #MASTER_INTEGRITY_KEY ~= 32 then
+    errorfn("claves de bytecode inválidas", 0)
+  end
   local salt = P.__KEY_SALT__
   local context = tostring(floor(salt))
-  local encryptionKey = Crypto.hmacSha256(masterEncryptionKey, "Synex/prototype-encryption/v1:" .. context)
-  local integrityKey = Crypto.hmacSha256(masterIntegrityKey, "Synex/prototype-integrity/v1:" .. context)
+  local encryptionKey = Crypto.hmacSha256(MASTER_ENCRYPTION_KEY, "Synex/prototype-encryption/v1:" .. context)
+  local integrityKey = Crypto.hmacSha256(MASTER_INTEGRITY_KEY, "Synex/prototype-integrity/v1:" .. context)
   local chain = Integrity.start(integrityKey, salt)
   for index = 1, #code do
     local record = code[index]

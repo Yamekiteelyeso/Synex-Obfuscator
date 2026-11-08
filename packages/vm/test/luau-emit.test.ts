@@ -208,4 +208,21 @@ describe('VM Luau cifrada v3: emisor de producción', { skip: !luauCliAvailable 
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  test('rechaza bytes hexadecimales inválidos en registros cifrados', () => {
+    const output = compileToLuauVm('print(456)', 4321, { encryptedRecords: true });
+    const match = output.match(/ciphertext="([0-9a-f]{72})"/);
+    assert.ok(match, 'se esperaba un registro cifrado');
+    const tampered = output.replace(match[0], 'ciphertext="z' + match[1]!.slice(1) + '"');
+    const directory = mkdtempSync(join(tmpdir(), 'synex-v3-invalid-hex-'));
+    try {
+      const file = join(directory, 'invalid-hex.lua');
+      writeFileSync(file, tampered, 'utf8');
+      const result = spawnSync('luau', [file], { encoding: 'utf8', timeout: 15000 });
+      assert.notEqual(result.status, 0, 'el runtime aceptó un carácter hexadecimal inválido');
+      assert.match(result.stderr + result.stdout, /registro cifrado truncado/i);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
