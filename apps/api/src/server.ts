@@ -1,6 +1,5 @@
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
-import { existsSync } from 'node:fs';
 import { createApp } from './app.js';
 
 /** Arranque del servidor. Configuración por variables de entorno. */
