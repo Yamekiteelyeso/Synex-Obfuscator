@@ -323,6 +323,7 @@ run = function(P, U, args)
     elseif op == OP_POP then pop()
     elseif op == OP_GETL then push(slots[a + 1])
     elseif op == OP_SETL then slots[a + 1] = pop()
+    elseif op == OP_MOVE then slots[b + 1] = slots[a + 1]
     elseif op == OP_NEWBOX then slots[a + 1] = {v = pop()}
     elseif op == OP_BOXSLOT then slots[a + 1] = {v = slots[a + 1]}
     elseif op == OP_GETBOX then push(slots[a + 1].v)
