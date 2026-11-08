@@ -15,6 +15,8 @@ export interface EngineOptions {
   maxInputBytes?: number;
   /** Límite de pasos para la comprobación de equivalencia. */
   equivalenceStepLimit?: number;
+  /** Override the default encrypted v3 record output (enabled by default for Max). */
+  encryptedRecords?: boolean;
 }
 
 export interface StageRecord {
@@ -90,7 +92,7 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
   const vmEnabled = has('vm');
   if (vmEnabled) {
     onStage('vm');
-    code = compileToLuauVm(result.code, buildSeed);
+    code = compileToLuauVm(result.code, buildSeed, { encryptedRecords: options.encryptedRecords ?? options.profile === 'max' });
   }
 
   // El comentario se agrega al final de todas las transformaciones para que
