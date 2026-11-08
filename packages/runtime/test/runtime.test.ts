@@ -147,7 +147,7 @@ test('table.create crea secuencias con valor inicial opcional', () => {
 test('biblioteca math cubre operaciones numéricas y clamp de Luau', () => {
   assert.deepEqual(out('print(math.abs(-4), math.floor(2.9), math.ceil(2.1), math.sqrt(81), math.max(1, 9, 3), math.min(1, 9, 3))'), ['4\t2\t3\t9\t9\t1']);
   assert.deepEqual(out('print(math.clamp(12, 0, 10), math.clamp(-2, 0, 10), math.sign(-3), math.round(2.5))'), ['10\t0\t-1\t3']);
-  assert.deepEqual(out('local i, f = math.modf(-2.75); print(i, f, math.type(2), math.type(2.5), math.tointeger(2.5))'), ['-2\t-0.75\tinteger\tfloat\tnil']);
+  assert.deepEqual(out('local i, f = math.modf(-2.75); print(i, f, math.type(2), math.type(2.5), math.type(9007199254740992), math.tointeger(2.5))'), ['-2\t-0.75\tinteger\tfloat\tfloat\tnil']);
   assert.throws(() => out('math.clamp(1, 4, 2)'), /min must be <= max/);
 });
 
