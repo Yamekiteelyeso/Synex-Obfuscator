@@ -179,6 +179,17 @@ export function installStdlib(interp: LuaEnvironment): void {
     }
     return [destination];
   }));
+  tableLib.set('create', fn('create', (args) => {
+    const size = args[0] === undefined ? 0 : toNumber(args[0], at);
+    if (!Number.isSafeInteger(size) || size < 0 || size > 1_000_000) {
+      throw new LuaError('bad argument to table.create (invalid size)');
+    }
+    const table = new LuaTable();
+    if (args[1] !== undefined) {
+      for (let index = 1; index <= size; index++) table.set(index, args[1]);
+    }
+    return [table];
+  }));
   tableLib.set('find', fn('find', (args) => {
     const table = args[0];
     if (!(table instanceof LuaTable)) throw new LuaError('bad argument to table.find (table expected)');
@@ -231,12 +242,34 @@ export function installStdlib(interp: LuaEnvironment): void {
   g.set('table', tableLib);
 
   const stringLib = new LuaTable();
-  stringLib.set('char', fn('char', (args) =>
-    [String.fromCharCode(...args.map((a) => toNumber(a, at) & 0xff))]));
+  stringLib.set('char', fn('char', (args) => {
+    const bytes = args.map((value) => {
+      const byte = toNumber(value, at);
+      if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+        throw new LuaError('bad argument to string.char (value out of range)');
+      }
+      return byte;
+    });
+    return [String.fromCharCode(...bytes)];
+  }));
   stringLib.set('len', fn('len', (args) => [String(args[0]).length]));
-  stringLib.set('lower', fn('lower', (args) => [String(args[0]).toLowerCase()]));
-  stringLib.set('upper', fn('upper', (args) => [String(args[0]).toUpperCase()]));
+  stringLib.set('lower', fn('lower', (args) => [String(args[0]).replace(/[A-Z]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 32))]));
+  stringLib.set('upper', fn('upper', (args) => [String(args[0]).replace(/[a-z]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 32))]));
   stringLib.set('reverse', fn('reverse', (args) => [String(args[0]).split('').reverse().join('')]));
+  stringLib.set('split', fn('split', (args) => {
+    const input = String(args[0]);
+    const separator = String(args[1]);
+    if (separator === '') {
+      const result = new LuaTable();
+      for (let index = 0; index < input.length; index++) result.set(index + 1, input[index]);
+      return [result];
+    }
+    const parts = input.split(separator);
+    const result = new LuaTable();
+    for (let index = 0; index < parts.length; index++) result.set(index + 1, parts[index]);
+    return [result];
+  }));
+
 
   stringLib.set('byte', fn('byte', (args) => {
     const s = String(args[0]);
