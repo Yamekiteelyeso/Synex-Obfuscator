@@ -155,7 +155,7 @@ describe('sellos jerárquicos de prototipos', { skip: !lua54Available && 'falta 
       'local middle = outer(2)',
       'local inner = middle(3)',
       'print(inner())',
-    ].join('\\n');
+    ].join('\n');
     const original = runLua54(source);
     const emitted = runLua54(compileToLuauVm(source, 441122));
     assert.ok(emitted.ok, emitted.error);
@@ -182,7 +182,7 @@ describe('codec polimórfico de constantes', { skip: !lua54Available && 'falta t
       'local integer = 98765',
       'print(text)',
       'print(negative, fraction, integer)',
-    ].join('\\n');
+    ].join('\n');
     const original = runLua54(source);
     for (const seed of [17, 987654, 0x7fffffff]) {
       const emitted = runLua54(compileToLuauVm(source, seed));
