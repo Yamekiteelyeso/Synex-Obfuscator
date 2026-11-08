@@ -15,6 +15,15 @@ jobs:
         with:
           node-version: 22
       - run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Install Luau CLI
+        run: |
+          curl -fsSL https://github.com/luau-lang/luau/releases/download/0.746/luau-ubuntu.zip -o /tmp/luau.zip
+          echo "30f11c9cde8be2dc0e3066d210705532aac3726a2db89a6c5078080b6faa6cf8  /tmp/luau.zip" | sha256sum -c -
+          mkdir -p /tmp/luau-cli
+          unzip -q /tmp/luau.zip -d /tmp/luau-cli
+          find /tmp/luau-cli -type f -name luau -exec install -m 0755 {} /usr/local/bin/luau \;
+          test -x /usr/local/bin/luau
+
       - run: npm install --no-audit --no-fund
       - run: npm run build
       - name: Test engine and API
