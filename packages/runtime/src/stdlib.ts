@@ -835,7 +835,11 @@ export function installStdlib(interp: LuaEnvironment): void {
   }));
   mathLib.set('randomseed', fn('randomseed', (args) => {
     if (args.length !== 1) throw new LuaError('bad argument to math.randomseed (one seed expected)');
-    seedRandom(randomInteger32(args[0], 'math.randomseed'));
+    const seed = toNumber(args[0], at);
+    if (!Number.isSafeInteger(seed) || seed < -0x8000_0000 || seed > 0x7fff_ffff) {
+      throw new LuaError('bad argument to math.randomseed (integer expected)');
+    }
+    seedRandom(seed);
     return [];
   }));
   mathLib.set('random', fn('random', (args) => {
