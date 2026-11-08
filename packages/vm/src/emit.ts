@@ -113,17 +113,29 @@ function encodeOperand(value: number, pc: number, field: number, seed: number, p
 function protoSeal(
   code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean,
   blockMap: number[], blockDescriptors: number[][], constantCount: number, childCount: number, upvalues: number[][],
-): number {
-  let hash = ((seed >>> 0) + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
-  const mix = (value: number) => { hash = (hash * 33 + value) % OPERAND_MODULUS; };
-  // El sello cubre también la estructura que controla el despacho: mapa y
-  // descriptores de bloques, tamaños de pools y layout de upvalues.
+): [number, number] {
+  let hashA = ((seed >>> 0) + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
+  let hashB = ((seed >>> 0) * 65599 + salt * 131 + nparams * 257 + nslots * 911 + (isVararg ? 17 : 0)) % OPERAND_MODULUS;
+  const mix = (value: number) => {
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS;
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS;
+  };
+  // Dos acumuladores con recorridos dependientes detectan más alteraciones
+  // accidentales que un checksum lineal simple; no son una firma criptográfica.
   for (const instruction of code) for (const value of instruction) mix(value);
   for (const block of blockMap) mix(block);
   for (const descriptor of blockDescriptors) for (const value of descriptor) mix(value);
   mix(constantCount); mix(childCount); mix(upvalues.length);
   for (const upvalue of upvalues) for (const value of upvalue) mix(value);
-  return hash;
+  return [hashA, hashB];
+}
+
+/** Codifica el número de línea con una transformación afín propia del prototipo. */
+function encodeLineNumber(line: number, seed: number, salt: number): number {
+  const normalizedSeed = (seed >>> 0) % OPERAND_MODULUS;
+  const multiplier = 17 + ((normalizedSeed + salt * 131) % 31);
+  const offset = (normalizedSeed + salt * 65537) % 1000003;
+  return line * multiplier + offset;
 }
 
 /**
@@ -175,7 +187,8 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
     const target = logicalTarget ? physicalOf[logicalTarget] : 0;
     const nextLogical = originalPc < virtualCode.length ? originalPc + 1 : 0;
     const next = nextLogical ? physicalOf[nextLogical] : 0;
-    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, ins.line ?? 0, next];
+    const hiddenLine = encodeLineNumber(ins.line ?? 0, seed, protoSalt);
+    const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, hiddenLine, next];
     return fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
   });
   // Bloques básicos: entrada, destinos de salto y sucesores de bifurcaciones.
@@ -199,12 +212,17 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   });
   const blockMap = order.map((originalPc) => logicalBlock[originalPc - 1]);
   const blockDescriptorValues = [...blockMembers.entries()].sort((a, b) => a[0] - b[0]).map(([id, pcs]) => {
-    let hash = ((seed >>> 0) + protoSalt * 97 + id * 31) % OPERAND_MODULUS;
+    let hashA = ((seed >>> 0) + protoSalt * 97 + id * 31) % OPERAND_MODULUS;
+    let hashB = ((seed >>> 0) * 65599 + protoSalt * 131 + id * 257) % OPERAND_MODULUS;
+    const mixBlock = (value: number) => {
+      hashA = (hashA * 33 + value) % OPERAND_MODULUS;
+      hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS;
+    };
     for (const pc of pcs) {
-      hash = (hash * 33 + pc) % OPERAND_MODULUS;
-      for (const value of encodedCode[pc - 1]) hash = (hash * 33 + value) % OPERAND_MODULUS;
+      mixBlock(pc);
+      for (const value of encodedCode[pc - 1]) mixBlock(value);
     }
-    return [hash, ...pcs];
+    return [hashA, hashB, ...pcs];
   });
   const blockDescriptors = blockDescriptorValues.map((values) => '{' + values.join(',') + '}').join(',');
   const upvalueValues = p.upvals.map((d) => [d.fromLocal ? 1 : 0, d.index]);
@@ -213,7 +231,7 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
   const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter)).join(',');
-  return `{${keys.salt}=${protoSalt},${keys.seal}=${seal},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
+  return `{${keys.salt}=${protoSalt},${keys.seal}={${seal.join(',')}},${keys.blockmap}={${blockMap.join(',')}},${keys.blocks}={${blockDescriptors}},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -274,15 +292,21 @@ local VALID_OP = __VALID_OPS__
 local OPERAND_MODULUS, OPERAND_HALF = 2147483647, 1073741823
 local OPERAND_SEED = __OPERAND_SEED__
 local function protoIntact(P)
-  local h = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0)) % OPERAND_MODULUS
+  local hashA = (OPERAND_SEED + P.__KEY_SALT__ * 97 + P.__KEY_NP__ * 17 + P.__KEY_NS__ * 31 + (P.__KEY_VA__ and 1 or 0)) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + P.__KEY_SALT__ * 131 + P.__KEY_NP__ * 257 + P.__KEY_NS__ * 911 + (P.__KEY_VA__ and 17 or 0)) % OPERAND_MODULUS
+  local function mix(value)
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
+  end
   local code = P.__KEY_CODE__
+  if typefn(code) ~= "table" then return false end
   for i = 1, #code do
     local ins = code[i]
     if typefn(ins) ~= "table" or #ins ~= 7 then return false end
     for j = 1, 7 do
-      local v = ins[j]
-      if typefn(v) ~= "number" or v ~= floor(v) then return false end
-      h = (h * 33 + v) % OPERAND_MODULUS
+      local value = ins[j]
+      if typefn(value) ~= "number" or value ~= floor(value) then return false end
+      mix(value)
     end
   end
   local blockMap, blocks = P.__KEY_BLOCKMAP__, P.__KEY_BLOCKS__
@@ -290,50 +314,56 @@ local function protoIntact(P)
   if typefn(blockMap) ~= "table" or typefn(blocks) ~= "table" or typefn(constants) ~= "table"
     or typefn(children) ~= "table" or typefn(upvalues) ~= "table" then return false end
   for i = 1, #blockMap do
-    local v = blockMap[i]
-    if typefn(v) ~= "number" or v ~= floor(v) then return false end
-    h = (h * 33 + v) % OPERAND_MODULUS
+    local value = blockMap[i]
+    if typefn(value) ~= "number" or value ~= floor(value) then return false end
+    mix(value)
   end
   for i = 1, #blocks do
     local descriptor = blocks[i]
     if typefn(descriptor) ~= "table" then return false end
     for j = 1, #descriptor do
-      local v = descriptor[j]
-      if typefn(v) ~= "number" or v ~= floor(v) then return false end
-      h = (h * 33 + v) % OPERAND_MODULUS
+      local value = descriptor[j]
+      if typefn(value) ~= "number" or value ~= floor(value) then return false end
+      mix(value)
     end
   end
-  h = (h * 33 + #constants) % OPERAND_MODULUS
-  h = (h * 33 + #children) % OPERAND_MODULUS
-  h = (h * 33 + #upvalues) % OPERAND_MODULUS
+  mix(#constants)
+  mix(#children)
+  mix(#upvalues)
   for i = 1, #upvalues do
     local descriptor = upvalues[i]
     if typefn(descriptor) ~= "table" or #descriptor ~= 2 then return false end
     for j = 1, 2 do
-      local v = descriptor[j]
-      if typefn(v) ~= "number" or v ~= floor(v) then return false end
-      h = (h * 33 + v) % OPERAND_MODULUS
+      local value = descriptor[j]
+      if typefn(value) ~= "number" or value ~= floor(value) then return false end
+      mix(value)
     end
   end
-  return h == P.__KEY_SEAL__
+  local seal = P.__KEY_SEAL__
+  return typefn(seal) == "table" and #seal == 2 and hashA == seal[1] and hashB == seal[2]
 end
 local function blockIntact(P, blockId)
   local descriptor = P.__KEY_BLOCKS__[blockId]
-  if typefn(descriptor) ~= "table" or #descriptor < 2 then return false end
-  local h = (OPERAND_SEED + P.__KEY_SALT__ * 97 + blockId * 31) % OPERAND_MODULUS
-  for j = 2, #descriptor do
+  if typefn(descriptor) ~= "table" or #descriptor < 3 then return false end
+  local hashA = (OPERAND_SEED + P.__KEY_SALT__ * 97 + blockId * 31) % OPERAND_MODULUS
+  local hashB = (OPERAND_SEED * 65599 + P.__KEY_SALT__ * 131 + blockId * 257) % OPERAND_MODULUS
+  local function mixBlock(value)
+    hashA = (hashA * 33 + value) % OPERAND_MODULUS
+    hashB = (hashB * 65599 + value * 17 + (hashA % 65521)) % OPERAND_MODULUS
+  end
+  for j = 3, #descriptor do
     local pc = descriptor[j]
     if typefn(pc) ~= "number" or pc < 1 or pc > #P.__KEY_CODE__ or P.__KEY_BLOCKMAP__[pc] ~= blockId then return false end
     local ins = P.__KEY_CODE__[pc]
     if typefn(ins) ~= "table" or #ins ~= 7 then return false end
-    h = (h * 33 + pc) % OPERAND_MODULUS
+    mixBlock(pc)
     for k = 1, 7 do
       local value = ins[k]
       if typefn(value) ~= "number" or value ~= floor(value) then return false end
-      h = (h * 33 + value) % OPERAND_MODULUS
+      mixBlock(value)
     end
   end
-  return h == descriptor[1]
+  return hashA == descriptor[1] and hashB == descriptor[2]
 end
 local function constant(P, index)
   local value = P.__KEY_CONST__[index]
@@ -456,7 +486,10 @@ run = function(P, U, args)
       and (t < 1 or t > #code) then fail("salto fuera del prototipo") end
     steps = steps + 1
     if steps > STEP_LIMIT then fail("límite de ejecución superado") end
-    curLine = decodeOperand(ins[6], ip, 6, protoSalt)
+    local lineToken = decodeOperand(ins[6], ip, 6, protoSalt)
+    local lineMultiplier = 17 + ((OPERAND_SEED + protoSalt * 131) % 31)
+    local lineOffset = (OPERAND_SEED + protoSalt * 65537) % 1000003
+    curLine = floor((lineToken - lineOffset) / lineMultiplier)
     if op == OP_CONST then push(constant(P, a + 1))
     elseif op == OP_NIL then push(nil)
     elseif op == OP_TRUE then push(true)

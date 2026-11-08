@@ -81,14 +81,14 @@ Los niveles aplican configuraciones predefinidas del motor. Basic es el nivel es
 - No implementa toda la semántica de metatablas ni corrutinas; conserva operaciones nativas de indexación y llamadas `__call` que usa el script huésped.
 - El aplanado del flujo de control no se aplica a bloques con `type` ni a bloques que leen una variable antes de declararla (una función que la usa también cuenta). Las funciones locales se hoistean con su nombre, así que la recursión se conserva. Los `break`/`continue` del bucle exterior se reescriben con estados reservados.
 - La VM generada tiene límite de pasos (5 000 000 por defecto) y conserva la línea fuente en mensajes de error.
-- Los códigos de operación, los nombres de los campos del prototipo VM y las claves de cadenas varían por build. Cada operando del bytecode se enmascara con una clave derivada de semilla, prototipo, posición y campo; las constantes de texto se codifican en el pool. La VM valida saltos, ranuras, constantes y capturas antes de emitir, y aplica límites de instrucciones, profundidad y pila en runtime. Es ofuscación, no cifrado.
+- Los códigos de operación, los nombres de los campos del prototipo VM y las claves de cadenas varían por build. Cada operando del bytecode se enmascara con una clave derivada de semilla, prototipo, posición y campo; los metadatos de línea se codifican con una transformación reversible distinta por prototipo y no aparecen como números de línea en claro. Los prototipos y bloques usan sellos de doble acumulador que cubren instrucciones, mapas de bloques, descriptores, tamaños de pools y disposición de upvalues. La VM valida saltos, ranuras, constantes y capturas antes de ejecutar, y aplica límites de instrucciones, profundidad y pila en runtime. Los sellos son mecanismos de detección de alteraciones, no firmas criptográficas: un atacante que controle el proceso puede parchear el verificador. Es ofuscación, no cifrado.
 - La VM generada prefiere `getgenv()` en executors y usa `getfenv(0)`/`_G` como fallback, indexación nativa para Instances/userdata y llamadas `__call`; aun así, debe validarse en Roblox Luau y cada executor objetivo.
 
 ## Limitaciones de la ofuscación actual
 
 - La equivalencia se verifica con Lua 5.4 real, no con Luau: este entorno no tiene `luau`. Se compila el ejecutor con `tools/lua54/build.sh` (requiere `liblua5.4-0` y `gcc`). Las pruebas que dependen de él se omiten si falta. Luau y Lua 5.4 difieren en sintaxis (`continue`, `+=`) y en biblioteca, así que el aplanado con `continue` se verifica sólo con el intérprete de referencia.
 - Pendiente: ejecutar las pruebas en Luau real.
-- La protección de cadenas codifica bytes UTF-8 con una clave por literal y una máscara dependiente de posición; se descifra de forma perezosa y se cachea. Sigue siendo ofuscación reversible, no cifrado ni almacenamiento seguro de secretos.
+- La protección de cadenas codifica bytes UTF-8 con una clave por literal y una máscara dependiente de posición; se descifra bajo demanda sin mantener una caché persistente de texto plano. El valor reconstruido existe durante su uso y puede observarse en memoria o interceptando el runtime. Sigue siendo ofuscación reversible, no cifrado ni almacenamiento seguro de secretos.
 - Las posiciones de los parámetros en el análisis semántico son aproximadas.
 
 ## Pruebas
