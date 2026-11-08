@@ -14,8 +14,8 @@ Ofuscador profesional de scripts Luau. Monorepo TypeScript.
 | `packages/vm` | VM de pila que ejecuta el IR (referencia en TypeScript) y emisor de la transformación mediante VM: compila el programa al IR y lo sustituye por un intérprete en Luau con códigos de operación aleatorios por build. Pruebas: 18 programas ejecutados en Lua 5.4 original y emitido, con salida idéntica (19 pruebas) |
 | `packages/runtime` | Intérprete de referencia sobre el AST, con globals básicos, `table`, `string`, `math` y `bit32`; oráculo de equivalencia para la VM y las transformaciones. La biblioteca implementa un subconjunto documentado de Lua/Luau, no toda la biblioteca estándar. |
 | `packages/engine` | Motor de orquestación: planes públicos (Basic, Medium, Max), etapas con tiempos, digest SHA-256, comprobación de equivalencia, VM configurable y sistema de trabajos en worker_threads con límites de cola, tamaño y tiempo. Incluye pruebas del perfil completo en Lua 5.4 real (13 pruebas) |
-| `apps/api` | API HTTP sin dependencias: autenticación exclusiva por Discord, cuentas y planes persistidos en JSON, cuota Free por cuenta, solicitudes y aprobación administrativa de upgrades, límite de peticiones por IP y endpoints de trabajos. |
-| `apps/web` | Acceso solo por Discord, editor con perfiles Basic/Medium/Max según plan, sección Free/Premium/Plus, estado de cuota y administración de solicitudes de upgrade. |
+| `apps/api` | API HTTP sin dependencias: autenticación exclusiva por Discord, cuentas y planes persistidos en JSON, cuota Free por cuenta y asignación administrativa manual de planes, límite de peticiones por IP y endpoints de trabajos. |
+| `apps/web` | Acceso solo por Discord, editor con perfiles Basic/Medium/Max según plan, sección Free/Premium/Plus con contacto directo para comprar y administración de cuentas. |
 
 ## Biblioteca estándar del runtime
 
