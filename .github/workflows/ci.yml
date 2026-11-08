@@ -26,6 +26,8 @@ jobs:
 
       - name: Test Luau cryptography modules
         run: luau packages/vm/luau/tests/crypto.test.lua
+      - name: Test authenticated Luau VM substrate
+        run: luau packages/vm/luau/tests/vm.test.lua
       - run: npm install --no-audit --no-fund
       - run: npm run build
       - name: Test engine and API
