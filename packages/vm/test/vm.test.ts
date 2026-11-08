@@ -234,4 +234,11 @@ test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => 
   const emitted = compileToLuauVm(source, 918273);
   const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
   assert.equal(output.trim(), ['Synex VM', '42'].join(String.fromCharCode(9)));
+  const mainMarker = emitted.indexOf('local MAIN = {');
+  assert.ok(mainMarker >= 0);
+  const numeric = /\\d+/.exec(emitted.slice(mainMarker + 'local MAIN = {'.length));
+  assert.ok(numeric);
+  const tamperAt = mainMarker + 'local MAIN = {'.length + numeric.index;
+  const tampered = emitted.slice(0, tamperAt) + String(Number(numeric[0]) + 1) + emitted.slice(tamperAt + numeric[0].length);
+  assert.throws(() => execFileSync('lua5.4', ['-'], { input: tampered, encoding: 'utf8', timeout: 5000 }), /integridad comprometida/);
 });
