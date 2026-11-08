@@ -167,6 +167,128 @@ local function constantTimeEqual(a,b)
 	return diff==0
 end
 
+
+-- Poly1305 using ten 13-bit limbs. Products remain below the exact-integer
+-- range of IEEE-754 doubles used by Luau; no floating-point approximation is used.
+local POLY_BASE = 8192
+local function polyLimbs(bytes, count)
+	local out = {}
+	for limb=0,count-1 do
+		local value = 0
+		for j=0,12 do
+			local bitIndex = limb*13+j
+			local byteIndex = math.floor(bitIndex/8)+1
+			if byteIndex <= #bytes then
+				local byte = string.byte(bytes,byteIndex)
+				local bitValue = math.floor(byte / (2^(bitIndex%8))) % 2
+				value = value + bitValue*(2^j)
+			end
+		end
+		out[limb+1] = value
+	end
+	return out
+end
+local function polyBytes(limbs, length)
+	local out = {}
+	for byteIndex=0,length-1 do
+		local value = 0
+		for j=0,7 do
+			local bitIndex = byteIndex*8+j
+			local limbIndex = math.floor(bitIndex/13)+1
+			local limbBit = bitIndex%13
+			local bitValue = math.floor(limbs[limbIndex]/(2^limbBit))%2
+			value = value + bitValue*(2^j)
+		end
+		out[#out+1] = string.char(value)
+	end
+	return table.concat(out)
+end
+local function poly1305(message, oneTimeKey)
+	assert(type(message)=="string" and type(oneTimeKey)=="string" and #oneTimeKey==32,
+		"Poly1305 requires a message and a 32-byte one-time key")
+	local rBytes = {string.byte(string.sub(oneTimeKey,1,16),1,16)}
+	rBytes[4] = band(rBytes[4],15); rBytes[8] = band(rBytes[8],15)
+	rBytes[12] = band(rBytes[12],15); rBytes[16] = band(rBytes[16],15)
+	rBytes[5] = band(rBytes[5],252); rBytes[9] = band(rBytes[9],252)
+	rBytes[13] = band(rBytes[13],252)
+	local clamped = {}
+	for i=1,16 do clamped[i]=string.char(rBytes[i]) end
+	local r = polyLimbs(table.concat(clamped),10)
+	local s = polyLimbs(string.sub(oneTimeKey,17,32),10)
+	local h = {0,0,0,0,0,0,0,0,0,0}
+	for offset=1,#message,16 do
+		local block = string.sub(message,offset,offset+15)
+		local m = polyLimbs(block.."\\1",10)
+		for i=1,10 do h[i]=h[i]+m[i] end
+		local d = {0,0,0,0,0,0,0,0,0,0}
+		for i=0,9 do
+			for j=0,9 do
+				local k=i+j
+				local product=h[i+1]*r[j+1]
+				if k>=10 then d[k-9]=d[k-9]+product*5
+				else d[k+1]=d[k+1]+product end
+			end
+		end
+		for pass=1,3 do
+			for i=1,10 do
+				local carry=math.floor(d[i]/POLY_BASE)
+				d[i]=d[i]-carry*POLY_BASE
+				if i<10 then d[i+1]=d[i+1]+carry
+				else d[1]=d[1]+carry*5 end
+			end
+		end
+		h=d
+	end
+	-- Canonical reduction modulo 2^130-5.
+	local reduced, borrow = {}, 0
+	for i=1,10 do
+		local modulusLimb = i==1 and 8187 or 8191
+		local value=h[i]-modulusLimb-borrow
+		if value<0 then value=value+POLY_BASE; borrow=1 else borrow=0 end
+		reduced[i]=value
+	end
+	if borrow==0 then h=reduced end
+	-- Add s modulo 2^128 (the upper two bits of limb ten are discarded).
+	local tagLimbs, carry = {}, 0
+	for i=1,10 do
+		local value=h[i]+s[i]+carry
+		if i==10 then tagLimbs[i]=value%2048
+		else tagLimbs[i]=value%POLY_BASE; carry=math.floor(value/POLY_BASE) end
+	end
+	return polyBytes(tagLimbs,16)
+end
+local function xchachaContext(key,nonce24)
+	assert(type(key)=="string" and #key==32 and type(nonce24)=="string" and #nonce24==24,
+		"XChaCha20-Poly1305 requires a 32-byte key and 24-byte nonce")
+	local subkey=hchacha20(key,string.sub(nonce24,1,16))
+	local nonce12="\\0\\0\\0\\0"..string.sub(nonce24,17,24)
+	local firstBlock=chachaBlock(subkey,nonce12,0)
+	return subkey,nonce12,string.sub(firstBlock,1,32)
+end
+local function pad16(value)
+	local remainder=#value%16
+	return remainder==0 and "" or string.rep("\\0",16-remainder)
+end
+local function sealPoly1305(key,nonce24,plaintext,aad)
+	aad=aad or ""
+	assert(type(plaintext)=="string" and type(aad)=="string","plaintext and AAD must be strings")
+	local subkey,nonce12,polyKey=xchachaContext(key,nonce24)
+	local ciphertext=xchachaXor(key,nonce24,plaintext,1)
+	local macData=aad..pad16(aad)..ciphertext..pad16(ciphertext)..le64(#aad)..le64(#ciphertext)
+	return ciphertext,poly1305(macData,polyKey)
+end
+local function openPoly1305(key,nonce24,ciphertext,tag,aad)
+	aad=aad or ""
+	if type(ciphertext)~="string" or type(tag)~="string" or #tag~=16 or type(aad)~="string" then
+		return nil,"authentication failed"
+	end
+	local _,_,polyKey=xchachaContext(key,nonce24)
+	local macData=aad..pad16(aad)..ciphertext..pad16(ciphertext)..le64(#aad)..le64(#ciphertext)
+	local expected=poly1305(macData,polyKey)
+	if not constantTimeEqual(expected,tag) then return nil,"authentication failed" end
+	return xchachaXor(key,nonce24,ciphertext,1)
+end
+
 -- Encrypt-then-MAC; nonce uniqueness per key is mandatory.
 local function seal(key,nonce24,plaintext,aad)
 	assert(type(key)=="string" and #key==32,"key must be 32 bytes")
@@ -191,5 +313,6 @@ local function open(key,nonce24,ciphertext,tag,aad)
 end
 return {
 	sha256=sha256,hmacSha256=hmacSha256,hchacha20=hchacha20,chachaBlock=chachaBlock,
-	xchachaXor=xchachaXor,seal=seal,open=open,constantTimeEqual=constantTimeEqual,
+	xchachaXor=xchachaXor,poly1305=poly1305,sealPoly1305=sealPoly1305,
+	openPoly1305=openPoly1305,seal=seal,open=open,constantTimeEqual=constantTimeEqual,
 }
