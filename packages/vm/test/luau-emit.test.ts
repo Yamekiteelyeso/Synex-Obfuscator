@@ -187,13 +187,18 @@ describe('VM Luau cifrada v3: emisor de producción', { skip: !luauCliAvailable 
     const output = compileToLuauVm(source, 987654, { encryptedRecords: true });
     assert.match(output, /ciphertext="[0-9a-f]{72}"/);
     assert.match(output, /chainTag="[0-9a-f]{64}"/);
-    assert.match(output, /openPoly1305/);
+    assert.doesNotMatch(output, /openPoly1305|hmacSha256|verifyRecord|advanceRecord|stateDigest/);
+    assert.doesNotMatch(output, /Synex\/VM\/record-chain|authentication failed|integrity key/);
     const directory = mkdtempSync(join(tmpdir(), 'synex-v3-'));
     try {
       const file = join(directory, 'encrypted.lua');
       writeFileSync(file, output, 'utf8');
       const result = spawnSync('luau', [file], { encoding: 'utf8', timeout: 15000 });
-      assert.equal(result.status, 0, result.stderr || result.stdout);
+      assert.equal(result.status, 0, [
+        result.stderr || result.stdout,
+        output.split(String.fromCharCode(10)).slice(88, 98).join(String.fromCharCode(10)),
+        output.split(String.fromCharCode(10)).slice(900, 916).join(String.fromCharCode(10)),
+      ].join(String.fromCharCode(10)));
       assert.equal(result.stdout.trim(), '26');
     } finally {
       rmSync(directory, { recursive: true, force: true });

@@ -936,12 +936,19 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
     'instructionIntact', 'blockIntact', 'constant', 'CONST_CACHE', 'NIL_CONST',
     'decodeOperand', 'MULTI', 'multi', 'isMulti', 'pack', 'fail', 'index', 'callv',
     'makeClosure', 'push', 'pop', 'popN', 'popMulti', 'join', 'run', 'MAIN', 'main',
-    'Crypto', 'Integrity',
+    'Crypto', 'Integrity', 'M',
+    'sha256', 'hmacSha256', 'hchacha20', 'chachaBlock', 'xchachaXor', 'poly1305',
+    'sealPoly1305', 'openPoly1305', 'seal', 'open', 'constantTimeEqual',
+    'start', 'advanceRecord', 'verifyRecord', 'stateDigest',
   ];
   const random = rng((seed ^ 0x6d2b79f5 ^ 0x243f6a88) >>> 0);
   const aliases = new Map<string, string>();
-  const used = new Set(internalNames);
-  for (const name of internalNames) {
+  const names = new Set(internalNames);
+  // Include helper functions in the embedded crypto modules without exposing
+  // their source-level names in the generated artifact.
+  for (const match of source.matchAll(/\blocal\s+function\s+([A-Za-z_]\w*)/g)) names.add(match[1]!);
+  const used = new Set(names);
+  for (const name of names) {
     let alias = '';
     do { alias = '_' + Math.floor(random() * 0x7fffffff).toString(36); } while (used.has(alias));
     used.add(alias);
@@ -950,6 +957,7 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
 
   let output = '';
   let previous = '';
+  let previousIdentifier = '';
   for (let i = 0; i < source.length;) {
     const ch = source[i]!;
     const next = source[i + 1];
@@ -979,8 +987,9 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
       }
       const literal = source.slice(start, i);
       const plain = literal.slice(1, -1);
-      if (!plain.includes('\\') && /integridad|compromet|corrupt|autentic|cifrad|prototipo|operación desconocida|salto fuera|índice de constante|bytecode/i.test(plain)) {
-        const encoded = Array.from(Buffer.from(plain, 'utf8'), (byte) => '\\' + String(byte).padStart(3, '0')).join('');
+      const decodedPlain = plain.replace(/\\0/g, '\0');
+      if (!decodedPlain.includes('\\') && /integridad|compromet|corrupt|autentic|cifrad|prototipo|operación desconocida|salto fuera|índice de constante|bytecode|integrity|prototype|encrypt|authenticat|cryptographic|ciphertext|poly1305|synex\//i.test(plain)) {
+        const encoded = Array.from(Buffer.from(decodedPlain, 'utf8'), (byte) => '\\' + String(byte).padStart(3, '0')).join('');
         output += '"' + encoded + '"';
       } else {
         output += literal;
@@ -1003,18 +1012,37 @@ function obfuscateRuntimeSource(source: string, seed: number): string {
       }
     }
 
+    // Distinguish member access (.) from Lua concatenation (...) so the
+    // identifier after '..' is still eligible for renaming.
+    if (ch === '.' && next === '.') {
+      const width = source[i + 2] === '.' ? 3 : 2;
+      output += source.slice(i, i + width);
+      i += width;
+      previous = 'operator';
+      previousIdentifier = '';
+      continue;
+    }
+
     if (/[A-Za-z_]/.test(ch)) {
       const start = i++;
       while (i < source.length && /[A-Za-z0-9_]/.test(source[i]!)) i++;
       const identifier = source.slice(start, i);
       const property = previous === '.' || previous === ':';
-      output += !property ? (aliases.get(identifier) ?? identifier) : identifier;
+      const receiverAllowsAlias = previousIdentifier === 'Crypto'
+        || previousIdentifier === 'Integrity' || previousIdentifier === 'M';
+      output += !property || receiverAllowsAlias
+        ? (aliases.get(identifier) ?? identifier)
+        : identifier;
       previous = 'identifier';
+      previousIdentifier = identifier;
       continue;
     }
 
     output += ch;
-    if (!/\s/.test(ch)) previous = ch;
+    if (!/\s/.test(ch)) {
+      previous = ch;
+      if (ch !== '.' && ch !== ':') previousIdentifier = '';
+    }
     i++;
   }
   return output;
