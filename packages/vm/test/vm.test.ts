@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { execute, LuaError } from '@synex/runtime';
 import { runInVm, compileToLuauVm } from '../src/index.js';
 
@@ -254,7 +257,29 @@ test('emisor Luau: oculta APIs de introspección de entorno al script virtual', 
   assert.match(emitted, /local BLOCKED_ENV/);
   assert.match(emitted, /acceso de entorno bloqueado/);
   assert.match(emitted, /rawgetfn\(executorEnv, key\)/);
-  const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
+  const hasLuauCli = spawnSync('luau', ['--help'], { encoding: 'utf8' }).status === 0;
+
+test('VM emitida ejecuta código en Luau CLI real', { skip: !hasLuauCli }, () => {
+  const source = [
+    'local function add(a, b) return a + b end',
+    'local values = table.create(3, 2)',
+    'table.move(values, 1, 2, 2)',
+    'local parts = string.split("a,,b,", ",")',
+    'print(add(20, 22), #values, parts[2] == "", parts[4] == "")',
+  ].join(String.fromCharCode(10));
+  const emitted = compileToLuauVm(source, 741026);
+  const dir = mkdtempSync(join(tmpdir(), 'synex-luau-'));
+  const file = join(dir, 'generated.luau');
+  try {
+    writeFileSync(file, emitted, 'utf8');
+    const output = execFileSync('luau', [file], { encoding: 'utf8', timeout: 10_000 });
+    assert.equal(output.trim(), ['42', '3', 'true', 'true'].join(String.fromCharCode(9)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
   if (hasLua54) {
     const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
     assert.equal(output.trim(), ['nil', 'nil', 'nil', 'nil', 'nil', 'nil', 'nil'].join(String.fromCharCode(9)));
