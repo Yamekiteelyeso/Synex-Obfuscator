@@ -10,6 +10,7 @@ import { Editor } from '../src/views/Editor';
 import { History } from '../src/views/History';
 import { Admin } from '../src/views/Admin';
 import { AuthView } from '../src/views/Auth';
+import { Plans } from '../src/views/Plans';
 
 test('highlight cubre todo el texto original sin pérdidas', () => {
   const src = 'local x = 0x1F -- hola\nprint("a\\"b", [[raw]]) continue\nx += 1';
@@ -86,7 +87,7 @@ test('History y Admin renderizan estados', () => {
   const h = renderToStaticMarkup(<History jobs={[{ id: '1', fileName: 'a.lua', profile: 'basic', status: 'failed', createdAt: 0, error: { message: 'E_X' } }]} />);
   assert.match(h, /E_X/);
   const a = renderToStaticMarkup(
-    <Admin data={{ users: [], jobs: [], errors: [], settings: { maxInputBytes: 1048576, enabledProfiles: ['basic'] } }} onToggleProfile={() => undefined} />,
+    <Admin data={{ users: [], jobs: [], errors: [], planRequests: [], settings: { maxInputBytes: 1048576, enabledProfiles: ['basic'] } }} onToggleProfile={() => undefined} onUpdateRequest={() => undefined} />,
   );
   assert.match(a, /Planes disponibles/);
 });
@@ -97,4 +98,17 @@ test('AuthView muestra el formulario de acceso', () => {
   assert.match(html, /Continuar con Discord/);
   assert.match(html, /discord-logo/);
   assert.match(html, /href=\"\/api\/auth\/discord\"/);
+});
+
+
+test('Plans muestra Free, Premium y Plus y el consumo gratuito', () => {
+  const html = renderToStaticMarkup(<Plans
+    token="test-token"
+    user={{ id: 'discord-user', discordUsername: 'test', role: 'user', plan: 'free', obfuscationsUsed: 1, obfuscationLimit: 2, allowedProfiles: ['basic'] }}
+    onRefresh={async () => undefined}
+  />);
+  assert.match(html, /Free/);
+  assert.match(html, /Premium/);
+  assert.match(html, /Plus/);
+  assert.match(html, /1 de 2 restantes/);
 });

@@ -11,8 +11,8 @@ const MAX_BYTES = 1024 * 1024;
 
 interface JobView { id: string; status: string; error?: { code: string; message: string } }
 
-export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, initialProfile = 'basic', onDone }: {
-  token: string; profiles: ProfileInfo[]; techniques: TechniqueInfo[]; maxBytes?: number; initialProfile?: string; onDone: () => void;
+export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, initialProfile = 'basic', onDone, remainingUses = null }: {
+  token: string; profiles: ProfileInfo[]; techniques: TechniqueInfo[]; maxBytes?: number; initialProfile?: string; onDone: () => void; remainingUses?: number | null;
 }) {
   const [source, setSource] = useState('');
   const [fileName, setFileName] = useState('script.lua');
@@ -87,7 +87,7 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
 
   return (
     <section className="view">
-      <div className="editor-heading"><div><p className="eyebrow">WORKSPACE / PROTECCIÓN DE CÓDIGO</p><h2>Ofuscador</h2><p className="muted">Pega o importa tu script Luau y elige un nivel de protección.</p></div><span className="editor-tag">● MOTOR ACTIVO</span></div>
+      <div className="editor-heading"><div><p className="eyebrow">WORKSPACE / PROTECCIÓN DE CÓDIGO</p><h2>Ofuscador</h2><p className="muted">Pega o importa tu script Luau y elige un nivel de protección.</p></div><span className="editor-tag">● {remainingUses === null ? 'USO ILIMITADO' : `${remainingUses} OFUSCACIONES RESTANTES`}</span></div>
       <div className="toolbar">
         <select aria-label="Perfil" value={profile} onChange={(e: any) => setProfile(e.target.value)} disabled={busy}>
           {profiles.map((p) => <option key={p.name} value={p.name}>{p.name.toUpperCase()}</option>)}
@@ -95,7 +95,7 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
         <button className="btn" onClick={() => fileRef.current?.click()} disabled={busy}>Importar</button>
         <input ref={fileRef} type="file" accept=".lua,.luau,.txt" hidden onChange={importFile} />
         <button className="btn" onClick={() => { setSource(''); setResult(null); setMessage(null); }} disabled={busy}>Limpiar</button>
-        <button className="btn primary" onClick={start} disabled={busy || problem !== null}>Ofuscar</button>
+        <button className="btn primary" onClick={start} disabled={busy || problem !== null || remainingUses === 0}>Ofuscar</button>
         <span className={`size ${problem && source ? 'over' : ''}`}>{formatBytes(bytes)} / {formatBytes(maxBytes)}</span>
       </div>
 
@@ -125,7 +125,8 @@ export function Editor({ token, profiles, techniques, maxBytes = MAX_BYTES, init
         </div>
       </div>
 
-      {problem && source && <p className="error-text" role="alert">{problem}</p>}
+      {remainingUses === 0 && <p className="error-text" role="status">Ya utilizaste tus 2 ofuscaciones Free. Abre la sección Planes para solicitar Premium o Plus.</p>}
+      {problem && source && <p className="error-text" role="alert">{problem}</p>
       {message && <p className="error-text" role="alert">{message}</p>}
 
       {step && (

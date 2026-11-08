@@ -3,10 +3,12 @@ import { api, ApiError, TOKEN_KEY } from './api';
 import { AuthView, SessionUser } from './views/Auth';
 import { Editor, ProfileInfo, TechniqueInfo } from './views/Editor';
 import { Admin, AdminData } from './views/Admin';
+import { Plans } from './views/Plans';
 
-type View = 'editor' | 'admin';
+type View = 'editor' | 'plans' | 'admin';
 const NAV: { id: View; label: string; adminOnly?: boolean }[] = [
   { id: 'editor', label: 'Ofuscador' },
+  { id: 'plans', label: 'Planes' },
   { id: 'admin', label: 'Administración', adminOnly: true },
 ];
 
@@ -30,6 +32,7 @@ export function App() {
     try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignorar */ }
     setToken(null);
     setUser(null);
+    setAdmin(null);
   }, [token]);
 
   const refresh = useCallback(async () => {
@@ -38,13 +41,16 @@ export function App() {
       const me = await api<{ user: SessionUser }>('GET', '/api/me', undefined, token);
       setUser(me.user);
       if (me.user.role === 'admin') {
-        const [u, j, e, s] = await Promise.all([
+        const [u, j, e, s, requests] = await Promise.all([
           api<any>('GET', '/api/admin/users', undefined, token),
           api<any>('GET', '/api/admin/jobs', undefined, token),
           api<any>('GET', '/api/admin/errors', undefined, token),
           api<any>('GET', '/api/admin/settings', undefined, token),
+          api<any>('GET', '/api/admin/plan-requests', undefined, token),
         ]);
-        setAdmin({ users: u.users, jobs: j.jobs, errors: e.errors, settings: s.settings });
+        setAdmin({ users: u.users, jobs: j.jobs, errors: e.errors, settings: s.settings, planRequests: requests.requests });
+      } else {
+        setAdmin(null);
       }
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) logout();
@@ -75,20 +81,30 @@ export function App() {
   useEffect(() => { void refresh(); }, [refresh]);
 
   if (discordPending) return <div className="auth-screen"><div className="auth-card"><div className="brand-mark">SYNEX</div><p>Conectando tu cuenta de Discord…</p></div></div>;
+  if (!token) return <AuthView onAuth={(t, u) => { setToken(t); setUser(u); }} />;
 
-  if (!token) {
-    return <AuthView onAuth={(t, u) => { setToken(t); setUser(u); }} />;
+  const visible = NAV.filter((item) => !item.adminOnly || user?.role === 'admin');
+  const remainingUses = user?.obfuscationLimit === null || user?.obfuscationLimit === undefined
+    ? null
+    : Math.max(0, user.obfuscationLimit - user.obfuscationsUsed);
+
+  async function toggleProfile(profile: string, enabled: boolean) {
+    if (!token || !admin) return;
+    const enabledProfiles = enabled
+      ? [...admin.settings.enabledProfiles, profile]
+      : admin.settings.enabledProfiles.filter((entry) => entry !== profile);
+    const result = await api<any>('PUT', '/api/admin/settings', { enabledProfiles }, token);
+    setAdmin({ ...admin, settings: result.settings });
   }
 
-  const visible = NAV.filter((n) => !n.adminOnly || user?.role === 'admin');
-
-  async function toggleProfile(p: string, on: boolean) {
-    if (!token || !admin) return;
-    const enabled = on
-      ? [...admin.settings.enabledProfiles, p]
-      : admin.settings.enabledProfiles.filter((x) => x !== p);
-    const r = await api<any>('PUT', '/api/admin/settings', { enabledProfiles: enabled }, token);
-    setAdmin({ ...admin, settings: r.settings });
+  async function updatePlanRequest(id: string, status: 'approved' | 'rejected') {
+    if (!token) return;
+    try {
+      await api('PUT', `/api/admin/plan-requests/${id}`, { status }, token);
+      await refresh();
+    } catch (error) {
+      window.alert(error instanceof ApiError ? error.message : 'No se pudo actualizar la solicitud');
+    }
   }
 
   return (
@@ -96,14 +112,15 @@ export function App() {
       <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
         <div className="brand"><b className="brand-symbol small">S</b> SYNEX<span>OBFUSCADOR</span></div>
         <nav>
-          {visible.map((n) => (
-            <button key={n.id} className={view === n.id ? 'active' : ''} onClick={() => { setView(n.id); setMenuOpen(false); }}>
-              {n.label}
+          {visible.map((item) => (
+            <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => { setView(item.id); setMenuOpen(false); }}>
+              {item.label}
             </button>
           ))}
         </nav>
         <div className="sidebar-foot">
-          <small>{user?.discordUsername ? '@' + user.discordUsername : user?.email}</small>
+          <small>{user?.discordUsername ? '@' + user.discordUsername : 'Cuenta de Discord'}</small>
+          <small className="account-plan-label">{user?.plan.toUpperCase()} · {remainingUses === null ? 'ILIMITADO' : `${remainingUses} USOS RESTANTES`}</small>
           <button className="btn ghost" onClick={logout}>Cerrar sesión</button>
         </div>
       </aside>
@@ -113,9 +130,19 @@ export function App() {
           <span className="muted">{health ? 'Motor en línea' : 'Motor sin conexión'}</span>
         </header>
         {view === 'editor' && (
-          <Editor token={token} profiles={profiles} techniques={techniques} maxBytes={health?.maxInputBytes} onDone={refresh} />
+          <Editor
+            token={token}
+            profiles={profiles.filter((profile) => user?.allowedProfiles?.includes(profile.name) ?? false)}
+            techniques={techniques}
+            maxBytes={health?.maxInputBytes}
+            remainingUses={remainingUses}
+            onDone={() => { void refresh(); }}
+          />
         )}
-        {view === 'admin' && user?.role === 'admin' && <Admin data={admin} onToggleProfile={toggleProfile} />}
+        {view === 'plans' && user && <Plans token={token} user={user} onRefresh={refresh} />}
+        {view === 'admin' && user?.role === 'admin' && (
+          <Admin data={admin} onToggleProfile={toggleProfile} onUpdateRequest={updatePlanRequest} />
+        )}
       </main>
     </div>
   );
