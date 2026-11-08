@@ -70,3 +70,48 @@ describe('TypeScript modular Luau record compiler v2', () => {
     }), /unsigned 32-bit/);
   });
 });
+
+import { compileLuauRecordsV3, verifyLuauRecordsV3 } from '../src/record-format.js';
+
+describe('TypeScript modular Luau record compiler v3 (production nine-field shape)', () => {
+  const fullInstructions = [
+    { opcode: 17, a: 3, b: 4, target: 8, c: 1, line: 120045, nextPC: 5, checkA: 123456, checkB: 654321 },
+    { opcode: 22, a: 0, b: 9, target: 0, c: 0, line: 120062, nextPC: 0, checkA: 222333, checkB: 333222 },
+  ];
+
+  test('encrypts all nine u32 fields (36 bytes) and verifies the chain', () => {
+    const artifact = compileLuauRecordsV3(fullInstructions, {
+      masterEncryptionKey, masterIntegrityKey, prototypeSalt: 123,
+      nonces: [Buffer.alloc(24, 0x31), Buffer.alloc(24, 0x32)],
+    });
+    assert.equal(artifact.version, 3);
+    assert.equal(artifact.records.length, 2);
+    for (const record of artifact.records) {
+      assert.equal(record.ciphertext.length, 36);
+      assert.equal(record.tag.length, 16);
+      assert.equal(record.nonce.length, 24);
+      assert.equal(record.chainTag.length, 32);
+    }
+    assert.equal(verifyLuauRecordsV3(artifact, { masterIntegrityKey }), true);
+  });
+
+  test('rejects tampering, wrong keys, nonce reuse and values outside u32', () => {
+    const options = {
+      masterEncryptionKey, masterIntegrityKey, prototypeSalt: 123,
+      nonces: [Buffer.alloc(24, 0x41), Buffer.alloc(24, 0x42)],
+    };
+    const artifact = compileLuauRecordsV3(fullInstructions, options);
+    const altered = { ...artifact, records: artifact.records.map(record => ({
+      ...record, ciphertext: Buffer.from(record.ciphertext),
+    })) };
+    altered.records[0]!.ciphertext[35] ^= 0x80;
+    assert.equal(verifyLuauRecordsV3(altered, { masterIntegrityKey }), false);
+    assert.equal(verifyLuauRecordsV3(artifact, { masterIntegrityKey: Buffer.alloc(32, 1) }), false);
+    assert.throws(() => compileLuauRecordsV3(fullInstructions, {
+      ...options, nonces: [Buffer.alloc(24, 7), Buffer.alloc(24, 7)],
+    }), /nonce reuse/);
+    assert.throws(() => compileLuauRecordsV3([{ ...fullInstructions[0]!, line: -1 }], {
+      ...options, nonces: [Buffer.alloc(24, 8)],
+    }), /unsigned 32-bit/);
+  });
+});
