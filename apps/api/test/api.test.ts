@@ -305,16 +305,17 @@ test('las sesiones Discord sobreviven a una reconstrucción del servidor', () =>
   const dir = mkdtempSync(join(tmpdir(), 'synex-sessions-'));
   const file = join(dir, 'data.json');
   try {
+    const now = Date.now();
     const firstStore = new Store(file);
-    const firstSessions = new Sessions(60_000, () => 1_000, firstStore);
+    const firstSessions = new Sessions(60_000, () => now, firstStore);
     const token = firstSessions.create('persistent-discord-user');
 
     const restartedStore = new Store(file);
-    const restartedSessions = new Sessions(60_000, () => 2_000, restartedStore);
+    const restartedSessions = new Sessions(60_000, () => now + 1_000, restartedStore);
     assert.equal(restartedSessions.userIdFor(token), 'persistent-discord-user');
 
     restartedSessions.revoke(token);
-    const thirdSessions = new Sessions(60_000, () => 3_000, new Store(file));
+    const thirdSessions = new Sessions(60_000, () => now + 2_000, new Store(file));
     assert.equal(thirdSessions.userIdFor(token), null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
