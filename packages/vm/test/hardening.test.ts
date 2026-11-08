@@ -181,7 +181,7 @@ describe('constantes lazy de nil y boolean', { skip: !lua54Available && 'falta t
       'local no = false',
       'print(absent == nil, yes, no)',
       'print(absent == nil, yes == true, no == false)',
-    ].join('\\n');
+    ].join('\n');
     const original = runLua54(source);
     const emitted = runLua54(compileToLuauVm(source, 913579));
     assert.ok(emitted.ok, emitted.error);
