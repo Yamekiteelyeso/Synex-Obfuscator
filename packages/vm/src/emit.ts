@@ -851,12 +851,20 @@ function shuffleDispatch(template: string, seed: number): string {
 export interface EmitOptions {
   /** Instrucciones máximas antes de abortar la ejecución. */
   stepLimit?: number;
+  /** Identificador de procedencia opcional, visible en el fuente emitido. */
+  watermark?: string;
 }
 
 export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): string {
   validateProto(main);
   const limit = options.stepLimit ?? 5_000_000;
   if (!Number.isInteger(limit) || limit <= 0) throw new SynexError('límite de pasos inválido', 1, 1, 'E_OPTIONS');
+  const watermark = options.watermark;
+  if (watermark !== undefined && (typeof watermark !== 'string'
+    || watermark.length < 1 || watermark.length > 64
+    || !/^[A-Za-z0-9._:-]+$/.test(watermark))) {
+    throw new SynexError('watermark inválido (usa 1-64 caracteres: letras, números, . _ : -)', 1, 1, 'E_OPTIONS');
+  }
   const ops = opcodeTable(seed);
   let body = shuffleDispatch(TEMPLATE, seed).replace(/\bOP_([A-Z]+)\b/g, (_m, name: string) => {
     const code = ops[name as Op];
@@ -870,7 +878,8 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
   body = body.replace('__VALID_OPS__', '{' + ALL_OPS.map((op) => '[' + ops[op] + ']=true').join(',') + '}');
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
   body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }));
-  return body.trimStart();
+  const marker = watermark === undefined ? '' : `-- Synex provenance: ${watermark}\\n`;
+  return marker + body.trimStart();
 }
 
 /** Compila un script Luau al IR y lo emite como programa de VM. */
