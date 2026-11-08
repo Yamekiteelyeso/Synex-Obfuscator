@@ -96,4 +96,6 @@ test('AuthView muestra el formulario de acceso', () => {
   assert.match(html, /Iniciar sesión/);
   assert.match(html, /Discord/);
   assert.match(html, /SYNEX OBFUSCADOR/);
+  assert.match(html, /Discord/);
+  assert.match(html, /SYNEX OBFUSCADOR/);
 });
