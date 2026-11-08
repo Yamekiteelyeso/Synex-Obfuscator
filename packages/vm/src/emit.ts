@@ -340,6 +340,7 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
  * Luau y en Lua 5.4 (sin goto, continue, operadores de bits ni "//").
  */
 const TEMPLATE = String.raw`
+__CRYPTO_RUNTIME__
 local strlib, tbl, floor, tointeger = string, table, math.floor, math.tointeger
 local constIntact
 local unpackfn = (tbl and tbl.unpack) or unpack
