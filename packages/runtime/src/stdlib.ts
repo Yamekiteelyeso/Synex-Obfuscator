@@ -94,10 +94,13 @@ export function installStdlib(interp: LuaEnvironment): void {
   const tableLib = new LuaTable();
   tableLib.set('concat', fn('concat', (args) => {
     const t = args[0];
-    if (!(t instanceof LuaTable)) throw new LuaError('bad argument to table.concat');
+    if (!(t instanceof LuaTable)) throw new LuaError('bad argument to table.concat (table expected)');
     const sep = args[1] === undefined ? '' : String(args[1]);
+    const first = args[2] === undefined ? 1 : toNumber(args[2], at);
+    const last = args[3] === undefined ? t.length() : toNumber(args[3], at);
+    if (!Number.isInteger(first) || !Number.isInteger(last)) throw new LuaError('bad argument to table.concat (integer index expected)');
     const parts: string[] = [];
-    for (let i = 1; i <= t.length(); i++) {
+    for (let i = first; i <= last; i++) {
       const v = t.get(i);
       if (typeof v !== 'string' && typeof v !== 'number') throw new LuaError('invalid value in table for concat');
       parts.push(typeof v === 'number' ? numberToString(v) : v);
@@ -140,12 +143,14 @@ export function installStdlib(interp: LuaEnvironment): void {
   tableLib.set('insert', fn('insert', (args) => {
     const t = args[0];
     if (!(t instanceof LuaTable)) throw new LuaError('bad argument to table.insert');
+    const length = t.length();
     if (args.length >= 3) {
       const pos = toNumber(args[1], at);
-      for (let i = t.length(); i >= pos; i--) t.set(i + 1, t.get(i));
+      if (!Number.isInteger(pos) || pos < 1 || pos > length + 1) throw new LuaError('bad argument to table.insert (position out of bounds)');
+      for (let i = length; i >= pos; i--) t.set(i + 1, t.get(i));
       t.set(pos, args[2]);
     } else {
-      t.set(t.length() + 1, args[1]);
+      t.set(length + 1, args[1]);
     }
     return [];
   }));
@@ -157,8 +162,37 @@ export function installStdlib(interp: LuaEnvironment): void {
   stringLib.set('len', fn('len', (args) => [String(args[0]).length]));
   stringLib.set('byte', fn('byte', (args) => {
     const s = String(args[0]);
-    const i = args[1] === undefined ? 1 : toNumber(args[1], at);
-    return [s.charCodeAt(i - 1)];
+    const length = s.length;
+    const normalize = (index: number) => index < 0 ? length + index + 1 : index;
+    const first = normalize(args[1] === undefined ? 1 : toNumber(args[1], at));
+    const last = normalize(args[2] === undefined ? first : toNumber(args[2], at));
+    if (!Number.isInteger(first) || !Number.isInteger(last)) throw new LuaError('bad argument to string.byte (integer index expected)');
+    if (first < 1 || first > length || last < 1 || last > length || last < first) return [];
+    const result: Value[] = [];
+    for (let i = first; i <= last; i++) result.push(s.charCodeAt(i - 1));
+    return result;
+  }));
+  stringLib.set('sub', fn('sub', (args) => {
+    const s = String(args[0]);
+    const length = s.length;
+    const normalize = (index: number) => index < 0 ? Math.max(length + index + 1, 1) : Math.min(index, length);
+    const firstRaw = toNumber(args[1], at);
+    const lastRaw = args[2] === undefined ? -1 : toNumber(args[2], at);
+    if (!Number.isInteger(firstRaw) || !Number.isInteger(lastRaw)) throw new LuaError('bad argument to string.sub (integer index expected)');
+    const first = normalize(firstRaw);
+    const last = normalize(lastRaw);
+    if (first < 1 || first > length || last < first) return [''];
+    return [s.slice(first - 1, last)];
+  }));
+  stringLib.set('rep', fn('rep', (args) => {
+    const s = String(args[0]);
+    const count = toNumber(args[1], at);
+    const sep = args[2] === undefined ? '' : String(args[2]);
+    if (!Number.isInteger(count) || count < 0) throw new LuaError('bad argument to string.rep (invalid count)');
+    if (count === 0) return [''];
+    const resultLength = s.length * count + sep.length * (count - 1);
+    if (!Number.isSafeInteger(resultLength) || resultLength > 10_000_000) throw new LuaError('string.rep result too large');
+    return [Array(count).fill(s).join(sep)];
   }));
   g.set('string', stringLib);
 
