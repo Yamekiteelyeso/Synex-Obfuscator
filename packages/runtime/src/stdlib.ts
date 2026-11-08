@@ -329,6 +329,16 @@ export function installStdlib(interp: LuaEnvironment): void {
     mathLib.set(name, fn(name, (args) => [operation(toNumber(args[0], at))]));
   }
   mathLib.set('atan2', fn('atan2', (args) => [Math.atan2(toNumber(args[0], at), toNumber(args[1], at))]));
+  mathLib.set('atan', fn('atan', (args) => [
+    args[1] === undefined
+      ? Math.atan(toNumber(args[0], at))
+      : Math.atan2(toNumber(args[0], at), toNumber(args[1], at)),
+  ]));
+  mathLib.set('log', fn('log', (args) => {
+    const value = Math.log(toNumber(args[0], at));
+    return [args[1] === undefined ? value : value / Math.log(toNumber(args[1], at))];
+  }));
+
   mathLib.set('fmod', fn('fmod', (args) => [toNumber(args[0], at) % toNumber(args[1], at)]));
   mathLib.set('max', fn('max', (args) => {
     if (args.length === 0) throw new LuaError('bad argument to math.max (value expected)');
