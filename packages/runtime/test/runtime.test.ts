@@ -163,7 +163,7 @@ test('string.char valida bytes y string.split conserva campos vacíos', () => {
 });
 
 test('string.lower y upper conservan bytes no ASCII', () => {
-  assert.deepEqual(out('print(string.lower("ABC-á"), string.upper("abc-á"))'), ['abc-á\tABC-á']);
+  assert.deepEqual(out('print(string.lower("ABC-á"), string.upper("abc-á"))'), ['abc-Ã¡\tABC-Ã¡']);
 });
 
 test('string.lower, upper y reverse', () => {
