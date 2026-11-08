@@ -23,11 +23,11 @@ El intérprete de referencia y la VM comparten estas implementaciones:
 
 - **Globales:** `print`, `tostring`, `tonumber`, `type`, `error`, `pcall`, `select`, `pairs`, `ipairs`.
 - **`table`:** `concat`, `pack`, `unpack`, `insert`, `remove`, `sort`, `move`, `clone`, `clear`, `find`, `create`.
-- **`string`:** `char`, `len`, `byte`, `sub`, `rep`, `lower`, `upper`, `reverse`, `split`.
+- **`string`:** `char`, `len`, `byte`, `sub`, `rep`, `lower`, `upper`, `reverse`, `split`, `find` en modo literal y `format` con conversiones comunes.
 - **`math`:** operaciones trigonométricas y numéricas habituales, `abs`, `min`, `max`, `clamp`, `sign`, `round`, `modf`, `random`, `randomseed`, `type`, `tointeger`, `pi` y `huge`.
 - **`bit32`:** `band`, `bor`, `bxor`.
 
-No están implementadas todavía todas las APIs de Lua/Luau: por ejemplo, patrones y capturas de `string.find`, `string.match`, `string.gsub`, `string.format`, corrutinas, metatablas completas y APIs específicas de Roblox. El generador aleatorio del runtime es reproducible y útil para pruebas, pero no pretende replicar bit a bit el PRNG de Lua 5.4 ni es criptográfico. Las cadenas internas son byte-strings UTF-8; las funciones de caso convierten sólo ASCII para evitar alterar bytes no ASCII.
+No están implementadas todavía todas las APIs de Lua/Luau: `string.find` sólo admite búsqueda literal con el argumento `plain=true` (los patrones Lua y capturas aún no están implementados); `string.format` cubre conversiones comunes pero no todos los modificadores y formatos (`%a` hexadecimal, por ejemplo); `string.match`, `string.gsub`, corrutinas, metatablas completas y APIs específicas de Roblox siguen pendientes. El generador aleatorio del runtime es reproducible y útil para pruebas, pero no pretende replicar bit a bit el PRNG de Lua 5.4 ni es criptográfico. Las cadenas internas son byte-strings UTF-8; las funciones de caso convierten sólo ASCII para evitar alterar bytes no ASCII.
 
 ## Estado del lexer
 
