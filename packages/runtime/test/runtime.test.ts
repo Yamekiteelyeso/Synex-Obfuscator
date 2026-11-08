@@ -172,7 +172,7 @@ test('string.find soporta búsqueda literal, índices negativos y modo plain exp
 test('string.format admite conversiones comunes, ancho y precisión', () => {
   assert.deepEqual(out('print(string.format("%04d %.2f %s %%", 7, 2.5, "ok"))'), ['0007 2.50 ok %']);
   assert.deepEqual(out('print(string.format("%#x %+d %.3g", 255, 8, 12.345))'), ['0xff +8 12.3']);
-  assert.deepEqual(out('print(string.format("%q", "a\\nb"))'), ['"a\\\\nb"']);
+  assert.deepEqual(out('print(string.format("%q", "a\\nb"))'), ['"a\\nb"']);
   assert.throws(() => out('string.format("%d", 1.5)'), /integer expected/);
   assert.throws(() => out('string.format("%s", 1)'), /string expected/);
 });
