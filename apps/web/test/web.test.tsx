@@ -74,11 +74,8 @@ test('Editor ofrece editor de código y no muestra perfiles personalizados', () 
     />,
   );
   assert.match(html, /aria-label="Código Luau"/);
-  assert.match(html, /legend>Técnicas/);
-  assert.match(html, /Identificadores/);
-  // La técnica pendiente aparece marcada como pendiente y deshabilitada.
-  assert.match(html, /VM \(pendiente\)/);
-  assert.match(html, /disabled=""[^>]*\/>VM/);
+  assert.doesNotMatch(html, /legend>Técnicas/);
+  assert.match(html, /BASIC/);
   const basic = renderToStaticMarkup(<Editor token="t" profiles={[]} techniques={[]} onDone={() => undefined} />);
   assert.doesNotMatch(basic, /legend>Técnicas/);
 });
@@ -91,10 +88,12 @@ test('History y Admin renderizan estados', () => {
   const a = renderToStaticMarkup(
     <Admin data={{ users: [], jobs: [], errors: [], settings: { maxInputBytes: 1048576, enabledProfiles: ['basic'] } }} onToggleProfile={() => undefined} />,
   );
-  assert.match(a, /Perfiles habilitados/);
+  assert.match(a, /Planes disponibles/);
 });
 
 test('AuthView muestra el formulario de acceso', () => {
   const html = renderToStaticMarkup(<AuthView onAuth={() => undefined} />);
   assert.match(html, /Iniciar sesión/);
+  assert.match(html, /Discord/);
+  assert.match(html, /SYNEX OBFUSCADOR/);
 });
