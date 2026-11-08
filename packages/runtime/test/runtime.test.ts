@@ -113,8 +113,8 @@ test('table.insert valida posiciones y conserva el orden', () => {
 });
 
 test('string.sub y string.byte soportan índices negativos y rangos', () => {
-  assert.deepEqual(out('print(string.sub("abcdef", 2, 4), string.sub("abcdef", -2), string.sub("abc", 8, 9))'), ['bcd	ef	']);
-  assert.deepEqual(out('print(string.byte("abcd", 2, 3)); print(string.byte("abcd", -1)); print(string.byte("abcd", 2, 99)); print(string.byte("abcd", -99, 1))'), ['98\t99', '100', '98\t99\t100', '97']);
+  assert.deepEqual(out('print(string.sub("abcdef", 2, 4), string.sub("abcdef", -2), string.sub("abc", 8, 9), string.sub("abc", 0), string.sub("abc", 1, -99))'), ['bcd\tef\t\tabc\t']);
+  assert.deepEqual(out('print(string.byte("abcd", 2, 3)); print(string.byte("abcd", -1)); print(string.byte("abcd", 2, 99)); print(string.byte("abcd", -99, 1)); print(string.byte("abcd", 0, 1)); print(string.byte("abcd", -99))'), ['98\t99', '100', '98\t99\t100', '97', '97', '']);
 });
 
 test('table.move maneja solapamiento y destino distinto', () => {
@@ -126,6 +126,33 @@ test('table.move maneja solapamiento y destino distinto', () => {
 test('table.find devuelve el primer índice desde el inicio indicado', () => {
   assert.deepEqual(out('local t = {"a", "b", "a"}; print(table.find(t, "a"), table.find(t, "a", 2), table.find(t, "z"))'), ['1\t3\tnil']);
   assert.throws(() => out('table.find({}, 1, 1.5)'), /integer index/);
+});
+
+test('table.freeze congela superficialmente, rechaza escrituras y table.clone descongela', () => {
+  const source = [
+    'local inner = {value = 1}',
+    'local t = {1, a = 2, nested = inner}',
+    'local frozen = table.freeze(t)',
+    'print(frozen == t, table.isfrozen(t), table.isfrozen(inner), t[1], t.a)',
+    'local write = pcall(function() t.a = 3 end)',
+    'local clear = pcall(function() table.clear(t) end)',
+    'local insert = pcall(function() table.insert(t, 2) end)',
+    'local remove = pcall(function() table.remove(t, 1) end)',
+    'print(write, clear, insert, remove)',
+    'inner.value = 7',
+    'local clone = table.clone(t)',
+    'print(table.isfrozen(clone), clone.a, clone.nested.value)',
+    'clone.a = 9',
+    'print(clone.a, t.a, inner.value)',
+  ].join(String.fromCharCode(10));
+  assert.deepEqual(out(source), [
+    'true\ttrue\tfalse\t1\t2',
+    'false\tfalse\tfalse\tfalse',
+    'false\t2\t7',
+    '9\t2\t7',
+  ]);
+  assert.throws(() => out('local t = {}; table.freeze(t); table.freeze(t)'), /already frozen/);
+  assert.throws(() => out('table.isfrozen(1)'), /table expected/);
 });
 
 test('table.clone copia superficialmente y table.clear vacía', () => {
@@ -151,10 +178,46 @@ test('biblioteca math cubre operaciones numéricas y clamp de Luau', () => {
   assert.throws(() => out('math.clamp(1, 4, 2)'), /min must be <= max/);
 });
 
+test('math ofrece pow, frexp, ldexp, lerp, map, isnan y sign Luau', () => {
+  assert.deepEqual(out('local s, e = math.frexp(12); local n, ne = math.frexp(-0.5); print(math.pow(2, 10), s, e, math.ldexp(s, e), n, ne, math.ldexp(-0.5, 0))'), ['1024\t0.75\t4\t12\t-0.5\t0\t-0.5']);
+  assert.deepEqual(out('print(math.lerp(10, 20, 0.25), math.lerp(2, 9, 1), math.map(5, 0, 10, 0, 100), math.isnan(0/0), math.isnan(1), math.sign(0/0), math.sign(-0.0))'), ['12.5\t9\t50\ttrue\tfalse\t0\t0']);
+  assert.deepEqual(out('print(math.ldexp(1, 9007199254740991) == math.huge, math.ldexp(1, -9007199254740991) == 0)'), ['true\ttrue']);
+  assert.throws(() => out('math.ldexp(1, 1.5)'), /integer exponent expected/);
+});
+
+test('math.noise reproduce Perlin 3D Luau, defaults, period and integer lattice', () => {
+  assert.deepEqual(out('print(math.noise(1, 2, 3), math.noise(0), math.noise(10, 20))'), ['0\t0\t0']);
+  assert.deepEqual(out('local a = math.noise(1.158, 5.723); local b = math.noise(1.158, 6); print(math.abs(a - 0.48397532105446) < 0.00002, math.abs(b - 0.15315161645412) < 0.00002)'), ['true\ttrue']);
+  assert.deepEqual(out('print(math.noise(1.158) == math.noise(1.158, 0, 0), math.noise(1.158, 5.723) == math.noise(1.158, 5.723, 0), math.noise(1.158, 5.723, 0) == math.noise(257.158, 5.723, 0))'), ['true\ttrue\ttrue']);
+  assert.throws(() => out('math.noise()'), /one to three coordinates/);
+  assert.throws(() => out('math.noise(1, 2, 3, 4)'), /one to three coordinates/);
+});
+
+test('math.max y math.min ignoran NaN en argumentos posteriores como Luau', () => {
+  assert.deepEqual(out('print(math.isnan(math.max(1, 0/0)), math.isnan(math.min(1, 0/0)), math.isnan(math.max(0/0, 1)))'), ['false\tfalse\ttrue']);
+});
+
+test('math expone constantes Luau y predicados de finitud', () => {
+  assert.deepEqual(out('print(math.isinf(math.huge), math.isinf(-math.huge), math.isinf(math.nan), math.isfinite(1), math.isfinite(math.huge), math.isfinite(math.nan), math.nan ~= math.nan)'), ['true\ttrue\tfalse\ttrue\tfalse\tfalse\ttrue']);
+  assert.deepEqual(out('print(math.abs(math.e - 2.718281828459045) < 1e-15, math.abs(math.phi - 1.618033988749895) < 1e-15, math.sqrt2 == math.sqrt(2), math.tau == 2 * math.pi)'), ['true\ttrue\ttrue\ttrue']);
+});
+
 test('math.randomseed hace reproducible math.random y valida intervalos', () => {
   const src = 'math.randomseed(123); local a = math.random(1, 10); local b = math.random(); math.randomseed(123); print(a, math.random(1, 10), b == math.random())';
   assert.deepEqual(out(src), ['' + (Number(out('math.randomseed(123); print(math.random(1, 10))')[0])) + '\t' + (Number(out('math.randomseed(123); print(math.random(1, 10))')[0])) + '\ttrue']);
   assert.throws(() => out('math.random(4, 2)'), /interval is empty/);
+  assert.deepEqual(out('math.randomseed(7); local a = math.random(1.9, 3.9); local b = math.random(3.9); print(a >= 1 and a <= 3, b >= 1 and b <= 3)'), ['true\ttrue']);
+  assert.throws(() => out('math.random(1, 2, 3)'), /wrong number of arguments/);
+});
+
+test('math.randomseed reproduce la secuencia PCG32 de Luau', () => {
+  assert.deepEqual(out('math.randomseed(123); local a = math.random(); local b = math.random(10); local c = math.random(2, 10); print(math.abs(a - 0.5576342002772471) < 1e-15, b, c)'), ['true\t1\t7']);
+  assert.deepEqual(out('math.randomseed(123); print(math.random(10), math.random(2, 10))'), ['4\t7']);
+  assert.throws(() => out('math.randomseed(1.5)'), /integer expected/);
+  assert.throws(() => out('math.randomseed(2147483648)'), /integer expected/);
+});
+test('string.char construye cadenas grandes en bloques acotados', () => {
+  assert.deepEqual(out('local bytes = table.create(9000, 65); local text = string.char(table.unpack(bytes)); print(#text)'), ['9000']);
 });
 
 test('string.char valida bytes y string.split conserva campos vacíos', () => {
@@ -163,13 +226,53 @@ test('string.char valida bytes y string.split conserva campos vacíos', () => {
   assert.throws(() => out('string.char(1.5)'), /out of range/);
 });
 
-test('string.find soporta búsqueda literal, índices negativos y modo plain explícito', () => {
+test('string.find soporta patrones Lua, capturas, índices negativos y modo plain', () => {
   assert.deepEqual(out('local a, b = string.find("hello hello", "hello", 1, true); local c, d = string.find("hello hello", "hello", 2, true); local e = string.find("hello", "z", 1, true); print(a, b, c, d, e)'), ['1\t5\t7\t11\tnil']);
+  assert.deepEqual(out('print(string.find("abc123", "(%a+)(%d+)"))'), ['1\t6\tabc\t123']);
   assert.deepEqual(out('print(string.find("abcdef", "cd", -4, true))'), ['3\t4']);
-  assert.deepEqual(out('print(string.find("abc", "a", -5, true))'), ['nil']);
-  assert.throws(() => out('string.find("abc", "a.c")'), /pattern matching is not implemented/);
+  assert.deepEqual(out('print(string.find("abc", "a", -5, true), string.find("abc", "b", 0, true), string.find("abc", "b", 1))'), ['1\t2\t2\t2']);
+  assert.deepEqual(out('print(string.find("abc123", "%d+"))'), ['4\t6']);
+  assert.deepEqual(out('local a, b = string.find("a.b", "a.b"); local c, d = string.find("a.b", "a%.b"); print(a, b, c, d)'), ['1\t3\t1\t3']);
+  assert.deepEqual(out('print(string.find("a123b", "a.-b"))'), ['1\t5']);
+  assert.deepEqual(out('print(string.find("a\\nb", "a.b")); print(string.find("a^b", "a^b")); print(string.find("abc", "^b", 2)); print(string.find("abc", "^a")); print(string.find("abc\\n", "abc$")); print(string.find("abc", "abc$"))'), ['1\t3', '1\t3', '2\t2', '1\t1', 'nil', '1\t3']);
+  assert.deepEqual(out('print(string.match("abc", "^b", 2), string.match("abc", "^a", 2), string.find("abc", "b", 0, 1))'), ['b\tnil\t2\t2']);
+  assert.throws(() => out('string.find("abc", "%")'), /ends with/);
+  assert.throws(() => out('string.find("abc", "()")'), /position captures/);
+  assert.throws(() => out('string.find("aaaaaaaaaaaaaaaa!", "(a+)+!")'), /unsafe Lua pattern/);
+  assert.throws(() => out('string.find("abc", "[abc")'), /malformed Lua pattern/);
 });
 
+test('string.gmatch itera coincidencias y capturas sin repetir matches vacíos', () => {
+  assert.deepEqual(out('local words = {}; for word in string.gmatch("one two three", "%a+") do table.insert(words, word) end; print(table.concat(words, ","))'), ['one,two,three']);
+  assert.deepEqual(out('local pairs = {}; for left, right in string.gmatch("a1 b2", "(%a)(%d)") do table.insert(pairs, left .. right) end; print(table.concat(pairs, ","))'), ['a1,b2']);
+});
+test('los patrones Lua permiten referencias numéricas a capturas', () => {
+  assert.deepEqual(out('print(string.match("go go!", "(%a+)%s+%1"))'), ['go']);
+  assert.deepEqual(out('print(string.find("echo echo", "(%a+)%s+%1"))'), ['1\t9\techo']);
+  assert.deepEqual(out('local s, n = string.gsub("a a b b", "(%a)%s+%1", "%1!"); print(s, n)'), ['a! b!\t2']);
+  assert.throws(() => out('string.match("abc", "%1")'), /invalid Lua pattern backreference/);
+  assert.throws(() => out('string.match("abc", "([%1])")'), /inside character classes/);
+});
+
+test('string.match devuelve coincidencias y capturas Lua', () => {
+  assert.deepEqual(out('print(string.match("user42", "(%a+)(%d+)")); print(string.match("abc", "%d+"))'), ['user\t42', 'nil']);
+  assert.deepEqual(out('print(string.match("abc123", "%d+", -3))'), ['123']);
+  assert.throws(() => out('string.match("abc", "%b()")'), /not supported yet/);
+});
+
+test('string.gsub sustituye coincidencias, capturas y respeta límites', () => {
+  assert.deepEqual(out('local s, n = string.gsub("a1 b2 c3", "(%a)(%d)", "%1=%2"); print(s, n)'), ['a=1 b=2 c=3\t3']);
+  assert.deepEqual(out('local s, n = string.gsub("one two", "%a+", string.upper, 1); print(s, n)'), ['ONE two\t1']);
+  assert.deepEqual(out('local s, n = string.gsub("a-b-a", "a", {a = "x"}); print(s, n)'), ['x-b-x\t2']);
+  assert.deepEqual(out('local s, n = string.gsub("aaa", "a", "b", 0); print(s, n)'), ['aaa\t0']);
+  assert.deepEqual(out('local s, n = string.gsub("aaaa", "a", "x", 2); print(s, n)'), ['xxaa\t2']);
+  assert.deepEqual(out('local s, n = string.gsub("abc", "", "-"); print(s, n)'), ['-a-b-c-\t4']);
+  assert.throws(() => out('string.gsub("abc", "(.)", "%9")'), /invalid capture index/);
+  assert.throws(() => out('string.gsub("abc", "a", "%x")'), /invalid use of/);
+  assert.deepEqual(out('local s, n = string.gsub("a", "a", function() return false end); print(s, n)'), ['a\t1']);
+  assert.throws(() => out('string.gsub("a", "a", {a = true})'), /string or number expected/);
+  assert.throws(() => out('string.gsub("a", "a", function() return true end)'), /string or number expected/);
+});
 test('string.format admite conversiones comunes, ancho y precisión', () => {
   assert.deepEqual(out('print(string.format("%04d %.2f %s %%", 7, 2.5, "ok"))'), ['0007 2.50 ok %']);
   assert.deepEqual(out('print(string.format("%#x %+d %.3g", 255, 8, 12.345))'), ['0xff +8 12.3']);
@@ -184,6 +287,10 @@ test('string.lower y upper conservan bytes no ASCII', () => {
 
 test('string.lower, upper y reverse', () => {
   assert.deepEqual(out('print(string.lower("HeLLo"), string.upper("Synex"), string.reverse("abc"))'), ['hello\tSYNEX\tcba']);
+});
+
+test('string.rep evita reservar memoria para repeticiones vacías', () => {
+  assert.deepEqual(out('print(string.rep("", 1000000000) == "", string.rep("", 3, ",") == ",,")'), ['true\ttrue']);
 });
 
 test('string.rep repite con separador y valida límites', () => {

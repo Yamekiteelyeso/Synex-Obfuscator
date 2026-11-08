@@ -19,6 +19,203 @@ function tostring(v: Value): string {
   return typeName(v) + ': builtin';
 }
 
+
+function luaPatternToRegExp(pattern: string): RegExp {
+  if (pattern.length > 4096) throw new LuaError('Lua pattern too large');
+  if (pattern.endsWith('%')) throw new LuaError("malformed Lua pattern (ends with '%')");
+  const classFor = (code: string): string | undefined => {
+    const lower: Record<string, string> = {
+      a: 'A-Za-z', c: '\\x00-\\x1F\\x7F', d: '0-9', g: '!-~',
+      l: 'a-z', p: '\\x21-\\x2F\\x3A-\\x40\\x5B-\\x60\\x7B-\\x7E', s: '\\x09-\\x0D\\x20', u: 'A-Z',
+      w: 'A-Za-z0-9', x: 'A-Fa-f0-9', z: '\\x00',
+    };
+    const key = code.toLowerCase();
+    const value = lower[key];
+    if (!value) return undefined;
+    return code === key ? value : '^' + value;
+  };
+  const escape = (ch: string) => /[\\^$.*+?()[\]{}|]/.test(ch) ? '\\' + ch : ch;
+  const escapeLuaLiteral = (ch: string) => ['\\', ']', '{', '}', '|'].includes(ch) ? '\\' + ch : ch;
+  let output = '';
+  let inClass = false;
+  let previousWasQuantifier = false;
+  let lastAtomIsWildcard = false;
+  let wildcardRepeats = 0;
+  let quantifierCount = 0;
+  let captureCount = 0;
+  const groupHasQuantifier: boolean[] = [];
+  let lastClosedGroupHasQuantifier = false;
+
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === '%' ) {
+      const next = pattern[++i];
+      if (next === 'b' || next === 'f') throw new LuaError('Lua pattern %' + next + ' is not supported yet');
+      const cls = classFor(next);
+      if (cls !== undefined) {
+        if (inClass && cls.startsWith('^')) throw new LuaError('negated Lua character class inside [] is unsupported');
+        output += inClass ? cls : '[' + cls + ']';
+      } else if (next >= '1' && next <= '9') {
+        if (inClass) throw new LuaError('Lua capture references inside character classes are unsupported');
+        if (Number(next) > captureCount) throw new LuaError('invalid Lua pattern backreference');
+        output += '\\' + next;
+      } else output += escape(next);
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (ch === '[') {
+      if (inClass) throw new LuaError('malformed Lua pattern (nested character class)');
+      inClass = true;
+      output += '[';
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (ch === ']' && inClass) {
+      inClass = false;
+      output += ']';
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (inClass) {
+      output += ch;
+      continue;
+    }
+    if (ch === '(') {
+      if (pattern[i + 1] === ')') throw new LuaError('Lua position captures () are not supported yet');
+      if (++captureCount > 32) throw new LuaError('Lua pattern has too many captures');
+      groupHasQuantifier.push(false);
+      output += '(';
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (ch === ')') {
+      const hasQuantifier = groupHasQuantifier.pop();
+      if (hasQuantifier === undefined) throw new LuaError('malformed Lua pattern (unexpected ))');
+      if (groupHasQuantifier.length && hasQuantifier) {
+        groupHasQuantifier[groupHasQuantifier.length - 1] = true;
+      }
+      output += ')';
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = hasQuantifier;
+      continue;
+    }
+    if ('*+?-'.includes(ch)) {
+      if (previousWasQuantifier || lastClosedGroupHasQuantifier || output.length === 0) {
+        throw new LuaError('malformed or unsafe Lua pattern repetition');
+      }
+      if (lastAtomIsWildcard && ++wildcardRepeats > 1) {
+        throw new LuaError('Lua pattern contains too many repeated wildcards');
+      }
+      if (++quantifierCount > 32) throw new LuaError('Lua pattern contains too many repetitions');
+      if (groupHasQuantifier.length) groupHasQuantifier[groupHasQuantifier.length - 1] = true;
+      output += ch === '-' ? '*?' : ch;
+      previousWasQuantifier = true;
+      lastAtomIsWildcard = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (ch === '.') {
+      output += '[\\s\\S]';
+      lastAtomIsWildcard = true;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (ch === '^' || ch === '$') {
+      if (ch === '^' && i === 0) output += '^';
+      else if (ch === '$' && i === pattern.length - 1) output += '$(?![\\s\\S])';
+      else output += '\\' + ch;
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    output += escapeLuaLiteral(ch);
+    lastAtomIsWildcard = false;
+    previousWasQuantifier = false;
+    lastClosedGroupHasQuantifier = false;
+  }
+  if (inClass) throw new LuaError('malformed Lua pattern (missing ])');
+  if (groupHasQuantifier.length) throw new LuaError('malformed Lua pattern (unfinished capture)');
+  try { return new RegExp(output, 'g'); }
+  catch { throw new LuaError('malformed Lua pattern'); }
+}
+
+
+// Hash/gradient constants and interpolation are adapted from Luau VM/src/lmathlib.cpp (MIT); see packages/runtime/third_party/LUAU-NOISE-NOTICE.md.
+const PERLIN_HASH = [
+  151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,
+  190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,
+  125,136,171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,
+  41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,
+  116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,
+  206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,
+  172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,
+  12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,
+  127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180,151,
+] as const;
+
+const PERLIN_GRADIENTS = [
+  [1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+  [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+  [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1],
+  [1,1,0],[0,-1,1],[-1,1,0],[0,-1,-1],
+] as const;
+
+/** Luau-compatible 3D Perlin noise with float32 intermediates and 256-unit period. */
+function luauPerlinNoise(x: number, y: number, z: number): number {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return Number.NaN;
+  const f = Math.fround;
+  // Luau's current implementation wraps coordinates before converting to float,
+  // avoiding precision loss for large inputs while preserving its 256-unit period.
+  const px = f(x % 256);
+  const py = f(y % 256);
+  const pz = f(z % 256);
+  const xFloor = Math.floor(px);
+  const yFloor = Math.floor(py);
+  const zFloor = Math.floor(pz);
+  const xi = xFloor & 255;
+  const yi = yFloor & 255;
+  const zi = zFloor & 255;
+  const xf = f(px - xFloor);
+  const yf = f(py - yFloor);
+  const zf = f(pz - zFloor);
+  const fade = (t: number): number => {
+    const cubic = f(f(t * t) * t);
+    const inner = f(f(f(t * 6) - 15) * t + 10);
+    return f(cubic * inner);
+  };
+  const lerp = (t: number, a: number, b: number): number => f(a + f(t * f(b - a)));
+  const grad = (hash: number, dx: number, dy: number, dz: number): number => {
+    const g = PERLIN_GRADIENTS[hash & 15];
+    return f(f(f(g[0] * dx) + f(g[1] * dy)) + f(g[2] * dz));
+  };
+  const u = fade(xf);
+  const v = fade(yf);
+  const w = fade(zf);
+  const p = PERLIN_HASH;
+  const a = (p[xi] + yi) & 255;
+  const aa = (p[a] + zi) & 255;
+  const ab = (p[a + 1] + zi) & 255;
+  const b = (p[xi + 1] + yi) & 255;
+  const ba = (p[b] + zi) & 255;
+  const bb = (p[b + 1] + zi) & 255;
+  const la = lerp(u, grad(p[aa], xf, yf, zf), grad(p[ba], f(xf - 1), yf, zf));
+  const lb = lerp(u, grad(p[ab], xf, f(yf - 1), zf), grad(p[bb], f(xf - 1), f(yf - 1), zf));
+  const la1 = lerp(u, grad(p[aa + 1], xf, yf, f(zf - 1)), grad(p[ba + 1], f(xf - 1), yf, f(zf - 1)));
+  const lb1 = lerp(u, grad(p[ab + 1], xf, f(yf - 1), f(zf - 1)), grad(p[bb + 1], f(xf - 1), f(yf - 1), f(zf - 1)));
+  return lerp(w, lerp(v, la, lb), lerp(v, la1, lb1));
+}
+
 /** Biblioteca mínima de Luau usada por el intérprete de referencia. */
 export function installStdlib(interp: LuaEnvironment): void {
   const call = (f: Value, args: Value[]): Value[] => interp.callValue(f, args, at);
@@ -206,8 +403,19 @@ export function installStdlib(interp: LuaEnvironment): void {
   tableLib.set('clear', fn('clear', (args) => {
     const table = args[0];
     if (!(table instanceof LuaTable)) throw new LuaError('bad argument to table.clear (table expected)');
-    table.hash.clear();
+    table.clearContents();
     return [];
+  }));
+  tableLib.set('freeze', fn('freeze', (args) => {
+    const table = args[0];
+    if (!(table instanceof LuaTable)) throw new LuaError('bad argument to table.freeze (table expected)');
+    table.freeze();
+    return [table];
+  }));
+  tableLib.set('isfrozen', fn('isfrozen', (args) => {
+    const table = args[0];
+    if (!(table instanceof LuaTable)) throw new LuaError('bad argument to table.isfrozen (table expected)');
+    return [table.isFrozen];
   }));
   tableLib.set('clone', fn('clone', (args) => {
     const source = args[0];
@@ -253,19 +461,124 @@ export function installStdlib(interp: LuaEnvironment): void {
       }
       return byte;
     });
-    return [String.fromCharCode(...bytes)];
+    let result = '';
+    for (let offset = 0; offset < bytes.length; offset += 8192) {
+      result += String.fromCharCode(...bytes.slice(offset, offset + 8192));
+    }
+    return [result];
+  }));
+  stringLib.set('gmatch', fn('gmatch', (args) => {
+    const source = String(args[0]);
+    const regex = luaPatternToRegExp(String(args[1]));
+    let position = 0;
+    let finished = false;
+    const iterator = new NativeFunction(() => {
+      if (finished) return [undefined];
+      regex.lastIndex = position;
+      const match = regex.exec(source);
+      if (!match) { finished = true; return [undefined]; }
+      const next = match.index + match[0].length;
+      position = next > match.index ? next : match.index + 1;
+      if (position > source.length) finished = true;
+      return match.length > 1 ? match.slice(1) : [match[0]];
+    });
+    return [iterator];
+  }));
+  stringLib.set('match', fn('match', (args) => {
+    const source = String(args[0]);
+    const pattern = String(args[1]);
+    const init = args[2] === undefined ? 1 : toNumber(args[2], at);
+    if (!Number.isSafeInteger(init)) throw new LuaError('bad argument to string.match (integer index expected)');
+    const start = Math.max(1, init < 0 ? source.length + init + 1 : init);
+    if (start > source.length + 1) return [undefined];
+    const anchored = pattern.startsWith('^');
+    const subject = anchored ? source.slice(start - 1) : source;
+    const regex = luaPatternToRegExp(pattern);
+    regex.lastIndex = anchored ? 0 : start - 1;
+    const match = regex.exec(subject);
+    if (!match) return [undefined];
+    return match.length > 1 ? match.slice(1) : [match[0]];
+  }));
+  stringLib.set('gsub', fn('gsub', (args) => {
+    const source = String(args[0]);
+    const pattern = String(args[1]);
+    const replacement = args[2];
+    const limit = args[3] === undefined ? Number.MAX_SAFE_INTEGER : toNumber(args[3], at);
+    if (!Number.isSafeInteger(limit) || limit < 0) throw new LuaError('bad argument to string.gsub (invalid count)');
+    if (limit === 0) return [source, 0];
+    if (typeof replacement !== 'string' && !(replacement instanceof LuaFunction) && !(replacement instanceof LuaTable)) {
+      throw new LuaError('bad argument to string.gsub (string, table, or function expected)');
+    }
+    const regex = luaPatternToRegExp(pattern);
+    let count = 0;
+    let output = '';
+    let outputCursor = 0;
+    let searchCursor = 0;
+    while (count < limit) {
+      regex.lastIndex = searchCursor;
+      const found = regex.exec(source);
+      if (!found) break;
+      const match = found[0];
+      const captures = found.slice(1);
+      output += source.slice(outputCursor, found.index);
+      let rendered: string;
+      if (typeof replacement === 'string') {
+        rendered = '';
+        for (let index = 0; index < replacement.length; index++) {
+          if (replacement[index] !== '%') { rendered += replacement[index]; continue; }
+          const token = replacement[++index];
+          if (token === '%') rendered += '%';
+          else if (token >= '0' && token <= '9') {
+            const captureIndex = Number(token);
+            if (captureIndex === 0) rendered += match;
+            else if (captureIndex > captures.length) throw new LuaError('invalid capture index in string.gsub replacement');
+            else rendered += captures[captureIndex - 1] ?? '';
+          } else throw new LuaError("invalid use of '%' in string.gsub replacement");
+        }
+      } else if (replacement instanceof LuaTable) {
+        const key = captures.length ? captures[0] : match;
+        const value = replacement.get(key);
+        if (value === undefined || value === false) rendered = match;
+        else if (typeof value === 'string') rendered = value;
+        else if (typeof value === 'number') rendered = numberToString(value);
+        else throw new LuaError('invalid string.gsub replacement value (string or number expected)');
+      } else {
+        const callArgs: Value[] = captures.length ? captures : [match];
+        const result = call(replacement, callArgs)[0];
+        if (result === undefined || result === false) rendered = match;
+        else if (typeof result === 'string') rendered = result;
+        else if (typeof result === 'number') rendered = numberToString(result);
+        else throw new LuaError('invalid string.gsub replacement value (string or number expected)');
+      }
+      output += rendered;
+      count++;
+      outputCursor = found.index + match.length;
+      searchCursor = outputCursor > found.index ? outputCursor : found.index + 1;
+      if (searchCursor > source.length) break;
+    }
+    output += source.slice(outputCursor);
+    return [output, count];
   }));
   stringLib.set('find', fn('find', (args) => {
     const source = String(args[0]);
     const pattern = String(args[1]);
     const init = args[2] === undefined ? 1 : toNumber(args[2], at);
-    const plain = args[3] === true;
+    const plain = args[3] !== undefined && args[3] !== false;
     if (!Number.isSafeInteger(init)) throw new LuaError('bad argument to string.find (integer index expected)');
-    if (!plain) throw new LuaError('string.find: Lua pattern matching is not implemented; pass true for plain search');
-    const start = init < 0 ? source.length + init + 1 : init;
-    if (start < 1 || start > source.length + 1) return [undefined];
-    const index = source.indexOf(pattern, start - 1);
-    return index < 0 ? [undefined] : [index + 1, index + pattern.length];
+    const start = Math.max(1, init < 0 ? source.length + init + 1 : init);
+    if (start > source.length + 1) return [undefined];
+    if (plain) {
+      const index = source.indexOf(pattern, start - 1);
+      return index < 0 ? [undefined] : [index + 1, index + pattern.length];
+    }
+    const anchored = pattern.startsWith('^');
+    const subject = anchored ? source.slice(start - 1) : source;
+    const regex = luaPatternToRegExp(pattern);
+    regex.lastIndex = anchored ? 0 : start - 1;
+    const match = regex.exec(subject);
+    if (!match) return [undefined];
+    const base = anchored ? start - 1 : 0;
+    return [base + match.index + 1, base + match.index + match[0].length, ...match.slice(1)];
   }));
   stringLib.set('format', fn('format', (args) => {
     const template = String(args[0]);
@@ -369,12 +682,14 @@ export function installStdlib(interp: LuaEnvironment): void {
   stringLib.set('byte', fn('byte', (args) => {
     const s = String(args[0]);
     const length = s.length;
-    const normalize = (index: number, isLast: boolean) =>
-      index < 0 ? Math.max(length + index + 1, 1) : isLast ? Math.min(index, length) : index;
-    const first = normalize(args[1] === undefined ? 1 : toNumber(args[1], at), false);
-    const last = normalize(args[2] === undefined ? first : toNumber(args[2], at), true);
-    if (!Number.isInteger(first) || !Number.isInteger(last)) throw new LuaError('bad argument to string.byte (integer index expected)');
-    if (first < 1 || first > length || last < first || last < 1) return [];
+    const firstRaw = args[1] === undefined ? 1 : toNumber(args[1], at);
+    const lastRaw = args[2] === undefined ? firstRaw : toNumber(args[2], at);
+    if (!Number.isInteger(firstRaw) || !Number.isInteger(lastRaw)) throw new LuaError('bad argument to string.byte (integer index expected)');
+    let first = firstRaw < 0 ? length + firstRaw + 1 : firstRaw;
+    let last = lastRaw < 0 ? length + lastRaw + 1 : lastRaw;
+    if (first <= 0) first = 1;
+    if (last > length) last = length;
+    if (first > last || first > length) return [];
     if (last - first + 1 > 1_000_000) throw new LuaError('string.byte result too large');
     const result: Value[] = [];
     for (let i = first; i <= last; i++) result.push(s.charCodeAt(i - 1));
@@ -383,14 +698,14 @@ export function installStdlib(interp: LuaEnvironment): void {
   stringLib.set('sub', fn('sub', (args) => {
     const s = String(args[0]);
     const length = s.length;
-    const normalize = (index: number, isLast: boolean) =>
-      index < 0 ? Math.max(length + index + 1, 1) : isLast ? Math.min(index, length) : index;
     const firstRaw = toNumber(args[1], at);
     const lastRaw = args[2] === undefined ? -1 : toNumber(args[2], at);
     if (!Number.isInteger(firstRaw) || !Number.isInteger(lastRaw)) throw new LuaError('bad argument to string.sub (integer index expected)');
-    const first = normalize(firstRaw, false);
-    const last = normalize(lastRaw, true);
-    if (first < 1 || first > length || last < first) return [''];
+    let first = firstRaw < 0 ? length + firstRaw + 1 : firstRaw;
+    let last = lastRaw < 0 ? length + lastRaw + 1 : lastRaw;
+    if (first < 1) first = 1;
+    if (last > length) last = length;
+    if (first > last || first > length) return [''];
     return [s.slice(first - 1, last)];
   }));
   stringLib.set('rep', fn('rep', (args) => {
@@ -398,21 +713,44 @@ export function installStdlib(interp: LuaEnvironment): void {
     const count = toNumber(args[1], at);
     const sep = args[2] === undefined ? '' : String(args[2]);
     if (!Number.isInteger(count) || count < 0) throw new LuaError('bad argument to string.rep (invalid count)');
-    if (count === 0) return [''];
+    if (count === 0 || (s === '' && sep === '')) return [''];
     const resultLength = s.length * count + sep.length * (count - 1);
     if (!Number.isSafeInteger(resultLength) || resultLength > 10_000_000) throw new LuaError('string.rep result too large');
-    return [Array(count).fill(s).join(sep)];
+    return [(s + sep).repeat(count - 1) + s];
   }));
   g.set('string', stringLib);
 
   const mathLib = new LuaTable();
-  let randomState = 0x6d2b79f5;
-  const randomUnit = () => {
-    // xorshift32: reproducible PRNG for Lua math.random, not cryptography.
-    randomState ^= randomState << 13;
-    randomState ^= randomState >>> 17;
-    randomState ^= randomState << 5;
-    return (randomState >>> 0) / 0x1_0000_0000;
+  let randomState = 0n;
+  // PCG32 transition and seed procedure follow Luau VM/src/lmathlib.cpp (MIT).
+  const pcg32Random = (): number => {
+    const oldState = randomState;
+    randomState = BigInt.asUintN(64, oldState * 6364136223846793005n + 105n);
+    const shifted = Number((((oldState >> 18n) ^ oldState) >> 27n) & 0xffff_ffffn) >>> 0;
+    const rotation = Number(oldState >> 59n);
+    return ((shifted >>> rotation) | (shifted << ((-rotation) & 31))) >>> 0;
+  };
+  const seedRandom = (seed: number): void => {
+    randomState = 0n;
+    pcg32Random();
+    randomState = BigInt.asUintN(64, randomState + BigInt(seed));
+    pcg32Random();
+  };
+  // Stable default seed for repeatable tests; callers can reset the stream with math.randomseed.
+  seedRandom(0x6d2b79f5);
+  const randomUnit = (): number => {
+    const low = BigInt(pcg32Random());
+    const high = BigInt(pcg32Random());
+    return Number(low | (high << 32n)) / 0x1_0000_0000_0000_0000;
+  };
+  const randomInteger32 = (value: Value, functionName: string): number => {
+    const raw = toNumber(value, at);
+    const integer = Math.trunc(raw);
+    if (!Number.isFinite(raw) || !Number.isSafeInteger(integer)
+      || integer < -0x8000_0000 || integer > 0x7fff_ffff) {
+      throw new LuaError('bad argument to ' + functionName + ' (integer expected)');
+    }
+    return integer;
   };
   const mathUnary: Record<string, (n: number) => number> = {
     abs: Math.abs, acos: Math.acos, asin: Math.asin, atan: Math.atan,
@@ -438,11 +776,21 @@ export function installStdlib(interp: LuaEnvironment): void {
   mathLib.set('fmod', fn('fmod', (args) => [toNumber(args[0], at) % toNumber(args[1], at)]));
   mathLib.set('max', fn('max', (args) => {
     if (args.length === 0) throw new LuaError('bad argument to math.max (value expected)');
-    return [Math.max(...args.map((value) => toNumber(value, at)))];
+    let result = toNumber(args[0], at);
+    for (let index = 1; index < args.length; index++) {
+      const value = toNumber(args[index], at);
+      if (value > result) result = value;
+    }
+    return [result];
   }));
   mathLib.set('min', fn('min', (args) => {
     if (args.length === 0) throw new LuaError('bad argument to math.min (value expected)');
-    return [Math.min(...args.map((value) => toNumber(value, at)))];
+    let result = toNumber(args[0], at);
+    for (let index = 1; index < args.length; index++) {
+      const value = toNumber(args[index], at);
+      if (value < result) result = value;
+    }
+    return [result];
   }));
   mathLib.set('clamp', fn('clamp', (args) => {
     const value = toNumber(args[0], at);
@@ -451,7 +799,35 @@ export function installStdlib(interp: LuaEnvironment): void {
     if (minimum > maximum) throw new LuaError('bad argument to math.clamp (min must be <= max)');
     return [Math.min(Math.max(value, minimum), maximum)];
   }));
-  mathLib.set('sign', fn('sign', (args) => [Math.sign(toNumber(args[0], at))]));
+  mathLib.set('sign', fn('sign', (args) => {
+    const value = toNumber(args[0], at);
+    return [Number.isNaN(value) || value === 0 ? 0 : value > 0 ? 1 : -1];
+  }));
+  mathLib.set('pow', fn('pow', (args) => [Math.pow(toNumber(args[0], at), toNumber(args[1], at))]));
+  mathLib.set('isnan', fn('isnan', (args) => [Number.isNaN(toNumber(args[0], at))]));
+  mathLib.set('isinf', fn('isinf', (args) => [!Number.isNaN(toNumber(args[0], at)) && !Number.isFinite(toNumber(args[0], at))]));
+  mathLib.set('isfinite', fn('isfinite', (args) => [Number.isFinite(toNumber(args[0], at))]));
+  mathLib.set('noise', fn('noise', (args) => {
+    if (args.length < 1 || args.length > 3) throw new LuaError('bad argument to math.noise (expected one to three coordinates)');
+    const x = toNumber(args[0], at);
+    const y = args[1] === undefined ? 0 : toNumber(args[1], at);
+    const z = args[2] === undefined ? 0 : toNumber(args[2], at);
+    return [luauPerlinNoise(x, y, z)];
+  }));
+  mathLib.set('lerp', fn('lerp', (args) => {
+    const start = toNumber(args[0], at);
+    const finish = toNumber(args[1], at);
+    const alpha = toNumber(args[2], at);
+    return [alpha === 1 ? finish : start + (finish - start) * alpha];
+  }));
+  mathLib.set('map', fn('map', (args) => {
+    const value = toNumber(args[0], at);
+    const inputMin = toNumber(args[1], at);
+    const inputMax = toNumber(args[2], at);
+    const outputMin = toNumber(args[3], at);
+    const outputMax = toNumber(args[4], at);
+    return [outputMin + (value - inputMin) * (outputMax - outputMin) / (inputMax - inputMin)];
+  }));
   mathLib.set('round', fn('round', (args) => {
     const value = toNumber(args[0], at);
     return [value >= 0 ? Math.floor(value + 0.5) : Math.ceil(value - 0.5)];
@@ -460,6 +836,39 @@ export function installStdlib(interp: LuaEnvironment): void {
     const value = toNumber(args[0], at);
     const integer = value < 0 ? Math.ceil(value) : Math.floor(value);
     return [integer, value - integer];
+  }));
+  const frexp = (value: number): [number, number] => {
+    if (value === 0 || !Number.isFinite(value)) return [value, 0];
+    const view = new DataView(new ArrayBuffer(8));
+    view.setFloat64(0, value, false);
+    const high = view.getUint32(0, false);
+    const exponentBits = (high >>> 20) & 0x7ff;
+    if (exponentBits === 0) {
+      const [fraction, exponent] = frexp(value * (2 ** 54));
+      return [fraction, exponent - 54];
+    }
+    view.setUint32(0, (high & 0x800fffff) | (1022 << 20), false);
+    return [view.getFloat64(0, false), exponentBits - 1022];
+  };
+  mathLib.set('frexp', fn('frexp', (args) => frexp(toNumber(args[0], at))));
+  mathLib.set('ldexp', fn('ldexp', (args) => {
+    let value = toNumber(args[0], at);
+    let exponent = toNumber(args[1], at);
+    if (!Number.isSafeInteger(exponent)) throw new LuaError('bad argument to math.ldexp (integer exponent expected)');
+    if (value === 0 || !Number.isFinite(value) || exponent === 0) return [value];
+    if (exponent > 2200) return [value > 0 ? Infinity : -Infinity];
+    if (exponent < -2200) return [value > 0 ? 0 : -0];
+    while (exponent > 1023) {
+      value *= 2 ** 1023;
+      exponent -= 1023;
+      if (!Number.isFinite(value)) return [value];
+    }
+    while (exponent < -1022) {
+      value *= 2 ** -1022;
+      exponent += 1022;
+      if (value === 0) return [value];
+    }
+    return [value * (2 ** exponent)];
   }));
   mathLib.set('tointeger', fn('tointeger', (args) => {
     const value = args[0];
@@ -471,27 +880,40 @@ export function installStdlib(interp: LuaEnvironment): void {
     return [typeof value !== 'number' ? undefined : Number.isSafeInteger(value) ? 'integer' : 'float'];
   }));
   mathLib.set('randomseed', fn('randomseed', (args) => {
+    if (args.length !== 1) throw new LuaError('bad argument to math.randomseed (one seed expected)');
     const seed = toNumber(args[0], at);
-    if (!Number.isSafeInteger(seed)) throw new LuaError('bad argument to math.randomseed (integer expected)');
-    randomState = seed >>> 0;
-    if (randomState === 0) randomState = 0x6d2b79f5;
+    if (!Number.isSafeInteger(seed) || seed < -0x8000_0000 || seed > 0x7fff_ffff) {
+      throw new LuaError('bad argument to math.randomseed (integer expected)');
+    }
+    seedRandom(seed);
     return [];
   }));
   mathLib.set('random', fn('random', (args) => {
     if (args.length === 0) return [randomUnit()];
-    const minimum = args.length > 1 ? toNumber(args[0], at) : 1;
-    const maximum = args.length > 1 ? toNumber(args[1], at) : toNumber(args[0], at);
-    if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum > maximum) {
-      throw new LuaError('bad argument to math.random (interval is empty)');
+    if (args.length === 1) {
+      const upper = randomInteger32(args[0], 'math.random');
+      if (upper < 1) throw new LuaError('bad argument to math.random (interval is empty)');
+      const scaled = (BigInt(upper) * BigInt(pcg32Random())) >> 32n;
+      return [1 + Number(scaled)];
     }
-    const range = maximum - minimum + 1;
-    if (!Number.isSafeInteger(range) || range > 0x1_0000_0000) {
-      throw new LuaError('bad argument to math.random (interval is too large)');
+    if (args.length === 2) {
+      const lower = randomInteger32(args[0], 'math.random');
+      const upper = randomInteger32(args[1], 'math.random');
+      if (lower > upper) throw new LuaError('bad argument to math.random (interval is empty)');
+      const range = upper - lower + 1;
+      if (range > 0xffff_ffff) throw new LuaError('bad argument to math.random (interval is too large)');
+      const scaled = (BigInt(range) * BigInt(pcg32Random())) >> 32n;
+      return [lower + Number(scaled)];
     }
-    return [minimum + Math.floor(randomUnit() * range)];
+    throw new LuaError('bad argument to math.random (wrong number of arguments)');
   }));
   mathLib.set('pi', Math.PI);
   mathLib.set('huge', Infinity);
+  mathLib.set('nan', Number.NaN);
+  mathLib.set('e', Math.E);
+  mathLib.set('phi', 1.618033988749895);
+  mathLib.set('sqrt2', Math.SQRT2);
+  mathLib.set('tau', 2 * Math.PI);
   g.set('math', mathLib);
 
   const bit = new LuaTable();

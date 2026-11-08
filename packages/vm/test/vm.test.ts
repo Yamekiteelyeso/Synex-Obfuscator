@@ -412,3 +412,52 @@ test('la VM cuenta longitud de cadenas Unicode en bytes UTF-8', () => {
   same('print(#"áé", #"漢字", #"🙂")');
   assert.deepEqual(runInVm('print(#"áé", #"漢字", #"🙂")').output, ['4\t6\t4']);
 });
+
+
+test('VM e intérprete coinciden en string.find, match y gsub con patrones Lua', () => {
+  const source = [
+    'local a, b, c = string.find("user42", "(%a+)(%d+)")',
+    'local name, digits = string.match("user42", "(%a+)(%d+)")',
+    'local replaced, count = string.gsub("a1 b2 c3", "(%a)(%d)", "%1=%2")',
+    'print(a, b, c, name, digits, replaced, count)',
+  ].join(String.fromCharCode(10));
+  same(source);
+  assert.deepEqual(runInVm(source).output, ['1\t6\tuser\tuser\t42\ta=1 b=2 c=3\t3']);
+});
+
+test('VM e intérprete coinciden en el iterador string.gmatch', () => {
+  const source = 'local words = {}; for word in string.gmatch("one two three", "%a+") do table.insert(words, word) end; print(table.concat(words, ","))';
+  same(source);
+  assert.deepEqual(runInVm(source).output, ['one,two,three']);
+});
+
+
+test('VM e intérprete coinciden en math.noise y constantes numéricas Luau', () => {
+  const source = [
+    'local n = math.noise(1.158, 5.723)',
+    'print(math.abs(n - 0.48397532105446) < 0.00002, math.noise(1, 2, 3), math.noise(1.158) == math.noise(1.158, 0, 0))',
+    'print(math.isinf(math.huge), math.isfinite(math.nan), math.tau == 2 * math.pi)',
+  ].join(String.fromCharCode(10));
+  same(source);
+  assert.deepEqual(runInVm(source).output, ['true\t0\ttrue', 'true\tfalse\ttrue']);
+});
+
+
+test('VM e intérprete coinciden con la secuencia PCG32 de math.randomseed', () => {
+  const source = [
+    'math.randomseed(123)',
+    'local a = math.random()',
+    'local b = math.random(10)',
+    'local c = math.random(2, 10)',
+    'print(math.abs(a - 0.5576342002772471) < 1e-15, b, c)',
+  ].join(String.fromCharCode(10));
+  same(source);
+  assert.deepEqual(runInVm(source).output, ['true\t1\t7']);
+});
+
+
+test('VM e intérprete comparten backreferences numéricas en patrones Lua', () => {
+  const source = 'local word = string.match("go go", "(%a+)%s+%1"); local text, count = string.gsub("a a b b", "(%a)%s+%1", "%1!"); print(word, text, count)';
+  same(source);
+  assert.deepEqual(runInVm(source).output, ['go\ta! b!\t2']);
+});
