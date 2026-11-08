@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - name: Test engine and API
+        run: npx tsx --test packages/parser/test/*.test.ts packages/semantic/test/*.test.ts packages/runtime/test/*.test.ts packages/transformations/test/*.test.ts packages/vm/test/*.test.ts packages/engine/test/*.test.ts apps/api/test/*.test.ts
+      - name: Test web
+        run: npx tsx --test apps/web/test/*.test.tsx
