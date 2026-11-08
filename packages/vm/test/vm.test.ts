@@ -412,3 +412,15 @@ test('la VM cuenta longitud de cadenas Unicode en bytes UTF-8', () => {
   same('print(#"áé", #"漢字", #"🙂")');
   assert.deepEqual(runInVm('print(#"áé", #"漢字", #"🙂")').output, ['4\t6\t4']);
 });
+
+
+test('VM e intérprete coinciden en string.find, match y gsub con patrones Lua', () => {
+  const source = [
+    'local a, b, c = string.find("user42", "(%a+)(%d+)")',
+    'local name, digits = string.match("user42", "(%a+)(%d+)")',
+    'local replaced, count = string.gsub("a1 b2 c3", "(%a)(%d)", "%1=%2")',
+    'print(a, b, c, name, digits, replaced, count)',
+  ].join(String.fromCharCode(10));
+  same(source);
+  assert.deepEqual(runInVm(source).output, ['1\t6\tuser\t42\tuser\t42\ta=1 b=2 c=3\t3']);
+});
