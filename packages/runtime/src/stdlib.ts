@@ -179,6 +179,16 @@ export function installStdlib(interp: LuaEnvironment): void {
     }
     return [destination];
   }));
+  tableLib.set('find', fn('find', (args) => {
+    const table = args[0];
+    if (!(table instanceof LuaTable)) throw new LuaError('bad argument to table.find (table expected)');
+    const start = args[2] === undefined ? 1 : toNumber(args[2], at);
+    if (!Number.isSafeInteger(start)) throw new LuaError('bad argument to table.find (integer index expected)');
+    for (let index = Math.max(1, start); index <= table.length(); index++) {
+      if (table.get(index) === args[1]) return [index];
+    }
+    return [undefined];
+  }));
   tableLib.set('clear', fn('clear', (args) => {
     const table = args[0];
     if (!(table instanceof LuaTable)) throw new LuaError('bad argument to table.clear (table expected)');
