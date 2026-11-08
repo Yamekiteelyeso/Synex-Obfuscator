@@ -515,11 +515,17 @@ export function installStdlib(interp: LuaEnvironment): void {
       } else if (replacement instanceof LuaTable) {
         const key = captures.length ? captures[0] : match;
         const value = replacement.get(key);
-        rendered = value === undefined || value === false ? match : tostring(value);
+        if (value === undefined || value === false) rendered = match;
+        else if (typeof value === 'string') rendered = value;
+        else if (typeof value === 'number') rendered = numberToString(value);
+        else throw new LuaError('invalid string.gsub replacement value (string or number expected)');
       } else {
         const callArgs: Value[] = captures.length ? captures : [match];
         const result = call(replacement, callArgs)[0];
-        rendered = result === undefined || result === false ? match : tostring(result);
+        if (result === undefined || result === false) rendered = match;
+        else if (typeof result === 'string') rendered = result;
+        else if (typeof result === 'number') rendered = numberToString(result);
+        else throw new LuaError('invalid string.gsub replacement value (string or number expected)');
       }
       output += rendered;
       count++;
