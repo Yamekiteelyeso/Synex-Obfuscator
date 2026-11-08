@@ -94,9 +94,10 @@ function luaConst(v: unknown, seed: number, stringIndex: { value: number }): str
     const parts: string[] = [];
     for (let offset = 0; offset < bytes.length;) {
       const index = ++stringIndex.value;
+      const chunkRandom = rng(((seed >>> 0) ^ Math.imul(index, 0x85ebca6b) ^ Math.imul(offset + 1, 0xc2b2ae35)) >>> 0);
       const chunkSize = Math.min(bytes.length - offset, bytes.length <= 12
         ? bytes.length
-        : 5 + (((seed >>> 0) + index * 13 + offset * 7) % 8));
+        : 4 + Math.floor(chunkRandom() * 13));
       const key = ((seed >>> 0) + index * 73) % 251 + 1;
       const codec = byteCodec(seed, index);
       let state = key;
