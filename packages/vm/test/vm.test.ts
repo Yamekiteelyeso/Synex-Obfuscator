@@ -206,7 +206,7 @@ test('emisor Luau: oculta APIs de introspección de entorno al script virtual', 
   const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
   if (hasLua54) {
     const output = execFileSync('lua5.4', ['-'], { input: emitted, encoding: 'utf8', timeout: 5000 });
-    assert.equal(output.trim(), 'nil nil nil nil nil nil nil');
+    assert.equal(output.trim(), ['nil', 'nil', 'nil', 'nil', 'nil', 'nil', 'nil'].join(String.fromCharCode(9)));
   }
 });
 
