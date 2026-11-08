@@ -59,7 +59,7 @@ export function opcodeTable(seed: number): Record<Op, number> {
   return table;
 }
 
-type ProtoKeys = { np: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string };
+type ProtoKeys = { np: string; ns: string; va: string; code: string; constants: string; children: string; upvalues: string; salt: string };
 
 /** Los nombres de los campos del prototipo también cambian por semilla. */
 function protoKeys(seed: number): ProtoKeys {
@@ -71,7 +71,7 @@ function protoKeys(seed: number): ProtoKeys {
     used.add(name);
     return name;
   };
-  return { np: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next() };
+  return { np: next(), ns: next(), va: next(), code: next(), constants: next(), children: next(), upvalues: next(), salt: next() };
 }
 
 function luaNumber(n: number): string {
@@ -102,7 +102,7 @@ const OPERAND_MODULUS = 2147483647;
 /** Enmascara cada campo con una clave derivada de semilla, prototipo, instrucción y posición. */
 function encodeOperand(value: number, pc: number, field: number, seed: number, protoSalt: number): number {
   const normalized = ((value % OPERAND_MODULUS) + OPERAND_MODULUS) % OPERAND_MODULUS;
-  const mask = ((seed >>> 0) + pc * 131 + field * 977 + protoSalt * 4099) % OPERAND_MODULUS;
+  const mask = ((seed >>> 0) + pc * 131 + field * 977 + protoSalt * 4099 + (pc * field * protoSalt * 17) % OPERAND_MODULUS) % OPERAND_MODULUS;
   return (normalized + mask) % OPERAND_MODULUS;
 }
 
@@ -117,7 +117,7 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
   const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
   const children = p.protos.map((c) => serializeProto(c, ops, keys, seed, stringIndex, protoCounter)).join(',');
-  return `{${keys.salt}=${protoSalt},${keys.np}=${p.nparams},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
+  return `{${keys.salt}=${protoSalt},${keys.np}=${p.nparams},${keys.ns}=${p.nslots},${keys.va}=${p.isVararg ? 'true' : 'false'},${keys.code}={${code}},${keys.constants}={${consts}},${keys.children}={${children}},${keys.upvalues}={${upvals}}}`;
 }
 
 /**
@@ -157,10 +157,11 @@ if executorEnv ~= baseEnv then
   })
 end
 local STEP_LIMIT = __LIMIT__
+local VALID_OP = __VALID_OPS__
 local OPERAND_MODULUS, OPERAND_HALF = 2147483647, 1073741823
 local OPERAND_SEED = __OPERAND_SEED__
 local function decodeOperand(value, pc, field, protoSalt)
-  local mask = (OPERAND_SEED + pc * 131 + field * 977 + protoSalt * 4099) % OPERAND_MODULUS
+  local mask = (OPERAND_SEED + pc * 131 + field * 977 + protoSalt * 4099 + (pc * field * protoSalt * 17) % OPERAND_MODULUS) % OPERAND_MODULUS
   local decoded = (value - mask) % OPERAND_MODULUS
   if decoded > OPERAND_HALF then decoded = decoded - OPERAND_MODULUS end
   return decoded
@@ -196,6 +197,8 @@ run = function(P, U, args)
   local ok, result = pcallfn(function()
   local slots = {}
   local np = P.__KEY_NP__
+  local ns = P.__KEY_NS__
+  if typefn(np) ~= "number" or typefn(ns) ~= "number" or np < 0 or np > ns or np ~= floor(np) or ns ~= floor(ns) then fail("prototipo corrupto") end
   for i = 1, np do slots[i] = args[i] end
   local va, nva = {}, 0
   if P.__KEY_VA__ then
@@ -218,6 +221,7 @@ run = function(P, U, args)
   end
   local function popN(k)
     local out = {n = k}
+    if typefn(k) ~= "number" or k < 0 or k ~= floor(k) or k > sp then fail("lectura de pila fuera de rango") end
     local base = sp - k
     for i = 1, k do out[i] = st[base + i]; st[base + i] = nil end
     sp = base
@@ -251,6 +255,7 @@ run = function(P, U, args)
     local b = decodeOperand(ins[3], ip, 3, protoSalt)
     local t = decodeOperand(ins[4], ip, 4, protoSalt)
     local c = decodeOperand(ins[5], ip, 5, protoSalt) == 1
+    if not VALID_OP[op] then fail("opcode inválido") end
     if (op == OP_JMP or op == OP_JF or op == OP_JFK or op == OP_JTK or op == OP_FORTEST or op == OP_GENCALL)
       and (t < 1 or t > #code) then fail("salto fuera del prototipo") end
     steps = steps + 1
@@ -416,9 +421,10 @@ export function emitLuauVm(main: Proto, seed = 1, options: EmitOptions = {}): st
     return String(code);
   });
   const keys = protoKeys(seed);
-  const keyValues: Record<string, string> = { NP: keys.np, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt };
+  const keyValues: Record<string, string> = { NP: keys.np, NS: keys.ns, VA: keys.va, CODE: keys.code, CONST: keys.constants, CHILD: keys.children, UP: keys.upvalues, SALT: keys.salt };
   body = body.replace(/__KEY_(NP|VA|CODE|CONST|CHILD|UP|SALT)__/g, (_m, name: string) => keyValues[name]);
   body = body.replace('__LIMIT__', String(limit));
+  body = body.replace('__VALID_OPS__', '{' + ALL_OPS.map((op) => '[' + ops[op] + ']=true').join(',') + '}');
   body = body.replace('__OPERAND_SEED__', String((seed >>> 0) % OPERAND_MODULUS));
   body = body.replace('__MAIN__', serializeProto(main, ops, keys, seed, { value: 0 }, { value: 0 }));
   return body.trimStart();
