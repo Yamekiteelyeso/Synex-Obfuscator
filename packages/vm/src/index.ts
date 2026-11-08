@@ -9,6 +9,7 @@ export { VM, VmClosure } from './vm.js';
 export { emitLuauVm, compileToLuauVm, opcodeTable } from './emit.js';
 export type { EmitOptions } from './emit.js';
 export { validateProto } from './validate.js';
+export { sealXChaCha20Poly1305, openXChaCha20Poly1305 } from './xchacha.js';
 
 export interface VmResult {
   output: string[];
