@@ -1,4 +1,4 @@
-# Synex Obfuscator
+# Synex Obfuscador
 
 Ofuscador profesional de scripts Luau. Monorepo TypeScript.
 
@@ -51,25 +51,22 @@ SYNEX_ADMIN_EMAIL=admin@ejemplo.com SYNEX_ADMIN_PASSWORD=... PORT=8080 node apps
 
 Limitaciones: el código generado vive en memoria del proceso (se pierde al reiniciar); el historial sí persiste. Sin HTTPS, sin recuperación de contraseña y sin verificación de correo.
 
-## Perfiles
+## Planes de ofuscación
 
-Niveles de protección para código propio: **NORMAL** (renombrado, cadenas, constantes y expresiones), **MEDIUM** (añade aplanado del flujo de control y código muerto) y **MAX** (todo lo anterior más la transformación mediante VM). Los perfiles Basic, Advanced y Professional se conservan. Custom permite elegir técnicas.
+La web expone únicamente tres planes. No hay perfiles personalizados ni opciones separadas de Roblox en la interfaz:
 
-| Técnica | Basic | Advanced | Professional | Custom |
-|---|---|---|---|---|
-| Renombrado de identificadores | ✓ | ✓ | ✓ | opcional |
-| Protección de cadenas | ✓ | ✓ | ✓ | opcional |
-| Transformación de constantes | | ✓ | ✓ | opcional |
-| Transformación de expresiones (`==`) | | 50 % | 100 % | opcional |
-| Código muerto | | 15 % | 35 % | opcional |
-| Comprobación de integridad en tiempo de ejecución | | | ✓ | opcional |
-| Aplanado del flujo de control | no | no | sí (probabilidad 0.5) | sí (configurable) |
-| Transformación mediante VM | no | no | no | opcional |
-| Perfil Roblox (VM + transformaciones conservadoras) | — | — | — | perfil dedicado |
+| Técnica | Basic | Medium | Max |
+|---|---:|---:|---:|
+| Renombrado de identificadores | ✓ | ✓ | ✓ |
+| Protección de cadenas | ✓ | ✓ | ✓ |
+| Transformación de constantes | — | ✓ | ✓ |
+| Transformación de expresiones | — | ✓ | ✓ |
+| Código muerto | — | ✓ | ✓ |
+| Aplanado del flujo de control | — | ✓ | ✓ |
+| Comprobación de integridad | — | — | ✓ |
+| VM Luau | — | — | ✓ |
 
-La comprobación de integridad verifica al cargar el script las tablas de datos incrustadas (bytes cifrados y claves) con una suma calculada al ofuscar; si se alteran, el script lanza el error `integridad comprometida`. Requiere la protección de cadenas, que el perfil Custom activa automáticamente. El digest SHA-256 del resultado sigue calculándose fuera del script.
-
-La VM se activa en MAX y ROBLOX, y puede seleccionarse en Custom. El perfil ROBLOX mantiene desactivado el aplanado de control y el código muerto por compatibilidad con APIs dinámicas; la VM resuelve globals desde el entorno Luau.
+Los niveles aplican configuraciones predefinidas del motor. Basic es el nivel esencial; Medium añade transformaciones de expresiones, constantes, código muerto y flujo de control; Max añade las técnicas avanzadas y la virtualización. La salida sigue siendo ofuscación reversible, no cifrado ni almacenamiento seguro de secretos.
 
 ## Limitaciones de la VM
 
