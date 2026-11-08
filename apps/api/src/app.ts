@@ -184,11 +184,12 @@ export function createApp(opts: AppOptions): App {
     });
   });
 
-  route('GET', '/api/auth/discord', 'none', ({ res, req }) => {
+  route('GET', '/api/auth/discord', 'none', ({ res }) => {
     const clientId = process.env.DISCORD_CLIENT_ID;
     if (!clientId) throw new HttpError(503, 'Discord aún no está configurado', 'E_DISCORD_CONFIG');
     const state = randomUUID();
     discordStates.set(state, Date.now() + 10 * 60_000);
+    res.setHeader('Set-Cookie', `synex_discord_state=${state}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/discord/callback; Max-Age=600`);
     const origin = process.env.DISCORD_REDIRECT_URI;
     if (!origin) throw new HttpError(503, 'configura DISCORD_REDIRECT_URI para habilitar Discord', 'E_DISCORD_CONFIG');
     const params = new URLSearchParams({ client_id: clientId, redirect_uri: origin, response_type: 'code', scope: 'identify email', state });
@@ -198,8 +199,10 @@ export function createApp(opts: AppOptions): App {
   route('GET', '/api/auth/discord/callback', 'none', async ({ req, res, url }) => {
     const code = url.searchParams.get('code'); const state = url.searchParams.get('state');
     const expiry = state ? discordStates.get(state) : undefined;
-    if (!code || !state || !expiry || expiry < Date.now()) throw new HttpError(400, 'sesión de Discord inválida o expirada', 'E_DISCORD_STATE');
+    const cookieState = (req.headers.cookie ?? '').split(';').map((part) => part.trim()).find((part) => part.startsWith('synex_discord_state='))?.slice('synex_discord_state='.length);
+    if (!code || !state || cookieState !== state || !expiry || expiry < Date.now()) throw new HttpError(400, 'sesión de Discord inválida o expirada', 'E_DISCORD_STATE');
     discordStates.delete(state);
+    res.setHeader('Set-Cookie', 'synex_discord_state=; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/discord/callback; Max-Age=0');
     const clientId = process.env.DISCORD_CLIENT_ID; const clientSecret = process.env.DISCORD_CLIENT_SECRET;
     if (!clientId || !clientSecret) throw new HttpError(503, 'Discord aún no está configurado', 'E_DISCORD_CONFIG');
     const redirectUri = process.env.DISCORD_REDIRECT_URI;
