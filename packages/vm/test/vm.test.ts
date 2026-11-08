@@ -126,6 +126,10 @@ const PROGRAMS: Record<string, string> = {
     local i, f = math.modf(-2.75)
     print(math.abs(-4), math.sqrt(81), a, b, i, f, math.round(2.5))
   `,
+  stringFindAndFormat: `
+    local first, last = string.find("hello hello", "hello", 2, true)
+    print(first, last, string.format("%04d %.2f %s", 7, 2.5, "ok"))
+  `,
   tableCreateAndStringSplit: `
     local values = table.create(3, "x")
     local parts = string.split("a,,b,", ",")
