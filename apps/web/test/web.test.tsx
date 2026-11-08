@@ -60,16 +60,16 @@ test('Dashboard muestra métricas y estado vacío', () => {
   assert.match(out, /boom/);
 });
 
-test('Editor deshabilita técnicas pendientes en perfil personalizado', () => {
+test('Editor ofrece editor de código y no muestra perfiles personalizados', () => {
   const html = renderToStaticMarkup(
     <Editor
       token="t"
-      profiles={[{ name: 'basic', techniques: [] }, { name: 'custom', techniques: [] }]}
+      profiles={[{ name: 'basic', techniques: [] }, { name: 'medium', techniques: [] }, { name: 'max', techniques: [] }]}
       techniques={[
         { id: 'identifiers', label: 'Identificadores', status: 'implemented' },
         { id: 'vm', label: 'VM', status: 'pending' },
       ]}
-      initialProfile="custom"
+      initialProfile="basic"
       onDone={() => undefined}
     />,
   );
