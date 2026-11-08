@@ -182,17 +182,6 @@ export function createApp(opts: AppOptions): App {
       req.on('error', reject);
     });
 
-  const readRaw = (req: IncomingMessage, limit: number): Promise<Buffer> => new Promise((resolve, reject) => {
-    let size = 0; const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > limit) { reject(new HttpError(413, 'interacción demasiado grande', 'E_TOO_LARGE')); req.destroy(); return; }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-
   const bodyObject = (raw: unknown): Record<string, unknown> => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, 'se esperaba un objeto JSON');
     return raw as Record<string, unknown>;
