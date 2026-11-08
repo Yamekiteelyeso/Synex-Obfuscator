@@ -157,5 +157,5 @@ test('Max aplica la configuración más intensa y emite bytecode VM protegido', 
   const result = runProfile(SAMPLE, { profile: 'max', seed: 424242 });
   assert.ok(result.code.startsWith('-- [Synex Obf] | profile: max | vm: on\\n'));
   assert.match(result.code, /decodeOperand/);
-  assert.doesNotMatch(result.code, /P\\.k\\[/);
+  assert.ok(!result.code.includes('P.k['));
 });
