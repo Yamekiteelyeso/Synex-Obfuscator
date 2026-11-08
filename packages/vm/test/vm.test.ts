@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { execute, LuaError } from '@synex/runtime';
 import { runInVm, compileToLuauVm } from '../src/index.js';
 
@@ -210,4 +211,19 @@ test('emisor Luau: los operandos del bytecode cambian por instrucción y semilla
   assert.notEqual(a, b);
   assert.match(a, /bytecode truncado o alterado/);
   assert.match(a, /límite de pila superado/);
+});
+
+
+const hasLua54 = spawnSync('lua5.4', ['-v'], { encoding: 'utf8' }).status === 0;
+
+test('VM emitida: ejecuta bytecode en Lua 5.4 real', { skip: !hasLua54 }, () => {
+  const source = [
+    'local function add(a, b) return a + b end',
+    'local label = "Synex ✓"',
+    'local object = {value = add(20, 22)}',
+    'print(label, object.value)',
+  ].join('\\n');
+  const emitted = compileToLuauVm(source, 918273);
+  const output = execFileSync('lua5.4', ['-e', emitted], { encoding: 'utf8', timeout: 5000 });
+  assert.equal(output.trim(), 'Synex ✓\\t42');
 });
