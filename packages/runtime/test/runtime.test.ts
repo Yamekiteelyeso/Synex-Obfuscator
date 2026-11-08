@@ -166,6 +166,7 @@ test('string.char valida bytes y string.split conserva campos vacíos', () => {
 test('string.find soporta búsqueda literal, índices negativos y modo plain explícito', () => {
   assert.deepEqual(out('local a, b = string.find("hello hello", "hello", 1, true); local c, d = string.find("hello hello", "hello", 2, true); local e = string.find("hello", "z", 1, true); print(a, b, c, d, e)'), ['1\t5\t7\t11\tnil']);
   assert.deepEqual(out('print(string.find("abcdef", "cd", -4, true))'), ['3\t4']);
+  assert.deepEqual(out('print(string.find("abc", "a", -5, true))'), ['nil']);
   assert.throws(() => out('string.find("abc", "a.c")'), /pattern matching is not implemented/);
 });
 
