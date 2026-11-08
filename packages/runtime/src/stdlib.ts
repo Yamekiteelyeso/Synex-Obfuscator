@@ -22,6 +22,7 @@ function tostring(v: Value): string {
 
 function luaPatternToRegExp(pattern: string): RegExp {
   if (pattern.length > 4096) throw new LuaError('Lua pattern too large');
+  if (pattern.endsWith('%')) throw new LuaError("malformed Lua pattern (ends with '%')");
   const classFor = (code: string): string | undefined => {
     const lower: Record<string, string> = {
       a: 'A-Za-z', c: '\\x00-\\x1F\\x7F', d: '0-9', g: '!-~',
@@ -37,9 +38,16 @@ function luaPatternToRegExp(pattern: string): RegExp {
   const escapeLuaLiteral = (ch: string) => ['\\', ']', '{', '}', '|'].includes(ch) ? '\\' + ch : ch;
   let output = '';
   let inClass = false;
+  let previousWasQuantifier = false;
+  let lastAtomIsWildcard = false;
+  let wildcardRepeats = 0;
+  let quantifierCount = 0;
+  const groupHasQuantifier: boolean[] = [];
+  let lastClosedGroupHasQuantifier = false;
+
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i];
-    if (ch === '%' && i + 1 < pattern.length) {
+    if (ch === '%' ) {
       const next = pattern[++i];
       if (next === 'b' || next === 'f') throw new LuaError('Lua pattern %' + next + ' is not supported yet');
       const cls = classFor(next);
@@ -47,15 +55,82 @@ function luaPatternToRegExp(pattern: string): RegExp {
         if (inClass && cls.startsWith('^')) throw new LuaError('negated Lua character class inside [] is unsupported');
         output += inClass ? cls : '[' + cls + ']';
       } else output += escape(next);
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
       continue;
     }
-    if (ch === '[') { inClass = true; output += '['; continue; }
-    if (ch === ']' && inClass) { inClass = false; output += ']'; continue; }
-    if (ch === '-' && !inClass) { output += '*?'; continue; }
-    if (ch === '(' && pattern[i + 1] === ')') throw new LuaError('Lua position captures () are not supported yet');
-    output += inClass ? ch : '.^$*+?()'.includes(ch) ? ch : escapeLuaLiteral(ch);
+    if (ch === '[') {
+      if (inClass) throw new LuaError('malformed Lua pattern (nested character class)');
+      inClass = true;
+      output += '[';
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (ch === ']' && inClass) {
+      inClass = false;
+      output += ']';
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (inClass) {
+      output += ch;
+      continue;
+    }
+    if (ch === '(') {
+      groupHasQuantifier.push(false);
+      output += '(';
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (ch === ')') {
+      const hasQuantifier = groupHasQuantifier.pop();
+      if (hasQuantifier === undefined) throw new LuaError('malformed Lua pattern (unexpected ))');
+      if (groupHasQuantifier.length && hasQuantifier) {
+        groupHasQuantifier[groupHasQuantifier.length - 1] = true;
+      }
+      output += ')';
+      lastAtomIsWildcard = false;
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = hasQuantifier;
+      continue;
+    }
+    if ('*+?-'.includes(ch)) {
+      if (previousWasQuantifier || lastClosedGroupHasQuantifier || output.length === 0) {
+        throw new LuaError('malformed or unsafe Lua pattern repetition');
+      }
+      if (lastAtomIsWildcard && ++wildcardRepeats > 1) {
+        throw new LuaError('Lua pattern contains too many repeated wildcards');
+      }
+      if (++quantifierCount > 32) throw new LuaError('Lua pattern contains too many repetitions');
+      if (groupHasQuantifier.length) groupHasQuantifier[groupHasQuantifier.length - 1] = true;
+      output += ch === '-' ? '*?' : ch;
+      previousWasQuantifier = true;
+      lastAtomIsWildcard = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (ch === '.' || '^$'.includes(ch)) {
+      output += ch;
+      lastAtomIsWildcard = ch === '.';
+      previousWasQuantifier = false;
+      lastClosedGroupHasQuantifier = false;
+      continue;
+    }
+    if (ch === '{' || ch === '}' || ch === '|') output += escapeLuaLiteral(ch);
+    else output += ch;
+    lastAtomIsWildcard = false;
+    previousWasQuantifier = false;
+    lastClosedGroupHasQuantifier = false;
   }
   if (inClass) throw new LuaError('malformed Lua pattern (missing ])');
+  if (groupHasQuantifier.length) throw new LuaError('malformed Lua pattern (unfinished capture)');
   try { return new RegExp(output, 'g'); }
   catch { throw new LuaError('malformed Lua pattern'); }
 }
