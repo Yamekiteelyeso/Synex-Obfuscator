@@ -92,7 +92,7 @@ function M.readInstruction(vm)
 	local valid, nextChain = Integrity.verifyRecord(vm.integrityKey, record.chainTag,
 		vm.chain, vm.pc, record.nonce, record.ciphertext, record.tag, record.aad or "")
 	if not valid then error("attempt to concatenate a nil value", 2) end
-	local openRecord = vm.version == 2 and Crypto.openPoly1305 or Crypto.open
+	local openRecord = (vm.version == 2 or vm.version == 3) and Crypto.openPoly1305 or Crypto.open
 	local plain = openRecord(vm.encryptionKey, record.nonce, record.ciphertext, record.tag, record.aad or "")
 	if plain == nil then error("attempt to concatenate a nil value", 2) end
 	local instruction = decodeRecord(plain, vm.version)
@@ -138,12 +138,31 @@ function M.encodeRecord(opcode, a, b, c, nextPC)
 	return table.concat(out)
 end
 
+function M.encodeRecordV3(instruction)
+	local values = {instruction.opcode, instruction.a, instruction.b, instruction.target,
+		instruction.c, instruction.line, instruction.nextPC, instruction.checkA, instruction.checkB}
+	local out = {}
+	for i = 1, 9 do
+		local value = values[i]
+		assert(type(value) == "number" and value == math.floor(value) and value >= 0 and value <= MAX_U32,
+			"instruction fields must be unsigned 32-bit integers")
+		out[i] = string.char(value % 256, math.floor(value / 256) % 256,
+			math.floor(value / 65536) % 256, math.floor(value / 16777216) % 256)
+	end
+	return table.concat(out)
+end
+
 function M.sealRecord(masterEncryptionKey, masterIntegrityKey, nonce, instruction, previousChain, pc, prototypeSalt, aad, version)
 	assert(type(nonce) == "string" and #nonce == 24, "nonce must be 24 bytes")
 	local encryptionKey, integrityKey = M.deriveKeys(masterEncryptionKey, masterIntegrityKey, prototypeSalt or 0)
-	local plain = M.encodeRecord(instruction.opcode, instruction.a, instruction.b,
-		instruction.c, instruction.nextPC)
-	local sealRecord = version == 2 and Crypto.sealPoly1305 or Crypto.seal
+	local plain
+	if version == 3 then
+		plain = M.encodeRecordV3(instruction)
+	else
+		plain = M.encodeRecord(instruction.opcode, instruction.a, instruction.b,
+			instruction.c, instruction.nextPC)
+	end
+	local sealRecord = (version == 2 or version == 3) and Crypto.sealPoly1305 or Crypto.seal
 	local ciphertext, tag = sealRecord(encryptionKey, nonce, plain, aad or "")
 	local chainTag = Integrity.advanceRecord(integrityKey, previousChain, pc, nonce, ciphertext, tag, aad or "")
 	return {nonce=nonce, ciphertext=ciphertext, tag=tag, chainTag=chainTag, aad=aad or ""}
