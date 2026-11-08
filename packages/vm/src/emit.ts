@@ -110,9 +110,19 @@ function encodeOperand(value: number, pc: number, field: number, seed: number, p
   return (normalized + mask) % OPERAND_MODULUS;
 }
 
-function protoSeal(code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean): number {
+function protoSeal(
+  code: number[][], seed: number, salt: number, nparams: number, nslots: number, isVararg: boolean,
+  blockMap: number[], blockDescriptors: number[][], constantCount: number, childCount: number, upvalues: number[][],
+): number {
   let hash = ((seed >>> 0) + salt * 97 + nparams * 17 + nslots * 31 + (isVararg ? 1 : 0)) % OPERAND_MODULUS;
-  for (const instruction of code) for (const value of instruction) hash = (hash * 33 + value) % OPERAND_MODULUS;
+  const mix = (value: number) => { hash = (hash * 33 + value) % OPERAND_MODULUS; };
+  // El sello cubre también la estructura que controla el despacho: mapa y
+  // descriptores de bloques, tamaños de pools y layout de upvalues.
+  for (const instruction of code) for (const value of instruction) mix(value);
+  for (const block of blockMap) mix(block);
+  for (const descriptor of blockDescriptors) for (const value of descriptor) mix(value);
+  mix(constantCount); mix(childCount); mix(upvalues.length);
+  for (const upvalue of upvalues) for (const value of upvalue) mix(value);
   return hash;
 }
 
@@ -168,7 +178,6 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
     const fields = [ops[ins.op], ins.a ?? 0, ins.b ?? 0, target, ins.c ? 1 : 0, ins.line ?? 0, next];
     return fields.map((value, i) => encodeOperand(value, pc, i + 1, seed, protoSalt));
   });
-  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg);
   // Bloques básicos: entrada, destinos de salto y sucesores de bifurcaciones.
   const leaders = new Set<number>([0]);
   virtualCode.forEach((ins, index) => {
@@ -189,14 +198,17 @@ function serializeProto(p: Proto, ops: Record<Op, number>, keys: ProtoKeys, seed
     blockMembers.set(id, members);
   });
   const blockMap = order.map((originalPc) => logicalBlock[originalPc - 1]);
-  const blockDescriptors = [...blockMembers.entries()].sort((a, b) => a[0] - b[0]).map(([id, pcs]) => {
+  const blockDescriptorValues = [...blockMembers.entries()].sort((a, b) => a[0] - b[0]).map(([id, pcs]) => {
     let hash = ((seed >>> 0) + protoSalt * 97 + id * 31) % OPERAND_MODULUS;
     for (const pc of pcs) {
       hash = (hash * 33 + pc) % OPERAND_MODULUS;
       for (const value of encodedCode[pc - 1]) hash = (hash * 33 + value) % OPERAND_MODULUS;
     }
-    return '{' + [hash, ...pcs].join(',') + '}';
-  }).join(',');
+    return [hash, ...pcs];
+  });
+  const blockDescriptors = blockDescriptorValues.map((values) => '{' + values.join(',') + '}').join(',');
+  const upvalueValues = p.upvals.map((d) => [d.fromLocal ? 1 : 0, d.index]);
+  const seal = protoSeal(encodedCode, seed, protoSalt, p.nparams, p.nslots, p.isVararg, blockMap, blockDescriptorValues, p.consts.length, p.protos.length, upvalueValues);
   const code = encodedCode.map((fields) => '{' + fields.join(',') + '}').join(',');
   const consts = p.consts.map((value) => luaConst(value, seed, stringIndex)).join(',');
   const upvals = p.upvals.map((d) => `{${d.fromLocal ? 1 : 0},${d.index}}`).join(',');
@@ -269,6 +281,36 @@ local function protoIntact(P)
     if typefn(ins) ~= "table" or #ins ~= 7 then return false end
     for j = 1, 7 do
       local v = ins[j]
+      if typefn(v) ~= "number" or v ~= floor(v) then return false end
+      h = (h * 33 + v) % OPERAND_MODULUS
+    end
+  end
+  local blockMap, blocks = P.__KEY_BLOCKMAP__, P.__KEY_BLOCKS__
+  local constants, children, upvalues = P.__KEY_CONST__, P.__KEY_CHILD__, P.__KEY_UP__
+  if typefn(blockMap) ~= "table" or typefn(blocks) ~= "table" or typefn(constants) ~= "table"
+    or typefn(children) ~= "table" or typefn(upvalues) ~= "table" then return false end
+  for i = 1, #blockMap do
+    local v = blockMap[i]
+    if typefn(v) ~= "number" or v ~= floor(v) then return false end
+    h = (h * 33 + v) % OPERAND_MODULUS
+  end
+  for i = 1, #blocks do
+    local descriptor = blocks[i]
+    if typefn(descriptor) ~= "table" then return false end
+    for j = 1, #descriptor do
+      local v = descriptor[j]
+      if typefn(v) ~= "number" or v ~= floor(v) then return false end
+      h = (h * 33 + v) % OPERAND_MODULUS
+    end
+  end
+  h = (h * 33 + #constants) % OPERAND_MODULUS
+  h = (h * 33 + #children) % OPERAND_MODULUS
+  h = (h * 33 + #upvalues) % OPERAND_MODULUS
+  for i = 1, #upvalues do
+    local descriptor = upvalues[i]
+    if typefn(descriptor) ~= "table" or #descriptor ~= 2 then return false end
+    for j = 1, 2 do
+      local v = descriptor[j]
       if typefn(v) ~= "number" or v ~= floor(v) then return false end
       h = (h * 33 + v) % OPERAND_MODULUS
     end
