@@ -422,5 +422,5 @@ test('VM e intérprete coinciden en string.find, match y gsub con patrones Lua',
     'print(a, b, c, name, digits, replaced, count)',
   ].join(String.fromCharCode(10));
   same(source);
-  assert.deepEqual(runInVm(source).output, ['1\t6\tuser\t42\tuser\t42\ta=1 b=2 c=3\t3']);
+  assert.deepEqual(runInVm(source).output, ['1\t6\tuser\tuser\t42\ta=1 b=2 c=3\t3']);
 });
