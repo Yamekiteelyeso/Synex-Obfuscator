@@ -113,7 +113,7 @@ test('table.insert valida posiciones y conserva el orden', () => {
 
 test('string.sub y string.byte soportan índices negativos y rangos', () => {
   assert.deepEqual(out('print(string.sub("abcdef", 2, 4), string.sub("abcdef", -2), string.sub("abc", 8, 9))'), ['bcd	ef	']);
-  assert.deepEqual(out('print(string.byte("abcd", 2, 3), string.byte("abcd", -1))'), ['98	99	100']);
+  assert.deepEqual(out('print(string.byte("abcd", 2, 3), string.byte("abcd", -1), string.byte("abcd", 2, 99), string.byte("abcd", -99, 1))'), ['98	99	100	98	99	100	97']);
 });
 
 test('string.rep repite con separador y valida límites', () => {
