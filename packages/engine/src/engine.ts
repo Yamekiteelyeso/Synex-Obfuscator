@@ -26,7 +26,6 @@ export interface EngineResult {
   profile: ProfileName;
   techniques: Technique[];
   code: string;
-  /** SHA-256 del código generado (integridad del resultado entregado). */
   digest: string;
   stages: StageRecord[];
   stats: {
@@ -47,8 +46,8 @@ const DEFAULT_MAX_INPUT = 1024 * 1024;
 
 /**
  * Motor de orquestación: valida la entrada, ejecuta el pipeline del perfil,
- * registra el tiempo de cada etapa, calcula el digest del resultado y, si se
- * pide, comprueba la equivalencia con el intérprete de referencia.
+ * registra tiempos, añade la marca de Synex, calcula el digest y, si se pide,
+ * comprueba la equivalencia con el intérprete de referencia.
  */
 export function runProfile(source: string, options: EngineOptions): EngineResult {
   const started = Date.now();
@@ -84,13 +83,18 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
   });
 
   let code = result.code;
-  if (has('vm')) {
+  const vmEnabled = has('vm');
+  if (vmEnabled) {
     onStage('vm');
     code = compileToLuauVm(result.code, options.seed ?? 1);
   }
 
+  // El comentario se agrega al final de todas las transformaciones para que
+  // siempre quede en la primera línea, también en salidas virtualizadas.
+  const brand = `-- [Synex Obf] | profile: ${options.profile} | vm: ${vmEnabled ? 'on' : 'off'}\\n`;
+  code = brand + code;
+
   onStage('integrity');
-  // La comprobación en tiempo de ejecución va dentro del código; el digest cubre el resultado entregado.
   const digest = createHash('sha256').update(code, 'utf8').digest('hex');
 
   let equivalence: EngineResult['equivalence'] = { status: 'skipped' };
@@ -98,10 +102,9 @@ export function runProfile(source: string, options: EngineOptions): EngineResult
     onStage('equivalence');
     equivalence = has('vm')
       ? { status: 'unverifiable', detail: 'la VM se verifica ejecutando el resultado en Lua 5.4 (pruebas), no con el intérprete de referencia' }
-      : checkEquivalence(source, code, options.equivalenceStepLimit ?? 200_000);
+      : checkEquivalence(source, code.slice(brand.length), options.equivalenceStepLimit ?? 200_000);
   }
   onStage('done');
-  // Cerrar la última etapa sin registrar "done" como etapa de trabajo.
   stages.push({ name: current === 'done' ? 'finish' : current, ms: Date.now() - mark });
 
   return {
@@ -141,12 +144,6 @@ function runOutcome(src: string, limit: number): { ok: true; out: string } | { o
   }
 }
 
-/**
- * Compara original y ofuscado en el intérprete de referencia.
- * - Si el original se ejecuta: salida y retornos deben coincidir, o se lanza error.
- * - Si el original falla con LuaError: el ofuscado debe fallar con el mismo mensaje.
- * - Otros fallos del original (p. ej. construcciones no soportadas) => "unverifiable".
- */
 export function checkEquivalence(original: string, obfuscated: string, limit: number): EngineResult['equivalence'] {
   const a = runOutcome(original, limit);
   if (a.ok) {
