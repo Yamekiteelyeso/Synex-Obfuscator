@@ -179,6 +179,12 @@ test('math.randomseed hace reproducible math.random y valida intervalos', () => 
   assert.throws(() => out('math.random(1, 2, 3)'), /too many arguments/);
 });
 
+test('math.randomseed reproduce la secuencia PCG32 de Luau', () => {
+  assert.deepEqual(out('math.randomseed(123); local a = math.random(); local b = math.random(10); local c = math.random(2, 10); print(math.abs(a - 0.5576342002772471) < 1e-15, b, c)'), ['true\t1\t7']);
+  assert.deepEqual(out('math.randomseed(123); print(math.random(10), math.random(2, 10))'), ['4\t7']);
+  assert.throws(() => out('math.randomseed(1.5)'), /integer expected/);
+  assert.throws(() => out('math.randomseed(2147483648)'), /integer expected/);
+});
 test('string.char valida bytes y string.split conserva campos vacíos', () => {
   assert.deepEqual(out('local t = string.split("a,,b,", ","); print(#t, t[1], t[2], t[3], t[4])'), ['4\ta\t\tb\t']);
   assert.throws(() => out('string.char(256)'), /out of range/);
