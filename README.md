@@ -62,7 +62,7 @@ La autenticación de usuarios es exclusivamente mediante Discord OAuth2. El back
 | GET | /api/admin/users, /jobs, /errors, /settings | admin |
 | PUT | /api/admin/settings, /api/admin/users/:id/plan | admin |
 
-Las cuentas, el plan, el contador de usos y el historial se guardan en el archivo configurado en `SYNEX_DATA_FILE`. Para conservarlos en Railway, monta un Volume en `/data`. Los tokens de sesión se persisten en el JSON y los resultados de código, los estados OAuth y los tickets de intercambio residen en memoria del proceso. Por ello, ejecuta una sola réplica de API mientras no se migren esos estados efímeros a un almacén compartido; varias réplicas pueden romper el callback OAuth o perder descargas tras reiniciar.
+Las cuentas, el plan, el contador de usos y el historial se guardan en el archivo configurado en `SYNEX_DATA_FILE`. Para conservarlos en Railway, monta un Volume en `/data`. Los tokens de sesión se persisten en el JSON. Los resultados descargables se mantienen temporalmente en memoria (máximo 100 resultados, 64 MiB agregados y 30 minutos); los resultados individuales que superen el presupuesto no se almacenan. La cola conserva como máximo 5.000 registros de trabajo recientes y libera el bytecode resultante después de transferirlo a la caché de descargas. Los estados OAuth y los tickets de intercambio también residen en memoria. Por ello, ejecuta una sola réplica de API mientras no se migren esos estados efímeros a un almacén compartido; varias réplicas pueden romper el callback OAuth o perder descargas tras reiniciar.
 
 ## Planes de ofuscación
 
