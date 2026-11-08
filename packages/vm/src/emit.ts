@@ -541,13 +541,13 @@ local function callv(f, args)
   -- La llamada directa conserva __call para tablas/objetos invocables de Luau.
   return pack(f(unpackfn(args, 1, args.n)))
 end
-local function makeClosure(child, cells)
+local function makeClosure(child, cells, parentSalt, parentSlot)
   return function(...)
-    local res = run(child, cells, pack(...))
+    local res = run(child, cells, pack(...), parentSalt, parentSlot)
     return unpackfn(res, 1, res.n)
   end
 end
-run = function(P, U, args)
+run = function(P, U, args, expectedParentSalt, expectedParentSlot)
   depth = depth + 1
   if depth > 200 then depth = depth - 1; fail("stack overflow") end
   -- Asegura que depth se restaure incluso si el script captura un error con pcall.
@@ -555,6 +555,10 @@ run = function(P, U, args)
   local slots = {}
   local np = P.__KEY_NP__
   local ns = P.__KEY_NS__
+  if typefn(P.__KEY_PARENT__) ~= "number" or typefn(P.__KEY_SLOT__) ~= "number"
+    or P.__KEY_PARENT__ ~= (expectedParentSalt or 0) or P.__KEY_SLOT__ ~= (expectedParentSlot or 0) then
+    fail("integridad comprometida: relación jerárquica alterada")
+  end
   if not protoIntact(P) then fail("integridad comprometida: prototipo alterado") end
   if typefn(np) ~= "number" or typefn(ns) ~= "number" or np < 0 or np > ns or np ~= floor(np) or ns ~= floor(ns) then fail("prototipo corrupto") end
   for i = 1, np do slots[i] = args[i] end
@@ -752,7 +756,7 @@ run = function(P, U, args)
       for i, d in ipairs(child.__KEY_UP__) do
         if d[1] == 1 then cells[i] = slots[d[2] + 1] else cells[i] = U[d[2] + 1] end
       end
-      push(makeClosure(child, cells))
+      push(makeClosure(child, cells, protoSalt, a + 1))
     elseif op == OP_NEWT then push({})
     elseif op == OP_SETT then
       local v = pop()
@@ -776,7 +780,7 @@ run = function(P, U, args)
 end
 local MAIN = __MAIN__
 local function main(...)
-  local res = run(MAIN, {}, pack(...))
+  local res = run(MAIN, {}, pack(...), 0, 0)
   return unpackfn(res, 1, res.n)
 end
 return main(...)
