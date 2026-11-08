@@ -125,12 +125,35 @@ export class Sessions {
 export class LoginLimiter {
   private readonly failures = new Map<string, { count: number; resetAt: number }>();
 
-  constructor(private readonly max = 5, private readonly windowMs = 15 * 60 * 1000, private readonly now = () => Date.now()) {}
+  constructor(
+    private readonly max = 5,
+    private readonly windowMs = 15 * 60 * 1000,
+    private readonly now = () => Date.now(),
+    private readonly maxEntries = 10_000,
+  ) {
+    if (!Number.isSafeInteger(max) || max < 1 || !Number.isSafeInteger(windowMs) || windowMs < 1
+      || !Number.isSafeInteger(maxEntries) || maxEntries < 1) {
+      throw new RangeError('login limiter limits must be positive safe integers');
+    }
+  }
+
+  private prune(): void {
+    const now = this.now();
+    for (const [email, failure] of this.failures) {
+      if (failure.resetAt <= now) this.failures.delete(email);
+    }
+    while (this.failures.size > this.maxEntries) {
+      const oldest = this.failures.keys().next().value;
+      if (oldest === undefined) break;
+      this.failures.delete(oldest);
+    }
+  }
 
   blocked(email: string): boolean {
+    this.prune();
     const f = this.failures.get(email);
     if (!f) return false;
-    if (f.resetAt < this.now()) {
+    if (f.resetAt <= this.now()) {
       this.failures.delete(email);
       return false;
     }
@@ -138,9 +161,21 @@ export class LoginLimiter {
   }
 
   fail(email: string): void {
+    this.prune();
+    const now = this.now();
     const f = this.failures.get(email);
-    if (!f || f.resetAt < this.now()) this.failures.set(email, { count: 1, resetAt: this.now() + this.windowMs });
-    else f.count++;
+    if (!f || f.resetAt <= now) {
+      if (!this.failures.has(email)) {
+        while (this.failures.size >= this.maxEntries) {
+          const oldest = this.failures.keys().next().value;
+          if (oldest === undefined) break;
+          this.failures.delete(oldest);
+        }
+      }
+      this.failures.set(email, { count: 1, resetAt: now + this.windowMs });
+    } else {
+      f.count++;
+    }
   }
 
   reset(email: string): void {
