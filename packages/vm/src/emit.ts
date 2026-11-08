@@ -260,6 +260,7 @@ run = function(P, U, args)
     local b = decodeOperand(ins[3], ip, 3, protoSalt, chain)
     local t = decodeOperand(ins[4], ip, 4, protoSalt, chain)
     local c = decodeOperand(ins[5], ip, 5, protoSalt, chain) == 1
+    local decodedLine = decodeOperand(ins[6], ip, 6, protoSalt, chain)
     if not VALID_OP[op] then fail("opcode inválido") end
     chain = (chain * 48271 + op * 69621 + ip * 31 + protoSalt) % OPERAND_MODULUS
     if (op == OP_GETL or op == OP_SETL or op == OP_NEWBOX or op == OP_GETBOX or op == OP_SETBOX or op == OP_BOXSLOT) and (a < 0 or a >= ns) then fail("slot fuera de rango") end
@@ -271,7 +272,7 @@ run = function(P, U, args)
       and (t < 1 or t > #code) then fail("salto fuera del prototipo") end
     steps = steps + 1
     if steps > STEP_LIMIT then fail("límite de ejecución superado") end
-    curLine = decodeOperand(ins[6], ip, 6, protoSalt, (chain - (op * 69621 + ip * 31 + protoSalt)) * 48271 % OPERAND_MODULUS)
+    curLine = decodedLine
     if op == OP_CONST then push(P.__KEY_CONST__[a + 1])
     elseif op == OP_NIL then push(nil)
     elseif op == OP_TRUE then push(true)
